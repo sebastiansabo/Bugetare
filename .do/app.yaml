@@ -32,6 +32,7 @@ services:
       failure_threshold: 3
 databases:
   - name: mktdb
+    version: '17'
     engine: PG
     production: true
     cluster_name: app-be600e52-fbc0-4c5f-8ac3-5e79a750f6be
