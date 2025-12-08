@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Cost Distribution</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body { background: #f5f5f5; }
+        .card { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .allocation-row { background: #f8f9fa; border-radius: 8px; padding: 15px; margin-bottom: 10px; }
+        .allocation-row:hover { background: #e9ecef; }
+        .drag-drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .drag-drop-zone:hover, .drag-drop-zone.dragover {
+            border-color: #0d6efd;
+            background: #f0f7ff;
+        }
+        .parsing-spinner { display: none; }
+        .parsing .parsing-spinner { display: inline-block; }
+        .total-allocation { font-size: 1.2em; font-weight: bold; }
+        .total-allocation.valid { color: #198754; }
+        .total-allocation.invalid { color: #dc3545; }
+        .existing-invoices { max-height: 200px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-primary mb-4">
+        <div class="container">
+            <span class="navbar-brand mb-0 h1">
+                <i class="bi bi-receipt"></i> Invoice Cost Distribution
+            </span>
+            <div>
+                <a href="/templates" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-file-earmark-text"></i> Templates
+                </a>
+                <a href="/accounting" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-calculator"></i> Accounting
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="row">
+            <!-- Left Column: Invoice Input -->
+            <div class="col-md-5">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-upload"></i> Invoice Input</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- File Upload -->
+                        <div class="drag-drop-zone mb-3" id="dropZone">
+                            <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                            <p class="mb-0 mt-2">Drag & drop invoice here or click to upload</p>
+                            <small class="text-muted">Supports PDF, JPG, PNG</small>
+                            <input type="file" id="fileInput" class="d-none" accept=".pdf,.jpg,.jpeg,.png">
+                        </div>
+
+                        <!-- Template Selector -->
+                        <div class="mb-3">
+                            <label class="form-label small">Parse Method</label>
+                            <select class="form-select form-select-sm" id="templateSelect">
+                                <option value="">Auto-detect (AI fallback)</option>
+                            </select>
+                        </div>
+
+                        <div class="row g-2 mb-3">
+                            <div class="col-8">
+                                <button class="btn btn-primary w-100" id="parseBtn">
+                                    <span class="parsing-spinner spinner-border spinner-border-sm me-2"></span>
+                                    <i class="bi bi-magic" id="parseBtnIcon"></i> <span id="parseBtnText">Citeste Factura</span>
+                                </button>
+                            </div>
+                            <div class="col-4">
+                                <button class="btn btn-outline-secondary w-100" id="manualEntryBtn" title="Skip AI parsing and enter manually">
+                                    <i class="bi bi-pencil"></i> Manual
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-info small py-2 mb-3" id="entryModeAlert" style="display: none;">
+                            <i class="bi bi-info-circle"></i> <span id="entryModeText"></span>
+                        </div>
+
+                        <!-- Invoice Details Form -->
+                        <form id="invoiceForm">
+                            <div class="mb-3">
+                                <label class="form-label">Supplier *</label>
+                                <input type="text" class="form-control" id="supplier" required>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Customer VAT</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" id="customerVat" placeholder="Auto-detected or enter manually">
+                                        <button class="btn btn-outline-secondary" type="button" id="matchVatBtn" title="Match VAT to company">
+                                            <i class="bi bi-search"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Matched Company</label>
+                                    <input type="text" class="form-control" id="matchedCompany" placeholder="Company matched by VAT" readonly>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Invoice Template</label>
+                                <input type="text" class="form-control" id="invoiceTemplate" placeholder="e.g., Meta, Google Ads">
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Invoice Number *</label>
+                                    <input type="text" class="form-control" id="invoiceNumber" required>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Invoice Date *</label>
+                                    <input type="date" class="form-control" id="invoiceDate" required>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8 mb-3">
+                                    <label class="form-label">Invoice Value *</label>
+                                    <input type="number" step="0.01" class="form-control" id="invoiceValue" required>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Currency</label>
+                                    <select class="form-select" id="currency">
+                                        <option value="RON">RON</option>
+                                        <option value="EUR">EUR</option>
+                                        <option value="USD">USD</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <input type="hidden" id="driveLink">
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Cost Distribution -->
+            <div class="col-md-7">
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-pie-chart"></i> Cost Distribution</h5>
+                        <button class="btn btn-sm btn-outline-primary" id="addAllocationBtn">
+                            <i class="bi bi-plus"></i> Add Department
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Dedicated To (Company) *</label>
+                                <select class="form-select" id="dedicatedCompany" required>
+                                    <option value="">Select company...</option>
+                                </select>
+                            </div>
+                            </div>
+                        <hr>
+                        <div id="allocationsContainer">
+                            <!-- Allocation rows will be added here -->
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-3 p-3 bg-light rounded">
+                            <span>Total Allocation:</span>
+                            <span class="total-allocation" id="totalAllocation">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn btn-success btn-lg w-100" id="submitBtn">
+                    <i class="bi bi-check-circle"></i> Save Distribution
+                </button>
+
+                <!-- Company Management Section -->
+                <div class="card mt-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-building"></i> My Companies (VAT Registry)</h5>
+                        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#companyManagement">
+                            <i class="bi bi-chevron-down"></i>
+                        </button>
+                    </div>
+                    <div class="collapse" id="companyManagement">
+                        <div class="card-body">
+                            <div class="table-responsive mb-3">
+                                <table class="table table-sm table-hover" id="companiesTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Company</th>
+                                            <th>Brands</th>
+                                            <th>VAT Number</th>
+                                            <th style="width: 80px;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <!-- Companies will be loaded here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <hr>
+                            <h6>Add New Company</h6>
+                            <div class="row g-2">
+                                <div class="col-md-4">
+                                    <input type="text" class="form-control form-control-sm" id="newCompanyName" placeholder="Company Name">
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="text" class="form-control form-control-sm" id="newCompanyBrands" placeholder="Brands (optional)">
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="text" class="form-control form-control-sm" id="newCompanyVat" placeholder="VAT Number">
+                                </div>
+                                <div class="col-md-2">
+                                    <button class="btn btn-primary btn-sm w-100" id="addCompanyBtn">
+                                        <i class="bi bi-plus"></i> Add
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Allocation Row Template -->
+    <template id="allocationTemplate">
+        <div class="allocation-row">
+            <div class="row align-items-end">
+                <div class="col-md-2 mb-2">
+                    <label class="form-label small">Brand</label>
+                    <select class="form-select form-select-sm brand-select">
+                        <option value="">N/A</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label small">Department</label>
+                    <select class="form-select form-select-sm department-select" required>
+                        <option value="">Select...</option>
+                    </select>
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label small">Subdepartment</label>
+                    <select class="form-select form-select-sm subdepartment-select">
+                        <option value="">N/A</option>
+                    </select>
+                </div>
+                <div class="col-md-2 mb-2">
+                    <label class="form-label small">Allocation %</label>
+                    <input type="number" class="form-control form-control-sm allocation-input" min="0" max="100" value="100" required>
+                </div>
+                <div class="col-md-1 mb-2">
+                    <button type="button" class="btn btn-outline-danger btn-sm remove-allocation">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="row mt-1 align-items-center">
+                <div class="col-md-6">
+                    <small class="text-muted manager-display">Manager: --</small>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input reinvoice-check" type="checkbox" id="reinvoice">
+                        <label class="form-check-label small" for="reinvoice">Reinvoice to:</label>
+                    </div>
+                    <select class="form-select form-select-sm d-inline-block reinvoice-company" style="width: auto; display: none;">
+                        <option value="">Select company...</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let companies = [];
+        let structure = [];
+        let companiesWithVat = []; // Companies with VAT from Comp sheet
+        let invoiceTemplates = []; // Invoice parsing templates
+        let uploadedFile = null; // Store uploaded file reference
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', async () => {
+            await loadStructure();
+            await loadCompaniesWithVat();
+            await loadInvoiceTemplates();
+            addAllocationRow();
+            setupEventListeners();
+        });
+
+        async function loadStructure() {
+            const [companiesRes, structureRes] = await Promise.all([
+                fetch('/api/companies'),
+                fetch('/api/structure')
+            ]);
+            companies = await companiesRes.json();
+            structure = await structureRes.json();
+
+            // Populate dedicated company dropdown
+            const dedicatedCompanySelect = document.getElementById('dedicatedCompany');
+            companies.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                dedicatedCompanySelect.appendChild(opt);
+            });
+        }
+
+        async function loadCompaniesWithVat() {
+            const res = await fetch('/api/companies-vat');
+            companiesWithVat = await res.json();
+            renderCompaniesTable();
+        }
+
+        async function loadInvoiceTemplates() {
+            try {
+                const res = await fetch('/api/templates');
+                invoiceTemplates = await res.json();
+                renderTemplateSelect();
+            } catch (e) {
+                console.error('Error loading templates:', e);
+            }
+        }
+
+        function renderTemplateSelect() {
+            const select = document.getElementById('templateSelect');
+            // Keep the first auto-detect option
+            select.innerHTML = '<option value="">Auto-detect (AI fallback)</option>';
+
+            invoiceTemplates.forEach(t => {
+                const opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = `Template: ${t.name}`;
+                select.appendChild(opt);
+            });
+
+            // Update button text when selection changes
+            select.addEventListener('change', updateParseButton);
+        }
+
+        function updateParseButton() {
+            const select = document.getElementById('templateSelect');
+            const btnText = document.getElementById('parseBtnText');
+            const btnIcon = document.getElementById('parseBtnIcon');
+
+            if (select.value) {
+                const template = invoiceTemplates.find(t => t.id == select.value);
+                btnText.textContent = `Citeste cu ${template ? template.name : 'Template'}`;
+                btnIcon.className = 'bi bi-file-earmark-text';
+            } else {
+                btnText.textContent = 'Citeste Factura';
+                btnIcon.className = 'bi bi-magic';
+            }
+        }
+
+        function renderCompaniesTable() {
+            const tbody = document.querySelector('#companiesTable tbody');
+            tbody.innerHTML = '';
+
+            companiesWithVat.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${c.company || ''}</td>
+                    <td>${c.brands || ''}</td>
+                    <td><code>${c.vat || ''}</code></td>
+                    <td>
+                        <button class="btn btn-outline-danger btn-sm delete-company" data-company="${c.company}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Add delete event listeners
+            document.querySelectorAll('.delete-company').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const company = btn.dataset.company;
+                    if (confirm(`Delete ${company} from VAT registry?`)) {
+                        await deleteCompany(company);
+                    }
+                });
+            });
+        }
+
+        async function deleteCompany(company) {
+            const res = await fetch(`/api/companies-vat/${encodeURIComponent(company)}`, { method: 'DELETE' });
+            const result = await res.json();
+            if (result.success) {
+                await loadCompaniesWithVat();
+            } else {
+                alert('Error deleting company: ' + result.error);
+            }
+        }
+
+        async function addNewCompany() {
+            const name = document.getElementById('newCompanyName').value.trim();
+            const brands = document.getElementById('newCompanyBrands').value.trim();
+            const vat = document.getElementById('newCompanyVat').value.trim();
+
+            if (!name || !vat) {
+                alert('Company name and VAT are required');
+                return;
+            }
+
+            const res = await fetch('/api/companies-vat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ company: name, brands, vat })
+            });
+
+            const result = await res.json();
+            if (result.success) {
+                document.getElementById('newCompanyName').value = '';
+                document.getElementById('newCompanyBrands').value = '';
+                document.getElementById('newCompanyVat').value = '';
+                await loadCompaniesWithVat();
+            } else {
+                alert('Error adding company: ' + result.error);
+            }
+        }
+
+        function normalizeVat(vat) {
+            if (!vat) return '';
+            // Remove spaces, dashes, dots, colons
+            vat = vat.toUpperCase().replace(/[\s\-\./:]+/g, '');
+            // Remove common prefixes
+            const prefixes = ['CUI:', 'CUI', 'CIF:', 'CIF', 'VAT:', 'VAT', 'TAXID:', 'TAXID'];
+            for (const prefix of prefixes) {
+                if (vat.startsWith(prefix)) {
+                    vat = vat.substring(prefix.length);
+                    break;
+                }
+            }
+            return vat;
+        }
+
+        function extractVatNumbers(vat) {
+            if (!vat) return '';
+            return vat.replace(/[^0-9]/g, '');
+        }
+
+        function matchCompanyByVat(invoiceVat) {
+            if (!invoiceVat) return null;
+            const normalizedInvoiceVat = normalizeVat(invoiceVat);
+            const invoiceNumbersOnly = extractVatNumbers(invoiceVat);
+
+            // First pass: exact normalized match
+            for (const c of companiesWithVat) {
+                if (normalizeVat(c.vat) === normalizedInvoiceVat) {
+                    return c;
+                }
+            }
+
+            // Second pass: numeric-only match (handles 'RO225615' matching '225615')
+            if (invoiceNumbersOnly) {
+                for (const c of companiesWithVat) {
+                    const companyNumbers = extractVatNumbers(c.vat);
+                    if (companyNumbers && companyNumbers === invoiceNumbersOnly) {
+                        return c;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        function setupEventListeners() {
+            // File upload
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+
+            dropZone.addEventListener('click', () => fileInput.click());
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                if (e.dataTransfer.files.length) {
+                    uploadedFile = e.dataTransfer.files[0];
+                    updateDropZoneText(uploadedFile.name);
+                }
+            });
+            fileInput.addEventListener('change', () => {
+                if (fileInput.files.length) {
+                    uploadedFile = fileInput.files[0];
+                    updateDropZoneText(uploadedFile.name);
+                }
+            });
+
+            // Parse button
+            document.getElementById('parseBtn').addEventListener('click', parseInvoice);
+
+            // Add allocation
+            document.getElementById('addAllocationBtn').addEventListener('click', addAllocationRow);
+
+            // Submit
+            document.getElementById('submitBtn').addEventListener('click', submitDistribution);
+
+            // Add Company
+            document.getElementById('addCompanyBtn').addEventListener('click', addNewCompany);
+
+            // Manual VAT Match button
+            document.getElementById('matchVatBtn').addEventListener('click', manualVatMatch);
+
+            // Manual Entry button
+            document.getElementById('manualEntryBtn').addEventListener('click', enableManualEntry);
+
+            // Dedicated Company change - reload allocation rows
+            document.getElementById('dedicatedCompany').addEventListener('change', onDedicatedCompanyChange);
+        }
+
+        async function onDedicatedCompanyChange() {
+            const company = document.getElementById('dedicatedCompany').value;
+
+            // Reload department and brand dropdowns in all allocation rows
+            const rows = document.querySelectorAll('.allocation-row');
+            for (const row of rows) {
+                await updateAllocationRowDropdowns(row);
+            }
+        }
+
+        async function updateAllocationRowDropdowns(row) {
+            const company = document.getElementById('dedicatedCompany').value;
+            const brandSelect = row.querySelector('.brand-select');
+            const deptSelect = row.querySelector('.department-select');
+            const subdeptSelect = row.querySelector('.subdepartment-select');
+            const managerDisplay = row.querySelector('.manager-display');
+
+            brandSelect.innerHTML = '<option value="">N/A</option>';
+            deptSelect.innerHTML = '<option value="">Select...</option>';
+            subdeptSelect.innerHTML = '<option value="">N/A</option>';
+            managerDisplay.textContent = 'Manager: --';
+
+            if (company) {
+                const [brands, depts] = await Promise.all([
+                    fetch(`/api/brands/${encodeURIComponent(company)}`).then(r => r.json()),
+                    fetch(`/api/departments/${encodeURIComponent(company)}`).then(r => r.json())
+                ]);
+                brands.forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b;
+                    opt.textContent = b;
+                    brandSelect.appendChild(opt);
+                });
+                depts.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d;
+                    opt.textContent = d;
+                    deptSelect.appendChild(opt);
+                });
+            }
+        }
+
+        function manualVatMatch() {
+            const vatInput = document.getElementById('customerVat').value.trim();
+            if (!vatInput) {
+                alert('Please enter a VAT number first');
+                return;
+            }
+
+            const vatMatch = matchCompanyByVat(vatInput);
+            if (vatMatch) {
+                document.getElementById('matchedCompany').value = vatMatch.company + ' (matched by VAT)';
+
+                // Auto-select company in dedicated company dropdown
+                const dedicatedCompanySelect = document.getElementById('dedicatedCompany');
+                let selectedCompany = null;
+
+                // First try exact match
+                for (let opt of dedicatedCompanySelect.options) {
+                    if (opt.value === vatMatch.company) {
+                        selectedCompany = vatMatch.company;
+                        break;
+                    }
+                }
+
+                // If no exact match, try partial match
+                if (!selectedCompany) {
+                    const matchedLower = vatMatch.company.toLowerCase();
+                    for (let opt of dedicatedCompanySelect.options) {
+                        if (!opt.value) continue;
+                        const optLower = opt.value.toLowerCase();
+                        if (optLower.includes(matchedLower) || matchedLower.includes(optLower)) {
+                            selectedCompany = opt.value;
+                            break;
+                        }
+                    }
+                }
+
+                if (selectedCompany) {
+                    dedicatedCompanySelect.value = selectedCompany;
+                    dedicatedCompanySelect.dispatchEvent(new Event('change'));
+                }
+            } else {
+                document.getElementById('matchedCompany').value = '';
+                alert('No matching company found for VAT: ' + vatInput);
+            }
+        }
+
+        function enableManualEntry() {
+            // Clear form but keep file if already uploaded
+            document.getElementById('invoiceForm').reset();
+            document.getElementById('matchedCompany').value = '';
+
+            // Reset dedicated company
+            document.getElementById('dedicatedCompany').value = '';
+            document.getElementById('allocationsContainer').innerHTML = '';
+            addAllocationRow();
+
+            // Set today's date as default
+            document.getElementById('invoiceDate').value = new Date().toISOString().split('T')[0];
+
+            // Show manual entry mode alert
+            const alertEl = document.getElementById('entryModeAlert');
+            const alertText = document.getElementById('entryModeText');
+            alertEl.style.display = 'block';
+            alertEl.className = 'alert alert-secondary small py-2 mb-3';
+            alertText.textContent = 'Manual entry mode - fill in invoice details' + (uploadedFile ? ' (file attached for upload)' : '');
+
+            // Focus on supplier field
+            document.getElementById('supplier').focus();
+        }
+
+        function updateDropZoneText(filename) {
+            const dropZone = document.getElementById('dropZone');
+            dropZone.innerHTML = `
+                <i class="bi bi-file-earmark-check fs-1 text-success"></i>
+                <p class="mb-0 mt-2">${filename}</p>
+                <small class="text-muted">Click to change</small>
+                <input type="file" id="fileInput" class="d-none" accept=".pdf,.jpg,.jpeg,.png">
+            `;
+            document.getElementById('fileInput').addEventListener('change', function() {
+                if (this.files.length) {
+                    uploadedFile = this.files[0];
+                    updateDropZoneText(uploadedFile.name);
+                }
+            });
+        }
+
+        async function parseInvoice() {
+            const btn = document.getElementById('parseBtn');
+            const templateSelect = document.getElementById('templateSelect');
+            const templateId = templateSelect.value;
+
+            if (!uploadedFile) {
+                alert('Please upload an invoice first');
+                return;
+            }
+
+            btn.classList.add('parsing');
+            btn.disabled = true;
+
+            try {
+                const formData = new FormData();
+                formData.append('file', uploadedFile);
+
+                // Add template_id if a template is selected
+                if (templateId) {
+                    formData.append('template_id', templateId);
+                }
+
+                const res = await fetch('/api/parse-invoice', { method: 'POST', body: formData });
+                const result = await res.json();
+
+                if (result.success) {
+                    fillFormFromParsed(result.data, templateId ? true : false);
+                } else {
+                    alert('Error parsing invoice: ' + result.error);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                btn.classList.remove('parsing');
+                btn.disabled = false;
+            }
+        }
+
+        function fillFormFromParsed(data, isTemplate = false) {
+            // Show parsed mode alert
+            const alertEl = document.getElementById('entryModeAlert');
+            const alertText = document.getElementById('entryModeText');
+            alertEl.style.display = 'block';
+            if (isTemplate) {
+                alertEl.className = 'alert alert-info small py-2 mb-3';
+                alertText.textContent = `Template applied: ${data.template_used || 'Custom'} - enter invoice number, date, and value`;
+            } else {
+                alertEl.className = 'alert alert-success small py-2 mb-3';
+                alertText.textContent = 'Invoice parsed with AI - review and edit fields if needed';
+            }
+
+            if (data.supplier) document.getElementById('supplier').value = data.supplier;
+            if (data.customer_vat) document.getElementById('customerVat').value = data.customer_vat;
+            if (data.invoice_number) document.getElementById('invoiceNumber').value = data.invoice_number;
+            if (data.invoice_date) document.getElementById('invoiceDate').value = data.invoice_date;
+            if (data.invoice_value) document.getElementById('invoiceValue').value = data.invoice_value;
+            if (data.currency) {
+                const currencySelect = document.getElementById('currency');
+                for (let opt of currencySelect.options) {
+                    if (opt.value === data.currency) {
+                        opt.selected = true;
+                        break;
+                    }
+                }
+            }
+            // Try to guess invoice template from supplier
+            if (data.supplier) {
+                const supplier = data.supplier.toLowerCase();
+                if (supplier.includes('facebook') || supplier.includes('meta')) {
+                    document.getElementById('invoiceTemplate').value = 'Meta';
+                } else if (supplier.includes('google')) {
+                    document.getElementById('invoiceTemplate').value = 'Google Ads';
+                }
+            }
+
+            // PRIORITY 1: Try to match company by VAT number
+            let matchedCompany = null;
+            if (data.customer_vat) {
+                const vatMatch = matchCompanyByVat(data.customer_vat);
+                if (vatMatch) {
+                    matchedCompany = vatMatch.company;
+                    document.getElementById('matchedCompany').value = matchedCompany + ' (matched by VAT)';
+                }
+            }
+
+            // Auto-select company in dedicated company dropdown
+            if (matchedCompany) {
+                const dedicatedCompanySelect = document.getElementById('dedicatedCompany');
+                let selectedCompany = null;
+
+                // First try exact match with matched company name
+                for (let opt of dedicatedCompanySelect.options) {
+                    if (opt.value === matchedCompany) {
+                        selectedCompany = matchedCompany;
+                        break;
+                    }
+                }
+
+                // If no exact match, try partial match with matched company
+                if (!selectedCompany) {
+                    const matchedLower = matchedCompany.toLowerCase();
+                    for (let opt of dedicatedCompanySelect.options) {
+                        if (!opt.value) continue;
+                        const optLower = opt.value.toLowerCase();
+                        if (optLower.includes(matchedLower) || matchedLower.includes(optLower)) {
+                            selectedCompany = opt.value;
+                            break;
+                        }
+                        // Check word-based match
+                        const matchedWords = matchedLower.split(/\s+/);
+                        const optWords = optLower.split(/\s+/);
+                        for (let mw of matchedWords) {
+                            if (mw.length > 3 && optWords.some(w => w.includes(mw) || mw.includes(w))) {
+                                selectedCompany = opt.value;
+                                break;
+                            }
+                        }
+                        if (selectedCompany) break;
+                    }
+                }
+
+                // Apply selection if found
+                if (selectedCompany) {
+                    dedicatedCompanySelect.value = selectedCompany;
+                    dedicatedCompanySelect.dispatchEvent(new Event('change'));
+                }
+            }
+        }
+
+        async function addAllocationRow() {
+            const container = document.getElementById('allocationsContainer');
+            const template = document.getElementById('allocationTemplate');
+            const row = template.content.cloneNode(true);
+
+            const brandSelect = row.querySelector('.brand-select');
+            const deptSelect = row.querySelector('.department-select');
+            const subdeptSelect = row.querySelector('.subdepartment-select');
+            const allocationInput = row.querySelector('.allocation-input');
+            const managerDisplay = row.querySelector('.manager-display');
+            const removeBtn = row.querySelector('.remove-allocation');
+            const reinvoiceCheck = row.querySelector('.reinvoice-check');
+            const reinvoiceCompany = row.querySelector('.reinvoice-company');
+
+            // Populate reinvoice company dropdown with all companies
+            companies.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.textContent = c;
+                reinvoiceCompany.appendChild(opt);
+            });
+
+            // Toggle reinvoice company dropdown visibility
+            reinvoiceCheck.addEventListener('change', () => {
+                if (reinvoiceCheck.checked) {
+                    reinvoiceCompany.style.display = 'inline-block';
+                } else {
+                    reinvoiceCompany.style.display = 'none';
+                    reinvoiceCompany.value = '';
+                }
+            });
+
+            // Populate brands and departments based on dedicated company
+            const company = document.getElementById('dedicatedCompany').value;
+            if (company) {
+                const [brands, depts] = await Promise.all([
+                    fetch(`/api/brands/${encodeURIComponent(company)}`).then(r => r.json()),
+                    fetch(`/api/departments/${encodeURIComponent(company)}`).then(r => r.json())
+                ]);
+                brands.forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b;
+                    opt.textContent = b;
+                    brandSelect.appendChild(opt);
+                });
+                depts.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d;
+                    opt.textContent = d;
+                    deptSelect.appendChild(opt);
+                });
+            }
+
+            deptSelect.addEventListener('change', async () => {
+                const company = document.getElementById('dedicatedCompany').value;
+                const dept = deptSelect.value;
+                subdeptSelect.innerHTML = '<option value="">N/A</option>';
+
+                if (company && dept) {
+                    const subdepts = await fetch(`/api/subdepartments/${encodeURIComponent(company)}/${encodeURIComponent(dept)}`).then(r => r.json());
+                    subdepts.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s;
+                        opt.textContent = s;
+                        subdeptSelect.appendChild(opt);
+                    });
+                }
+                updateManager();
+            });
+
+            subdeptSelect.addEventListener('change', updateManager);
+
+            async function updateManager() {
+                const company = document.getElementById('dedicatedCompany').value;
+                const dept = deptSelect.value;
+                const subdept = subdeptSelect.value;
+
+                if (company && dept) {
+                    const params = new URLSearchParams({ company, department: dept });
+                    if (subdept) params.append('subdepartment', subdept);
+                    const res = await fetch(`/api/manager?${params}`);
+                    const data = await res.json();
+                    managerDisplay.textContent = `Manager: ${data.manager || '--'}`;
+                } else {
+                    managerDisplay.textContent = 'Manager: --';
+                }
+            }
+
+            allocationInput.addEventListener('input', updateTotalAllocation);
+
+            removeBtn.addEventListener('click', () => {
+                removeBtn.closest('.allocation-row').remove();
+                updateTotalAllocation();
+            });
+
+            container.appendChild(row);
+            updateTotalAllocation();
+        }
+
+        function updateTotalAllocation() {
+            const inputs = document.querySelectorAll('.allocation-input');
+            let total = 0;
+            inputs.forEach(input => {
+                total += parseFloat(input.value) || 0;
+            });
+
+            const display = document.getElementById('totalAllocation');
+            display.textContent = `${total}%`;
+            display.classList.remove('valid', 'invalid');
+            display.classList.add(Math.abs(total - 100) < 0.01 ? 'valid' : 'invalid');
+        }
+
+        async function uploadToDrive(file, supplier, invoiceDate) {
+            // Upload file to Google Drive
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('supplier', supplier);
+            formData.append('invoice_date', invoiceDate);
+
+            const res = await fetch('/api/drive/upload', { method: 'POST', body: formData });
+            return await res.json();
+        }
+
+        async function submitDistribution() {
+            // Validate form
+            const supplier = document.getElementById('supplier').value;
+            const invoiceNumber = document.getElementById('invoiceNumber').value;
+            const invoiceDate = document.getElementById('invoiceDate').value;
+            const invoiceValue = document.getElementById('invoiceValue').value;
+
+            if (!supplier || !invoiceNumber || !invoiceDate || !invoiceValue) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            // Get dedicated company
+            const dedicatedCompany = document.getElementById('dedicatedCompany').value;
+
+            if (!dedicatedCompany) {
+                alert('Please select a company in "Dedicated To"');
+                return;
+            }
+
+            // Collect allocations
+            const rows = document.querySelectorAll('.allocation-row');
+            const distributions = [];
+
+            for (const row of rows) {
+                const brand = row.querySelector('.brand-select').value;
+                const dept = row.querySelector('.department-select').value;
+                const subdept = row.querySelector('.subdepartment-select').value;
+                const allocation = parseFloat(row.querySelector('.allocation-input').value) / 100;
+                const reinvoiceCheck = row.querySelector('.reinvoice-check').checked;
+                const reinvoiceCompanyVal = row.querySelector('.reinvoice-company').value;
+
+                if (!dept) {
+                    alert('Please select department for all allocations');
+                    return;
+                }
+
+                if (reinvoiceCheck && !reinvoiceCompanyVal) {
+                    alert('Please select a company for reinvoicing or uncheck the reinvoice option');
+                    return;
+                }
+
+                distributions.push({
+                    company: dedicatedCompany,
+                    brand: brand || null,
+                    department: dept,
+                    subdepartment: subdept || null,
+                    allocation,
+                    reinvoice_to: reinvoiceCheck ? reinvoiceCompanyVal : null
+                });
+            }
+
+            // Validate total
+            const total = distributions.reduce((sum, d) => sum + d.allocation, 0);
+            if (Math.abs(total - 1) > 0.001) {
+                alert('Allocations must sum to 100%');
+                return;
+            }
+
+            // Submit
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+
+            try {
+                let driveLink = document.getElementById('driveLink').value;
+
+                // Upload to Google Drive if file was uploaded and no drive link exists
+                if (uploadedFile && !driveLink) {
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Uploading to Drive...';
+                    const uploadResult = await uploadToDrive(uploadedFile, supplier, invoiceDate);
+                    if (uploadResult.success) {
+                        driveLink = uploadResult.drive_link;
+                        document.getElementById('driveLink').value = driveLink;
+                    } else if (!uploadResult.need_auth) {
+                        console.warn('Drive upload failed:', uploadResult.error);
+                        // Continue without drive link
+                    }
+                }
+
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+
+                const res = await fetch('/api/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        supplier,
+                        invoice_template: document.getElementById('invoiceTemplate').value,
+                        invoice_number: invoiceNumber,
+                        invoice_date: invoiceDate,
+                        invoice_value: invoiceValue,
+                        currency: document.getElementById('currency').value,
+                        drive_link: driveLink,
+                        distributions
+                    })
+                });
+
+                const result = await res.json();
+                if (result.success) {
+                    alert('Successfully saved ' + result.allocations + ' allocation(s)!' + (driveLink ? '\nUploaded to Drive!' : ''));
+                    // Reset form
+                    document.getElementById('invoiceForm').reset();
+                    document.getElementById('matchedCompany').value = '';
+                    document.getElementById('allocationsContainer').innerHTML = '';
+                    // Reset dedicated company
+                    document.getElementById('dedicatedCompany').value = '';
+                    // Hide entry mode alert
+                    document.getElementById('entryModeAlert').style.display = 'none';
+                    addAllocationRow();
+                    // Reset file input area
+                    uploadedFile = null;
+                    const dropZone = document.getElementById('dropZone');
+                    dropZone.innerHTML = `
+                        <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                        <p class="mb-0 mt-2">Drag & drop invoice here or click to upload</p>
+                        <small class="text-muted">Supports PDF, JPG, PNG</small>
+                        <input type="file" id="fileInput" class="d-none" accept=".pdf,.jpg,.jpeg,.png">
+                    `;
+                    setupFileInput();
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> Save Distribution';
+            }
+        }
+
+        function setupFileInput() {
+            const fileInput = document.getElementById('fileInput');
+            fileInput.addEventListener('change', function() {
+                if (this.files.length) {
+                    uploadedFile = this.files[0];
+                    updateDropZoneText(uploadedFile.name);
+                }
+            });
+        }
+    </script>
+</body>
+</html>

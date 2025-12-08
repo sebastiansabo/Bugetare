@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accounting Dashboard - Invoice Allocations</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body { background: #f5f5f5; }
+        .card { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .summary-card { transition: transform 0.2s; cursor: pointer; }
+        .summary-card:hover { transform: translateY(-2px); }
+        .allocation-badge { font-size: 0.8em; }
+        .search-highlight { background: #fff3cd; }
+        .table-hover tbody tr:hover { background: #e3f2fd; }
+        .modal-xl { max-width: 90%; }
+        .allocation-row { border-left: 3px solid #0d6efd; padding-left: 10px; margin-bottom: 10px; }
+        .filter-section { background: #fff; border-radius: 8px; padding: 15px; margin-bottom: 20px; }
+        .nav-tabs .nav-link.active { font-weight: bold; }
+        .column-config-btn { cursor: pointer; }
+        .column-list-item { padding: 8px 12px; border-bottom: 1px solid #eee; display: flex; align-items: center; gap: 10px; }
+        .column-list-item:last-child { border-bottom: none; }
+        .column-list-item.disabled { opacity: 0.5; }
+        .drag-handle { cursor: grab; color: #999; }
+        .custom-column-badge { background: #198754; color: white; font-size: 0.7em; padding: 2px 6px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-dark bg-success mb-4">
+        <div class="container">
+            <span class="navbar-brand mb-0 h1">
+                <i class="bi bi-calculator"></i> Accounting Dashboard
+            </span>
+            <a href="/" class="btn btn-outline-light btn-sm">
+                <i class="bi bi-plus-circle"></i> New Invoice
+            </a>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4">
+        <!-- Summary Cards -->
+        <div class="row mb-4" id="summaryCards">
+            <div class="col-md-3">
+                <div class="card summary-card bg-primary text-white">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-receipt"></i> Total Invoices</h6>
+                        <h2 id="totalInvoices">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card bg-success text-white">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-currency-exchange"></i> Total Value</h6>
+                        <h2 id="totalValue">0 RON</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card bg-info text-white">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-building"></i> Companies</h6>
+                        <h2 id="totalCompanies">0</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card bg-warning text-dark">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-diagram-3"></i> Departments</h6>
+                        <h2 id="totalDepartments">0</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="filter-section">
+            <div class="row align-items-end">
+                <div class="col-md-4">
+                    <label class="form-label"><i class="bi bi-search"></i> Search</label>
+                    <input type="text" class="form-control" id="searchInput" placeholder="Search by supplier or invoice number...">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Start Date</label>
+                    <input type="date" class="form-control" id="startDate">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">End Date</label>
+                    <input type="date" class="form-control" id="endDate">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Company</label>
+                    <select class="form-select" id="companyFilter">
+                        <option value="">All Companies</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-primary w-100" id="applyFilters">
+                        <i class="bi bi-funnel"></i> Apply Filters
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs mb-3" id="mainTabs">
+            <li class="nav-item">
+                <a class="nav-link active" data-bs-toggle="tab" href="#invoicesTab">
+                    <i class="bi bi-receipt"></i> Invoices
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#companyTab">
+                    <i class="bi bi-building"></i> By Company
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#departmentTab">
+                    <i class="bi bi-diagram-3"></i> By Department
+                </a>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- Invoices Tab -->
+            <div class="tab-pane fade show active" id="invoicesTab">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-table"></i> Invoice Data</span>
+                        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#columnConfigModal">
+                            <i class="bi bi-gear"></i> Configure Columns
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="invoicesDataTable">
+                                <thead class="table-light" id="invoicesTableHead">
+                                    <tr>
+                                        <!-- Dynamic columns will be rendered here -->
+                                    </tr>
+                                </thead>
+                                <tbody id="invoicesTable">
+                                    <tr>
+                                        <td colspan="7" class="text-center">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- By Company Tab -->
+            <div class="tab-pane fade" id="companyTab">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Company</th>
+                                        <th>Total Value</th>
+                                        <th>Invoice Count</th>
+                                        <th>Avg per Invoice</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="companyTable">
+                                    <tr>
+                                        <td colspan="4" class="text-center">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- By Department Tab -->
+            <div class="tab-pane fade" id="departmentTab">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Company</th>
+                                        <th>Department</th>
+                                        <th>Subdepartment</th>
+                                        <th>Total Value</th>
+                                        <th>Invoice Count</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="departmentTable">
+                                    <tr>
+                                        <td colspan="5" class="text-center">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invoice Detail Modal -->
+    <div class="modal fade" id="invoiceModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-receipt"></i> Invoice Details</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="invoiceModalBody">
+                    Loading...
+                </div>
+                <div class="modal-footer">
+                    <a href="#" class="btn btn-outline-primary" id="driveLink" target="_blank">
+                        <i class="bi bi-cloud"></i> Open in Drive
+                    </a>
+                    <button type="button" class="btn btn-danger" id="deleteInvoiceBtn">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Column Configuration Modal -->
+    <div class="modal fade" id="columnConfigModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-gear"></i> Configure Table Columns</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs mb-3" id="columnConfigTabs">
+                        <li class="nav-item">
+                            <a class="nav-link active" data-bs-toggle="tab" href="#existingColumnsTab">
+                                <i class="bi bi-list-check"></i> Show/Hide Columns
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" data-bs-toggle="tab" href="#addColumnTab">
+                                <i class="bi bi-plus-circle"></i> Add Custom Column
+                            </a>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <!-- Existing Columns Tab -->
+                        <div class="tab-pane fade show active" id="existingColumnsTab">
+                            <p class="text-muted small">Toggle columns visibility. Drag to reorder.</p>
+                            <div id="columnList" class="border rounded">
+                                <!-- Column items will be rendered here -->
+                            </div>
+                        </div>
+                        <!-- Add Column Tab -->
+                        <div class="tab-pane fade" id="addColumnTab">
+                            <div class="mb-3">
+                                <label class="form-label">Column Name</label>
+                                <input type="text" class="form-control" id="newColumnName" placeholder="Enter column header name">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Data Source</label>
+                                <select class="form-select" id="newColumnSource">
+                                    <optgroup label="Invoice Fields">
+                                        <option value="invoice.id">Invoice ID</option>
+                                        <option value="invoice.supplier">Supplier</option>
+                                        <option value="invoice.invoice_number">Invoice Number</option>
+                                        <option value="invoice.invoice_date">Invoice Date</option>
+                                        <option value="invoice.invoice_value">Invoice Value</option>
+                                        <option value="invoice.currency">Currency</option>
+                                        <option value="invoice.invoice_template">Template</option>
+                                        <option value="invoice.drive_link">Drive Link</option>
+                                        <option value="invoice.created_at">Created At</option>
+                                    </optgroup>
+                                    <optgroup label="Allocation Fields (First)">
+                                        <option value="allocation.company">Company</option>
+                                        <option value="allocation.brand">Brand</option>
+                                        <option value="allocation.department">Department</option>
+                                        <option value="allocation.subdepartment">Subdepartment</option>
+                                        <option value="allocation.allocation_percent">Allocation %</option>
+                                        <option value="allocation.allocation_value">Allocation Value</option>
+                                        <option value="allocation.responsible">Responsible</option>
+                                        <option value="allocation.reinvoice_to">Reinvoice To</option>
+                                    </optgroup>
+                                    <optgroup label="Computed">
+                                        <option value="computed.allocation_count">Allocation Count</option>
+                                        <option value="computed.companies_list">Companies (comma-sep)</option>
+                                        <option value="computed.departments_list">Departments (comma-sep)</option>
+                                    </optgroup>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Format (optional)</label>
+                                <select class="form-select" id="newColumnFormat">
+                                    <option value="text">Text (as-is)</option>
+                                    <option value="currency">Currency (formatted)</option>
+                                    <option value="percent">Percentage</option>
+                                    <option value="date">Date</option>
+                                    <option value="link">Link (clickable)</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-success" id="addCustomColumnBtn">
+                                <i class="bi bi-plus"></i> Add Column
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-warning" id="resetColumnsBtn">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
+                    </button>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                        <i class="bi bi-check"></i> Done
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let allInvoices = [];
+        let invoicesWithAllocations = {}; // Cache for full invoice data
+        let currentInvoiceId = null;
+
+        // Default column configuration
+        const DEFAULT_COLUMNS = [
+            { id: 'id', name: 'ID', source: 'invoice.id', format: 'text', visible: true, custom: false },
+            { id: 'date', name: 'Date', source: 'invoice.invoice_date', format: 'date', visible: true, custom: false },
+            { id: 'supplier', name: 'Supplier', source: 'invoice.supplier', format: 'text', visible: true, custom: false },
+            { id: 'invoice_number', name: 'Invoice #', source: 'invoice.invoice_number', format: 'text', visible: true, custom: false },
+            { id: 'value', name: 'Value', source: 'invoice.invoice_value', format: 'currency', visible: true, custom: false },
+            { id: 'currency', name: 'Currency', source: 'invoice.currency', format: 'text', visible: false, custom: false },
+            { id: 'template', name: 'Template', source: 'invoice.invoice_template', format: 'text', visible: false, custom: false },
+            { id: 'company', name: 'Company', source: 'allocation.company', format: 'text', visible: false, custom: false },
+            { id: 'department', name: 'Department', source: 'allocation.department', format: 'text', visible: false, custom: false },
+            { id: 'brand', name: 'Brand', source: 'allocation.brand', format: 'text', visible: false, custom: false },
+            { id: 'responsible', name: 'Responsible', source: 'allocation.responsible', format: 'text', visible: false, custom: false },
+            { id: 'reinvoice_to', name: 'Reinvoice To', source: 'allocation.reinvoice_to', format: 'text', visible: false, custom: false },
+            { id: 'actions', name: 'Actions', source: 'special.actions', format: 'special', visible: true, custom: false },
+            { id: 'drive', name: 'Drive', source: 'special.drive', format: 'special', visible: true, custom: false }
+        ];
+
+        let columnConfig = [];
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadColumnConfig();
+            loadData();
+            setupEventListeners();
+        });
+
+        function loadColumnConfig() {
+            const saved = localStorage.getItem('accountingColumnConfig');
+            if (saved) {
+                columnConfig = JSON.parse(saved);
+            } else {
+                columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
+            }
+            renderColumnList();
+        }
+
+        function saveColumnConfig() {
+            localStorage.setItem('accountingColumnConfig', JSON.stringify(columnConfig));
+            renderInvoicesTable(allInvoices);
+        }
+
+        function resetColumnConfig() {
+            columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
+            saveColumnConfig();
+            renderColumnList();
+        }
+
+        function renderColumnList() {
+            const container = document.getElementById('columnList');
+            container.innerHTML = columnConfig.map((col, idx) => `
+                <div class="column-list-item ${col.visible ? '' : 'disabled'}" data-idx="${idx}">
+                    <i class="bi bi-grip-vertical drag-handle"></i>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input column-toggle" type="checkbox" ${col.visible ? 'checked' : ''} data-idx="${idx}">
+                    </div>
+                    <span class="flex-grow-1">
+                        ${col.name}
+                        ${col.custom ? '<span class="custom-column-badge">Custom</span>' : ''}
+                    </span>
+                    <small class="text-muted">${col.source}</small>
+                    ${col.custom ? `<button class="btn btn-sm btn-outline-danger ms-2 delete-column-btn" data-idx="${idx}"><i class="bi bi-trash"></i></button>` : ''}
+                </div>
+            `).join('');
+
+            // Add event listeners for toggles
+            container.querySelectorAll('.column-toggle').forEach(toggle => {
+                toggle.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.idx);
+                    columnConfig[idx].visible = e.target.checked;
+                    saveColumnConfig();
+                    renderColumnList();
+                });
+            });
+
+            // Add event listeners for delete buttons
+            container.querySelectorAll('.delete-column-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const idx = parseInt(e.target.closest('button').dataset.idx);
+                    columnConfig.splice(idx, 1);
+                    saveColumnConfig();
+                    renderColumnList();
+                });
+            });
+        }
+
+        function addCustomColumn() {
+            const name = document.getElementById('newColumnName').value.trim();
+            const source = document.getElementById('newColumnSource').value;
+            const format = document.getElementById('newColumnFormat').value;
+
+            if (!name) {
+                alert('Please enter a column name');
+                return;
+            }
+
+            const newCol = {
+                id: 'custom_' + Date.now(),
+                name: name,
+                source: source,
+                format: format,
+                visible: true,
+                custom: true
+            };
+
+            // Insert before Actions column
+            const actionsIdx = columnConfig.findIndex(c => c.id === 'actions');
+            if (actionsIdx >= 0) {
+                columnConfig.splice(actionsIdx, 0, newCol);
+            } else {
+                columnConfig.push(newCol);
+            }
+
+            saveColumnConfig();
+            renderColumnList();
+
+            // Clear form
+            document.getElementById('newColumnName').value = '';
+            document.getElementById('newColumnSource').selectedIndex = 0;
+            document.getElementById('newColumnFormat').selectedIndex = 0;
+
+            // Switch to columns tab
+            const tabEl = document.querySelector('#columnConfigTabs a[href="#existingColumnsTab"]');
+            bootstrap.Tab.getOrCreateInstance(tabEl).show();
+        }
+
+        function setupEventListeners() {
+            document.getElementById('searchInput').addEventListener('input', debounce(handleSearch, 300));
+            document.getElementById('applyFilters').addEventListener('click', loadData);
+            document.getElementById('deleteInvoiceBtn').addEventListener('click', handleDelete);
+            document.getElementById('addCustomColumnBtn').addEventListener('click', addCustomColumn);
+            document.getElementById('resetColumnsBtn').addEventListener('click', () => {
+                if (confirm('Reset all columns to default? This will remove custom columns.')) {
+                    resetColumnConfig();
+                }
+            });
+
+            // Tab change listeners
+            document.querySelectorAll('#mainTabs .nav-link').forEach(tab => {
+                tab.addEventListener('shown.bs.tab', loadData);
+            });
+
+            // Refresh table when modal closes
+            document.getElementById('columnConfigModal').addEventListener('hidden.bs.modal', () => {
+                renderInvoicesTable(allInvoices);
+            });
+        }
+
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
+
+        async function loadData() {
+            await Promise.all([
+                loadInvoices(),
+                loadCompanySummary(),
+                loadDepartmentSummary(),
+                loadCompanyFilter()
+            ]);
+            updateSummaryCards();
+        }
+
+        async function loadInvoices() {
+            try {
+                const res = await fetch('/api/db/invoices');
+                allInvoices = await res.json();
+
+                // Check if we need allocation data for any visible column
+                const needsAllocations = columnConfig.some(col =>
+                    col.visible && (col.source.startsWith('allocation.') || col.source.startsWith('computed.'))
+                );
+
+                if (needsAllocations) {
+                    // Load full invoice data with allocations
+                    await Promise.all(allInvoices.map(async (inv) => {
+                        if (!invoicesWithAllocations[inv.id]) {
+                            const fullRes = await fetch(`/api/db/invoices/${inv.id}`);
+                            invoicesWithAllocations[inv.id] = await fullRes.json();
+                        }
+                    }));
+                }
+
+                renderInvoicesTable(allInvoices);
+            } catch (e) {
+                console.error('Error loading invoices:', e);
+            }
+        }
+
+        async function loadCompanyFilter() {
+            try {
+                const res = await fetch('/api/companies');
+                const companies = await res.json();
+                const select = document.getElementById('companyFilter');
+                select.innerHTML = '<option value="">All Companies</option>';
+                companies.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c;
+                    opt.textContent = c;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('Error loading companies:', e);
+            }
+        }
+
+        async function loadCompanySummary() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const params = new URLSearchParams();
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+
+            try {
+                const res = await fetch(`/api/db/summary/company?${params}`);
+                const data = await res.json();
+                renderCompanyTable(data);
+            } catch (e) {
+                console.error('Error loading company summary:', e);
+            }
+        }
+
+        async function loadDepartmentSummary() {
+            const company = document.getElementById('companyFilter').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const params = new URLSearchParams();
+            if (company) params.append('company', company);
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+
+            try {
+                const res = await fetch(`/api/db/summary/department?${params}`);
+                const data = await res.json();
+                renderDepartmentTable(data);
+            } catch (e) {
+                console.error('Error loading department summary:', e);
+            }
+        }
+
+        async function handleSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (query.length < 2) {
+                renderInvoicesTable(allInvoices);
+                return;
+            }
+
+            try {
+                const res = await fetch(`/api/db/search?q=${encodeURIComponent(query)}`);
+                const results = await res.json();
+                renderInvoicesTable(results);
+            } catch (e) {
+                console.error('Error searching:', e);
+            }
+        }
+
+        function getColumnValue(inv, col) {
+            const fullInvoice = invoicesWithAllocations[inv.id] || inv;
+            const firstAllocation = fullInvoice.allocations?.[0] || {};
+
+            if (col.source.startsWith('invoice.')) {
+                const field = col.source.replace('invoice.', '');
+                return inv[field];
+            } else if (col.source.startsWith('allocation.')) {
+                const field = col.source.replace('allocation.', '');
+                return firstAllocation[field];
+            } else if (col.source.startsWith('computed.')) {
+                const field = col.source.replace('computed.', '');
+                const allocations = fullInvoice.allocations || [];
+                switch (field) {
+                    case 'allocation_count':
+                        return allocations.length;
+                    case 'companies_list':
+                        return [...new Set(allocations.map(a => a.company))].join(', ');
+                    case 'departments_list':
+                        return [...new Set(allocations.map(a => a.department))].join(', ');
+                    default:
+                        return '-';
+                }
+            }
+            return '-';
+        }
+
+        function formatColumnValue(value, col, inv) {
+            if (value === null || value === undefined) return '-';
+
+            switch (col.format) {
+                case 'currency':
+                    return formatCurrency(value) + ' ' + (inv.currency || 'RON');
+                case 'percent':
+                    return value + '%';
+                case 'date':
+                    return value || '-';
+                case 'link':
+                    return value ? `<a href="${value}" target="_blank">${value}</a>` : '-';
+                case 'special':
+                    if (col.source === 'special.actions') {
+                        return `<button class="btn btn-sm btn-outline-primary" onclick="showInvoiceDetail(${inv.id})">
+                            <i class="bi bi-eye"></i> View
+                        </button>`;
+                    } else if (col.source === 'special.drive') {
+                        return `<a href="${inv.drive_link || '#'}" target="_blank" class="btn btn-sm btn-outline-secondary ${!inv.drive_link ? 'disabled' : ''}">
+                            <i class="bi bi-cloud"></i>
+                        </a>`;
+                    }
+                    return '-';
+                default:
+                    if (col.id === 'supplier') return `<strong>${value}</strong>`;
+                    if (col.id === 'invoice_number') return `<code>${value}</code>`;
+                    return value;
+            }
+        }
+
+        function renderInvoicesTable(invoices) {
+            const thead = document.getElementById('invoicesTableHead').querySelector('tr');
+            const tbody = document.getElementById('invoicesTable');
+            const visibleCols = columnConfig.filter(c => c.visible);
+
+            // Render header
+            thead.innerHTML = visibleCols.map(col => `<th>${col.name}</th>`).join('');
+
+            if (invoices.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${visibleCols.length}" class="text-center text-muted">No invoices found</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = invoices.map(inv => {
+                const cells = visibleCols.map(col => {
+                    const value = getColumnValue(inv, col);
+                    const formatted = formatColumnValue(value, col, inv);
+                    return `<td>${formatted}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+        }
+
+        function renderCompanyTable(data) {
+            const tbody = document.getElementById('companyTable');
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No data</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.map(row => `
+                <tr>
+                    <td><strong>${row.company}</strong></td>
+                    <td>${formatCurrency(row.total_value)} RON</td>
+                    <td>${row.invoice_count}</td>
+                    <td>${formatCurrency(row.total_value / row.invoice_count)} RON</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderDepartmentTable(data) {
+            const tbody = document.getElementById('departmentTable');
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.map(row => `
+                <tr>
+                    <td>${row.company}</td>
+                    <td><strong>${row.department}</strong></td>
+                    <td>${row.subdepartment || '-'}</td>
+                    <td>${formatCurrency(row.total_value)} RON</td>
+                    <td>${row.invoice_count}</td>
+                </tr>
+            `).join('');
+        }
+
+        async function showInvoiceDetail(id) {
+            currentInvoiceId = id;
+            const modal = new bootstrap.Modal(document.getElementById('invoiceModal'));
+            const body = document.getElementById('invoiceModalBody');
+            body.innerHTML = '<div class="text-center"><div class="spinner-border"></div></div>';
+            modal.show();
+
+            try {
+                const res = await fetch(`/api/db/invoices/${id}`);
+                const invoice = await res.json();
+
+                // Cache full invoice data
+                invoicesWithAllocations[id] = invoice;
+
+                const driveLink = document.getElementById('driveLink');
+                if (invoice.drive_link) {
+                    driveLink.href = invoice.drive_link;
+                    driveLink.classList.remove('disabled');
+                } else {
+                    driveLink.href = '#';
+                    driveLink.classList.add('disabled');
+                }
+
+                body.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Invoice Information</h6>
+                            <table class="table table-sm">
+                                <tr><th>Supplier</th><td>${invoice.supplier}</td></tr>
+                                <tr><th>Invoice #</th><td><code>${invoice.invoice_number}</code></td></tr>
+                                <tr><th>Date</th><td>${invoice.invoice_date}</td></tr>
+                                <tr><th>Total Value</th><td><strong>${formatCurrency(invoice.invoice_value)} ${invoice.currency || 'RON'}</strong></td></tr>
+                                <tr><th>Template</th><td>${invoice.invoice_template || '-'}</td></tr>
+                                <tr><th>Created</th><td>${invoice.created_at}</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Cost Allocations</h6>
+                            ${invoice.allocations.map(a => `
+                                <div class="allocation-row">
+                                    <div class="d-flex justify-content-between">
+                                        <strong>${a.company}</strong>
+                                        <span class="badge bg-primary">${a.allocation_percent}%</span>
+                                    </div>
+                                    <div class="small text-muted">
+                                        ${a.department}${a.subdepartment ? ' > ' + a.subdepartment : ''}
+                                        ${a.brand ? ' (' + a.brand + ')' : ''}
+                                    </div>
+                                    <div class="fw-bold text-success">${formatCurrency(a.allocation_value)} RON</div>
+                                    <div class="small">Responsible: ${a.responsible || '-'}</div>
+                                    ${a.reinvoice_to ? `<div class="small text-warning"><i class="bi bi-arrow-right"></i> Reinvoice to: ${a.reinvoice_to}</div>` : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                body.innerHTML = '<div class="alert alert-danger">Error loading invoice details</div>';
+            }
+        }
+
+        async function handleDelete() {
+            if (!currentInvoiceId) return;
+            if (!confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) return;
+
+            try {
+                const res = await fetch(`/api/db/invoices/${currentInvoiceId}`, { method: 'DELETE' });
+                const result = await res.json();
+                if (result.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('invoiceModal')).hide();
+                    delete invoicesWithAllocations[currentInvoiceId];
+                    loadData();
+                } else {
+                    alert('Error deleting invoice');
+                }
+            } catch (e) {
+                alert('Error: ' + e.message);
+            }
+        }
+
+        function updateSummaryCards() {
+            document.getElementById('totalInvoices').textContent = allInvoices.length;
+            const totalValue = allInvoices.reduce((sum, inv) => sum + (inv.invoice_value || 0), 0);
+            document.getElementById('totalValue').textContent = formatCurrency(totalValue) + ' RON';
+
+            // Count unique companies and departments from summaries
+            fetch('/api/db/summary/company').then(r => r.json()).then(data => {
+                document.getElementById('totalCompanies').textContent = data.length;
+            });
+            fetch('/api/db/summary/department').then(r => r.json()).then(data => {
+                document.getElementById('totalDepartments').textContent = data.length;
+            });
+        }
+
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0);
+        }
+    </script>
+</body>
+</html>

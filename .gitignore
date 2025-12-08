@@ -1,0 +1,50 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Credentials (NEVER commit these)
+service-account.json
+autoworldro-*.json
+credentials.json
+token.pickle
+*.json.bak
+
+# Database (local development)
+*.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Invoices folder (contains private data)
+Invoices/
+
+# Template folder (contains private data)
+Template/
+
+# Claude Code
+.claude/
+
+# Render
+.render/
