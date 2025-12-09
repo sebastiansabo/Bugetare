@@ -112,10 +112,6 @@
                                     <input type="text" class="form-control" id="matchedCompany" placeholder="Company matched by VAT" readonly>
                                 </div>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label">Invoice Template</label>
-                                <input type="text" class="form-control" id="invoiceTemplate" placeholder="e.g., Meta, Google Ads">
-                            </div>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label class="form-label">Invoice Number *</label>
@@ -729,16 +725,6 @@
                     }
                 }
             }
-            // Try to guess invoice template from supplier
-            if (data.supplier) {
-                const supplier = data.supplier.toLowerCase();
-                if (supplier.includes('facebook') || supplier.includes('meta')) {
-                    document.getElementById('invoiceTemplate').value = 'Meta';
-                } else if (supplier.includes('google')) {
-                    document.getElementById('invoiceTemplate').value = 'Google Ads';
-                }
-            }
-
             // PRIORITY 1: Try to match company by VAT number
             let matchedCompany = null;
             if (data.customer_vat) {
@@ -1119,7 +1105,6 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         supplier,
-                        invoice_template: document.getElementById('invoiceTemplate').value,
                         invoice_number: invoiceNumber,
                         invoice_date: invoiceDate,
                         invoice_value: invoiceValue,
