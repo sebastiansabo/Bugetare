@@ -128,6 +128,11 @@
                     <i class="bi bi-diagram-3"></i> By Department
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#brandTab">
+                    <i class="bi bi-tag"></i> By Brand
+                </a>
+            </li>
         </ul>
 
         <div class="tab-content">
@@ -207,6 +212,34 @@
                                 <tbody id="departmentTable">
                                     <tr>
                                         <td colspan="5" class="text-center">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- By Brand Tab -->
+            <div class="tab-pane fade" id="brandTab">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-tag"></i> By Brand (Linie de business)</span>
+                        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#brandColumnConfigModal">
+                            <i class="bi bi-gear"></i> Configure Columns
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="brandDataTable">
+                                <thead class="table-light" id="brandTableHead">
+                                    <tr>
+                                        <!-- Dynamic columns will be rendered here -->
+                                    </tr>
+                                </thead>
+                                <tbody id="brandTable">
+                                    <tr>
+                                        <td colspan="3" class="text-center">Loading...</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -395,6 +428,32 @@
         </div>
     </div>
 
+    <!-- Brand Column Configuration Modal -->
+    <div class="modal fade" id="brandColumnConfigModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-gear"></i> Configure Brand Table Columns</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Toggle columns visibility.</p>
+                    <div id="brandColumnList" class="border rounded">
+                        <!-- Column items will be rendered here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-warning" id="resetBrandColumnsBtn">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
+                    </button>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                        <i class="bi bi-check"></i> Done
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Edit Invoice Modal -->
     <div class="modal fade" id="editInvoiceModal" tabindex="-1">
         <div class="modal-dialog modal-xl">
@@ -527,8 +586,18 @@
             { id: 'avg_value', name: 'Avg per Invoice', source: 'avg_value', format: 'currency', visible: false }
         ];
 
+        const DEFAULT_BRAND_COLUMNS = [
+            { id: 'brand', name: 'Brand (Linie de business)', source: 'brand', format: 'text', visible: true },
+            { id: 'invoice_numbers', name: 'Invoice #', source: 'invoice_numbers', format: 'text', visible: true },
+            { id: 'total_value', name: 'Value', source: 'total_value', format: 'currency', visible: true },
+            { id: 'split_values', name: 'Split Values', source: 'split_values', format: 'split', visible: true },
+            { id: 'invoice_count', name: 'Invoice Count', source: 'invoice_count', format: 'text', visible: true },
+            { id: 'avg_value', name: 'Avg per Invoice', source: 'avg_value', format: 'currency', visible: false }
+        ];
+
         let companyColumnConfig = [];
         let departmentColumnConfig = [];
+        let brandColumnConfig = [];
 
         document.addEventListener('DOMContentLoaded', () => {
             loadColumnConfig();
@@ -563,6 +632,15 @@
                 departmentColumnConfig = JSON.parse(JSON.stringify(DEFAULT_DEPARTMENT_COLUMNS));
             }
             renderDepartmentColumnList();
+
+            // Brand columns
+            const savedBrand = localStorage.getItem('brandColumnConfig');
+            if (savedBrand) {
+                brandColumnConfig = JSON.parse(savedBrand);
+            } else {
+                brandColumnConfig = JSON.parse(JSON.stringify(DEFAULT_BRAND_COLUMNS));
+            }
+            renderBrandColumnList();
         }
 
         function saveColumnConfig() {
@@ -578,6 +656,11 @@
         function saveDepartmentColumnConfig() {
             localStorage.setItem('departmentColumnConfig', JSON.stringify(departmentColumnConfig));
             loadDepartmentSummary();
+        }
+
+        function saveBrandColumnConfig() {
+            localStorage.setItem('brandColumnConfig', JSON.stringify(brandColumnConfig));
+            loadBrandSummary();
         }
 
         function resetColumnConfig() {
@@ -596,6 +679,12 @@
             departmentColumnConfig = JSON.parse(JSON.stringify(DEFAULT_DEPARTMENT_COLUMNS));
             saveDepartmentColumnConfig();
             renderDepartmentColumnList();
+        }
+
+        function resetBrandColumnConfig() {
+            brandColumnConfig = JSON.parse(JSON.stringify(DEFAULT_BRAND_COLUMNS));
+            saveBrandColumnConfig();
+            renderBrandColumnList();
         }
 
         function renderColumnList() {
@@ -735,6 +824,32 @@
             setupDragAndDrop(container, departmentColumnConfig, saveDepartmentColumnConfig, renderDepartmentColumnList);
         }
 
+        function renderBrandColumnList() {
+            const container = document.getElementById('brandColumnList');
+            container.innerHTML = brandColumnConfig.map((col, idx) => `
+                <div class="column-list-item ${col.visible ? '' : 'disabled'}" data-idx="${idx}" draggable="true">
+                    <i class="bi bi-grip-vertical drag-handle"></i>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input brand-column-toggle" type="checkbox" ${col.visible ? 'checked' : ''} data-idx="${idx}">
+                    </div>
+                    <span class="flex-grow-1">${col.name}</span>
+                    <small class="text-muted">${col.source}</small>
+                </div>
+            `).join('');
+
+            container.querySelectorAll('.brand-column-toggle').forEach(toggle => {
+                toggle.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.idx);
+                    brandColumnConfig[idx].visible = e.target.checked;
+                    saveBrandColumnConfig();
+                    renderBrandColumnList();
+                });
+            });
+
+            // Add drag-and-drop functionality
+            setupDragAndDrop(container, brandColumnConfig, saveBrandColumnConfig, renderBrandColumnList);
+        }
+
         function addCustomColumn() {
             const name = document.getElementById('newColumnName').value.trim();
             const source = document.getElementById('newColumnSource').value;
@@ -798,6 +913,11 @@
                     resetDepartmentColumnConfig();
                 }
             });
+            document.getElementById('resetBrandColumnsBtn').addEventListener('click', () => {
+                if (confirm('Reset brand columns to default?')) {
+                    resetBrandColumnConfig();
+                }
+            });
 
             // Tab change listeners
             document.querySelectorAll('#mainTabs .nav-link').forEach(tab => {
@@ -823,6 +943,7 @@
                 loadInvoices(),
                 loadCompanySummary(),
                 loadDepartmentSummary(),
+                loadBrandSummary(),
                 loadCompanyFilter()
             ]);
             updateSummaryCards();
@@ -905,6 +1026,24 @@
             }
         }
 
+        async function loadBrandSummary() {
+            const company = document.getElementById('companyFilter').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            const params = new URLSearchParams();
+            if (company) params.append('company', company);
+            if (startDate) params.append('start_date', startDate);
+            if (endDate) params.append('end_date', endDate);
+
+            try {
+                const res = await fetch(`/api/db/summary/brand?${params}`);
+                const data = await res.json();
+                renderBrandTable(data);
+            } catch (e) {
+                console.error('Error loading brand summary:', e);
+            }
+        }
+
         async function handleSearch() {
             const query = document.getElementById('searchInput').value.trim();
             if (query.length < 2) {
@@ -984,48 +1123,43 @@
                     return value ? `<a href="${value}" target="_blank">${value}</a>` : '-';
                 case 'split':
                     if (Array.isArray(value) && value.length > 0) {
-                        // Separate regular allocations from reinvoiced ones
+                        // Generate unique ID for this collapse section
+                        const collapseId = 'split-' + Math.random().toString(36).substr(2, 9);
+
+                        // Calculate summary
+                        const totalValue = value.reduce((sum, s) => sum + s.value, 0);
                         const regularAllocs = value.filter(s => !s.reinvoice_to);
                         const reinvoicedAllocs = value.filter(s => s.reinvoice_to);
 
-                        // Generate unique ID for this collapse section
-                        const collapseId = 'reinvoice-' + Math.random().toString(36).substr(2, 9);
+                        // Build summary text
+                        let summaryText = `${value.length} allocation${value.length > 1 ? 's' : ''} • ${formatCurrency(totalValue)} RON`;
+                        if (reinvoicedAllocs.length > 0) {
+                            summaryText += ` <span class="text-warning">(→)</span>`;
+                        }
 
-                        let html = regularAllocs.map(s => {
+                        // Build allocation details
+                        const allocDetails = value.map(s => {
                             const location = s.subdepartment || s.department;
                             const brandPart = s.brand ? ` (${s.brand})` : '';
-                            return `<div class="small border-start border-primary ps-2 mb-1">
+                            const borderColor = s.reinvoice_to ? 'border-warning' : 'border-primary';
+                            const reinvoiceLine = s.reinvoice_to
+                                ? `<br><span class="text-warning"><i class="bi bi-arrow-right"></i> ${s.reinvoice_to}</span>`
+                                : '';
+                            return `<div class="small border-start ${borderColor} ps-2 mb-1">
                                 <span class="text-muted">${location}${brandPart}</span><br>
                                 <strong>${formatCurrency(s.value)} RON</strong>
-                                <span class="badge bg-secondary">${s.percent}%</span>
+                                <span class="badge bg-secondary">${s.percent}%</span>${reinvoiceLine}
                             </div>`;
                         }).join('');
 
-                        // Add collapsible reinvoice section if there are reinvoiced allocations
-                        if (reinvoicedAllocs.length > 0) {
-                            const totalReinvoiced = reinvoicedAllocs.reduce((sum, r) => sum + r.value, 0);
-                            const reinvoiceTargets = [...new Set(reinvoicedAllocs.map(r => r.reinvoice_to))].join(', ');
-
-                            html += `<div class="mt-1">
-                                <a class="text-warning small text-decoration-none" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false">
-                                    <i class="bi bi-plus-circle toggle-icon"></i> Reinvoice: ${formatCurrency(totalReinvoiced)} RON → ${reinvoiceTargets}
-                                </a>
-                                <div class="collapse" id="${collapseId}">
-                                    ${reinvoicedAllocs.map(s => {
-                                        const location = s.subdepartment || s.department;
-                                        const brandPart = s.brand ? ` (${s.brand})` : '';
-                                        return `<div class="small border-start border-warning ps-2 mb-1 mt-1">
-                                            <span class="text-muted">${location}${brandPart}</span><br>
-                                            <strong>${formatCurrency(s.value)} RON</strong>
-                                            <span class="badge bg-secondary">${s.percent}%</span><br>
-                                            <span class="text-warning"><i class="bi bi-arrow-right"></i> ${s.reinvoice_to}</span>
-                                        </div>`;
-                                    }).join('')}
-                                </div>
-                            </div>`;
-                        }
-
-                        return html;
+                        return `<div>
+                            <a class="text-primary small text-decoration-none" data-bs-toggle="collapse" href="#${collapseId}" role="button" aria-expanded="false">
+                                <i class="bi bi-plus-circle toggle-icon"></i> ${summaryText}
+                            </a>
+                            <div class="collapse" id="${collapseId}">
+                                <div class="mt-1">${allocDetails}</div>
+                            </div>
+                        </div>`;
                     }
                     return '-';
                 case 'reinvoice':
@@ -1134,6 +1268,39 @@
                         return `<td>${formatCurrency(value)} RON</td>`;
                     } else if (col.id === 'department') {
                         return `<td><strong>${value}</strong></td>`;
+                    }
+                    return `<td>${value || '-'}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+        }
+
+        function renderBrandTable(data) {
+            const thead = document.getElementById('brandTableHead').querySelector('tr');
+            const tbody = document.getElementById('brandTable');
+            const visibleCols = brandColumnConfig.filter(c => c.visible);
+
+            // Render header
+            thead.innerHTML = visibleCols.map(col => `<th>${col.name}</th>`).join('');
+
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${visibleCols.length}" class="text-center text-muted">No data</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.map(row => {
+                // Add computed avg_value
+                row.avg_value = row.total_value / row.invoice_count;
+
+                const cells = visibleCols.map(col => {
+                    let value = row[col.source];
+                    if (col.format === 'currency') {
+                        return `<td>${formatCurrency(value)} RON</td>`;
+                    } else if (col.id === 'brand') {
+                        return `<td><strong>${value || '(No Brand)'}</strong></td>`;
+                    } else if (col.format === 'split') {
+                        // Use the same split formatting as the Invoices table
+                        return `<td>${formatColumnValue(value, col, {})}</td>`;
                     }
                     return `<td>${value || '-'}</td>`;
                 }).join('');
@@ -1664,6 +1831,28 @@
             document.getElementById('editInvoiceValue').addEventListener('input', () => {
                 if (editAllocations.length > 0) {
                     renderEditAllocations();
+                }
+            });
+
+            // Toggle +/- icon on collapse show/hide
+            document.addEventListener('show.bs.collapse', (e) => {
+                const trigger = document.querySelector(`[href="#${e.target.id}"]`);
+                if (trigger) {
+                    const icon = trigger.querySelector('.toggle-icon');
+                    if (icon) {
+                        icon.classList.remove('bi-plus-circle');
+                        icon.classList.add('bi-dash-circle');
+                    }
+                }
+            });
+            document.addEventListener('hide.bs.collapse', (e) => {
+                const trigger = document.querySelector(`[href="#${e.target.id}"]`);
+                if (trigger) {
+                    const icon = trigger.querySelector('.toggle-icon');
+                    if (icon) {
+                        icon.classList.remove('bi-dash-circle');
+                        icon.classList.add('bi-plus-circle');
+                    }
                 }
             });
         });

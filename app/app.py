@@ -11,7 +11,7 @@ from services import (
 from invoice_parser import parse_invoice, parse_invoice_with_template_from_bytes, auto_detect_and_parse, generate_template_from_invoice
 from database import (
     get_all_invoices, get_invoice_with_allocations, search_invoices,
-    get_summary_by_company, get_summary_by_department, delete_invoice, update_invoice,
+    get_summary_by_company, get_summary_by_department, get_summary_by_brand, delete_invoice, update_invoice,
     update_invoice_allocations,
     get_all_invoice_templates, get_invoice_template, save_invoice_template,
     update_invoice_template, delete_invoice_template
@@ -348,6 +348,16 @@ def api_db_summary_department():
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     summary = get_summary_by_department(company, start_date, end_date)
+    return jsonify(summary)
+
+
+@app.route('/api/db/summary/brand')
+def api_db_summary_brand():
+    """Get summary grouped by brand (Linie de business)."""
+    company = request.args.get('company')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    summary = get_summary_by_brand(company, start_date, end_date)
     return jsonify(summary)
 
 

@@ -412,6 +412,51 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
     return results
 
 
+def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list[dict]:
+    """Get total allocation values grouped by brand (Linie de business) with invoice details."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    query = '''
+        SELECT a.brand,
+               SUM(a.allocation_value) as total_value,
+               COUNT(DISTINCT a.invoice_id) as invoice_count,
+               STRING_AGG(DISTINCT i.invoice_number, ', ') as invoice_numbers,
+               JSON_AGG(JSON_BUILD_OBJECT(
+                   'department', a.department,
+                   'subdepartment', a.subdepartment,
+                   'brand', a.brand,
+                   'value', a.allocation_value,
+                   'percent', ROUND(a.allocation_percent),
+                   'reinvoice_to', a.reinvoice_to
+               )) as split_values
+        FROM allocations a
+        JOIN invoices i ON a.invoice_id = i.id
+    '''
+    params = []
+    conditions = []
+
+    if company:
+        conditions.append('a.company = %s')
+        params.append(company)
+    if start_date:
+        conditions.append('i.invoice_date >= %s')
+        params.append(start_date)
+    if end_date:
+        conditions.append('i.invoice_date <= %s')
+        params.append(end_date)
+
+    if conditions:
+        query += ' WHERE ' + ' AND '.join(conditions)
+
+    query += ' GROUP BY a.brand ORDER BY total_value DESC'
+
+    cursor.execute(query, params)
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
 def delete_invoice(invoice_id: int) -> bool:
     """Delete an invoice and its allocations."""
     conn = get_db()
