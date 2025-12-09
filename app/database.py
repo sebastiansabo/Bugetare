@@ -134,6 +134,14 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_company ON allocations(company)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_department ON allocations(department)')
 
+        # Add comment column if it doesn't exist (for existing databases)
+        try:
+            cursor.execute('ALTER TABLE invoices ADD COLUMN comment TEXT')
+        except psycopg2.errors.DuplicateColumn:
+            conn.rollback()  # PostgreSQL requires rollback after error
+        except Exception:
+            conn.rollback()  # Catch any other errors
+
     else:
         # SQLite table definitions
         cursor.execute('''
