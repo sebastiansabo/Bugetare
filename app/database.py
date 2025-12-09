@@ -134,9 +134,13 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_company ON allocations(company)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_department ON allocations(department)')
 
+        # Commit table creation before attempting migrations
+        conn.commit()
+
         # Add comment column if it doesn't exist (for existing databases)
         try:
             cursor.execute('ALTER TABLE invoices ADD COLUMN comment TEXT')
+            conn.commit()
         except psycopg2.errors.DuplicateColumn:
             conn.rollback()  # PostgreSQL requires rollback after error
         except Exception:
@@ -760,17 +764,29 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
     """
     Replace all allocations for an invoice with new ones.
     This is a transactional operation - either all succeed or all fail.
+    allocation_value is calculated from invoice_value * (allocation_percent / 100)
     """
     conn = get_db()
     cursor = get_cursor(conn)
     ph = get_placeholder()
 
     try:
+        # Get invoice value to calculate allocation values
+        cursor.execute(f'SELECT invoice_value FROM invoices WHERE id = {ph}', (invoice_id,))
+        result = cursor.fetchone()
+        if not result:
+            raise ValueError(f"Invoice {invoice_id} not found")
+        invoice_value = result['invoice_value'] if USE_POSTGRES else result[0]
+
         # Delete existing allocations
         cursor.execute(f'DELETE FROM allocations WHERE invoice_id = {ph}', (invoice_id,))
 
         # Insert new allocations
         for alloc in allocations:
+            allocation_percent = alloc['allocation_percent']
+            # Calculate value from percent if not provided
+            allocation_value = alloc.get('allocation_value') or (invoice_value * allocation_percent / 100)
+
             cursor.execute(f'''
                 INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
                     allocation_percent, allocation_value, responsible, reinvoice_to)
@@ -781,8 +797,8 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
                 alloc.get('brand'),
                 alloc['department'],
                 alloc.get('subdepartment'),
-                alloc['allocation_percent'],
-                alloc['allocation_value'],
+                allocation_percent,
+                allocation_value,
                 alloc.get('responsible'),
                 alloc.get('reinvoice_to')
             ))
