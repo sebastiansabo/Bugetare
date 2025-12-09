@@ -2,6 +2,13 @@ name: bug-mkt
 region: fra
 features:
   - buildpack-stack=ubuntu-22
+envs:
+  - key: ANTHROPIC_API_KEY
+    scope: RUN_AND_BUILD_TIME
+    type: SECRET
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: ${mktdb.DATABASE_URL}
 services:
   - name: bugetare
     http_port: 8080
