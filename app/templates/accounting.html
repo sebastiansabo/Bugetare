@@ -23,6 +23,8 @@
         .column-list-item:last-child { border-bottom: none; }
         .column-list-item.disabled { opacity: 0.5; }
         .drag-handle { cursor: grab; color: #999; }
+        .column-list-item.dragging { opacity: 0.5; background: #e3f2fd; }
+        .column-list-item.drag-over { border-top: 2px solid #0d6efd; }
         .custom-column-badge { background: #198754; color: white; font-size: 0.7em; padding: 2px 6px; border-radius: 3px; }
     </style>
 </head>
@@ -155,15 +157,18 @@
             <!-- By Company Tab -->
             <div class="tab-pane fade" id="companyTab">
                 <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-building"></i> By Company</span>
+                        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#companyColumnConfigModal">
+                            <i class="bi bi-gear"></i> Configure Columns
+                        </button>
+                    </div>
                     <div class="card-body">
                         <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead class="table-light">
+                            <table class="table table-hover" id="companyDataTable">
+                                <thead class="table-light" id="companyTableHead">
                                     <tr>
-                                        <th>Company</th>
-                                        <th>Total Value</th>
-                                        <th>Invoice Count</th>
-                                        <th>Avg per Invoice</th>
+                                        <!-- Dynamic columns will be rendered here -->
                                     </tr>
                                 </thead>
                                 <tbody id="companyTable">
@@ -180,16 +185,18 @@
             <!-- By Department Tab -->
             <div class="tab-pane fade" id="departmentTab">
                 <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-diagram-3"></i> By Department</span>
+                        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#departmentColumnConfigModal">
+                            <i class="bi bi-gear"></i> Configure Columns
+                        </button>
+                    </div>
                     <div class="card-body">
                         <div class="table-responsive">
-                            <table class="table table-hover">
-                                <thead class="table-light">
+                            <table class="table table-hover" id="departmentDataTable">
+                                <thead class="table-light" id="departmentTableHead">
                                     <tr>
-                                        <th>Company</th>
-                                        <th>Department</th>
-                                        <th>Subdepartment</th>
-                                        <th>Total Value</th>
-                                        <th>Invoice Count</th>
+                                        <!-- Dynamic columns will be rendered here -->
                                     </tr>
                                 </thead>
                                 <tbody id="departmentTable">
@@ -292,6 +299,7 @@
                                         <option value="computed.allocation_count">Allocation Count</option>
                                         <option value="computed.companies_list">Companies (comma-sep)</option>
                                         <option value="computed.departments_list">Departments (comma-sep)</option>
+                                        <option value="computed.split_values">Split Values (all allocations)</option>
                                     </optgroup>
                                 </select>
                             </div>
@@ -303,6 +311,7 @@
                                     <option value="percent">Percentage</option>
                                     <option value="date">Date</option>
                                     <option value="link">Link (clickable)</option>
+                                    <option value="split">Split (allocation breakdown)</option>
                                 </select>
                             </div>
                             <button class="btn btn-success" id="addCustomColumnBtn">
@@ -313,6 +322,58 @@
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-outline-warning" id="resetColumnsBtn">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
+                    </button>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                        <i class="bi bi-check"></i> Done
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Company Column Configuration Modal -->
+    <div class="modal fade" id="companyColumnConfigModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-gear"></i> Configure Company Table Columns</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Toggle columns visibility.</p>
+                    <div id="companyColumnList" class="border rounded">
+                        <!-- Column items will be rendered here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-warning" id="resetCompanyColumnsBtn">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
+                    </button>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
+                        <i class="bi bi-check"></i> Done
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Department Column Configuration Modal -->
+    <div class="modal fade" id="departmentColumnConfigModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-gear"></i> Configure Department Table Columns</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Toggle columns visibility.</p>
+                    <div id="departmentColumnList" class="border rounded">
+                        <!-- Column items will be rendered here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-warning" id="resetDepartmentColumnsBtn">
                         <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
                     </button>
                     <button type="button" class="btn btn-primary" data-bs-dismiss="modal">
@@ -343,11 +404,33 @@
             { id: 'brand', name: 'Brand', source: 'allocation.brand', format: 'text', visible: false, custom: false },
             { id: 'responsible', name: 'Responsible', source: 'allocation.responsible', format: 'text', visible: false, custom: false },
             { id: 'reinvoice_to', name: 'Reinvoice To', source: 'allocation.reinvoice_to', format: 'text', visible: false, custom: false },
+            { id: 'split_values', name: 'Split Values', source: 'computed.split_values', format: 'split', visible: false, custom: false },
             { id: 'actions', name: 'Actions', source: 'special.actions', format: 'special', visible: true, custom: false },
             { id: 'drive', name: 'Drive', source: 'special.drive', format: 'special', visible: true, custom: false }
         ];
 
         let columnConfig = [];
+
+        // Default column configuration for Company view
+        const DEFAULT_COMPANY_COLUMNS = [
+            { id: 'company', name: 'Company', source: 'company', format: 'text', visible: true },
+            { id: 'total_value', name: 'Total Value', source: 'total_value', format: 'currency', visible: true },
+            { id: 'invoice_count', name: 'Invoice Count', source: 'invoice_count', format: 'text', visible: true },
+            { id: 'avg_value', name: 'Avg per Invoice', source: 'avg_value', format: 'currency', visible: true }
+        ];
+
+        // Default column configuration for Department view
+        const DEFAULT_DEPARTMENT_COLUMNS = [
+            { id: 'company', name: 'Company', source: 'company', format: 'text', visible: true },
+            { id: 'department', name: 'Department', source: 'department', format: 'text', visible: true },
+            { id: 'subdepartment', name: 'Subdepartment', source: 'subdepartment', format: 'text', visible: true },
+            { id: 'total_value', name: 'Total Value', source: 'total_value', format: 'currency', visible: true },
+            { id: 'invoice_count', name: 'Invoice Count', source: 'invoice_count', format: 'text', visible: true },
+            { id: 'avg_value', name: 'Avg per Invoice', source: 'avg_value', format: 'currency', visible: false }
+        ];
+
+        let companyColumnConfig = [];
+        let departmentColumnConfig = [];
 
         document.addEventListener('DOMContentLoaded', () => {
             loadColumnConfig();
@@ -356,6 +439,7 @@
         });
 
         function loadColumnConfig() {
+            // Invoice columns
             const saved = localStorage.getItem('accountingColumnConfig');
             if (saved) {
                 columnConfig = JSON.parse(saved);
@@ -363,11 +447,39 @@
                 columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
             }
             renderColumnList();
+
+            // Company columns
+            const savedCompany = localStorage.getItem('companyColumnConfig');
+            if (savedCompany) {
+                companyColumnConfig = JSON.parse(savedCompany);
+            } else {
+                companyColumnConfig = JSON.parse(JSON.stringify(DEFAULT_COMPANY_COLUMNS));
+            }
+            renderCompanyColumnList();
+
+            // Department columns
+            const savedDept = localStorage.getItem('departmentColumnConfig');
+            if (savedDept) {
+                departmentColumnConfig = JSON.parse(savedDept);
+            } else {
+                departmentColumnConfig = JSON.parse(JSON.stringify(DEFAULT_DEPARTMENT_COLUMNS));
+            }
+            renderDepartmentColumnList();
         }
 
         function saveColumnConfig() {
             localStorage.setItem('accountingColumnConfig', JSON.stringify(columnConfig));
             renderInvoicesTable(allInvoices);
+        }
+
+        function saveCompanyColumnConfig() {
+            localStorage.setItem('companyColumnConfig', JSON.stringify(companyColumnConfig));
+            loadCompanySummary();
+        }
+
+        function saveDepartmentColumnConfig() {
+            localStorage.setItem('departmentColumnConfig', JSON.stringify(departmentColumnConfig));
+            loadDepartmentSummary();
         }
 
         function resetColumnConfig() {
@@ -376,10 +488,22 @@
             renderColumnList();
         }
 
+        function resetCompanyColumnConfig() {
+            companyColumnConfig = JSON.parse(JSON.stringify(DEFAULT_COMPANY_COLUMNS));
+            saveCompanyColumnConfig();
+            renderCompanyColumnList();
+        }
+
+        function resetDepartmentColumnConfig() {
+            departmentColumnConfig = JSON.parse(JSON.stringify(DEFAULT_DEPARTMENT_COLUMNS));
+            saveDepartmentColumnConfig();
+            renderDepartmentColumnList();
+        }
+
         function renderColumnList() {
             const container = document.getElementById('columnList');
             container.innerHTML = columnConfig.map((col, idx) => `
-                <div class="column-list-item ${col.visible ? '' : 'disabled'}" data-idx="${idx}">
+                <div class="column-list-item ${col.visible ? '' : 'disabled'}" data-idx="${idx}" draggable="true">
                     <i class="bi bi-grip-vertical drag-handle"></i>
                     <div class="form-check form-switch">
                         <input class="form-check-input column-toggle" type="checkbox" ${col.visible ? 'checked' : ''} data-idx="${idx}">
@@ -412,6 +536,105 @@
                     renderColumnList();
                 });
             });
+
+            // Add drag-and-drop functionality
+            setupDragAndDrop(container, columnConfig, saveColumnConfig, renderColumnList);
+        }
+
+        function setupDragAndDrop(container, config, saveFunc, renderFunc) {
+            let draggedIdx = null;
+
+            container.querySelectorAll('.column-list-item').forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    draggedIdx = parseInt(item.dataset.idx);
+                    item.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                });
+
+                item.addEventListener('dragend', () => {
+                    item.classList.remove('dragging');
+                    container.querySelectorAll('.column-list-item').forEach(el => el.classList.remove('drag-over'));
+                });
+
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    const targetIdx = parseInt(item.dataset.idx);
+                    if (targetIdx !== draggedIdx) {
+                        item.classList.add('drag-over');
+                    }
+                });
+
+                item.addEventListener('dragleave', () => {
+                    item.classList.remove('drag-over');
+                });
+
+                item.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    const targetIdx = parseInt(item.dataset.idx);
+                    if (draggedIdx !== null && draggedIdx !== targetIdx) {
+                        // Reorder the config array
+                        const draggedItem = config[draggedIdx];
+                        config.splice(draggedIdx, 1);
+                        config.splice(targetIdx, 0, draggedItem);
+                        saveFunc();
+                        renderFunc();
+                    }
+                    item.classList.remove('drag-over');
+                });
+            });
+        }
+
+        function renderCompanyColumnList() {
+            const container = document.getElementById('companyColumnList');
+            container.innerHTML = companyColumnConfig.map((col, idx) => `
+                <div class="column-list-item ${col.visible ? '' : 'disabled'}" data-idx="${idx}" draggable="true">
+                    <i class="bi bi-grip-vertical drag-handle"></i>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input company-column-toggle" type="checkbox" ${col.visible ? 'checked' : ''} data-idx="${idx}">
+                    </div>
+                    <span class="flex-grow-1">${col.name}</span>
+                    <small class="text-muted">${col.source}</small>
+                </div>
+            `).join('');
+
+            container.querySelectorAll('.company-column-toggle').forEach(toggle => {
+                toggle.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.idx);
+                    companyColumnConfig[idx].visible = e.target.checked;
+                    saveCompanyColumnConfig();
+                    renderCompanyColumnList();
+                });
+            });
+
+            // Add drag-and-drop functionality
+            setupDragAndDrop(container, companyColumnConfig, saveCompanyColumnConfig, renderCompanyColumnList);
+        }
+
+        function renderDepartmentColumnList() {
+            const container = document.getElementById('departmentColumnList');
+            container.innerHTML = departmentColumnConfig.map((col, idx) => `
+                <div class="column-list-item ${col.visible ? '' : 'disabled'}" data-idx="${idx}" draggable="true">
+                    <i class="bi bi-grip-vertical drag-handle"></i>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input department-column-toggle" type="checkbox" ${col.visible ? 'checked' : ''} data-idx="${idx}">
+                    </div>
+                    <span class="flex-grow-1">${col.name}</span>
+                    <small class="text-muted">${col.source}</small>
+                </div>
+            `).join('');
+
+            container.querySelectorAll('.department-column-toggle').forEach(toggle => {
+                toggle.addEventListener('change', (e) => {
+                    const idx = parseInt(e.target.dataset.idx);
+                    departmentColumnConfig[idx].visible = e.target.checked;
+                    saveDepartmentColumnConfig();
+                    renderDepartmentColumnList();
+                });
+            });
+
+            // Add drag-and-drop functionality
+            setupDragAndDrop(container, departmentColumnConfig, saveDepartmentColumnConfig, renderDepartmentColumnList);
         }
 
         function addCustomColumn() {
@@ -462,6 +685,16 @@
             document.getElementById('resetColumnsBtn').addEventListener('click', () => {
                 if (confirm('Reset all columns to default? This will remove custom columns.')) {
                     resetColumnConfig();
+                }
+            });
+            document.getElementById('resetCompanyColumnsBtn').addEventListener('click', () => {
+                if (confirm('Reset company columns to default?')) {
+                    resetCompanyColumnConfig();
+                }
+            });
+            document.getElementById('resetDepartmentColumnsBtn').addEventListener('click', () => {
+                if (confirm('Reset department columns to default?')) {
+                    resetDepartmentColumnConfig();
                 }
             });
 
@@ -607,6 +840,13 @@
                         return [...new Set(allocations.map(a => a.company))].join(', ');
                     case 'departments_list':
                         return [...new Set(allocations.map(a => a.department))].join(', ');
+                    case 'split_values':
+                        return allocations.map(a => ({
+                            company: a.company,
+                            department: a.department,
+                            percent: a.allocation_percent,
+                            value: a.allocation_value
+                        }));
                     default:
                         return '-';
                 }
@@ -626,6 +866,17 @@
                     return value || '-';
                 case 'link':
                     return value ? `<a href="${value}" target="_blank">${value}</a>` : '-';
+                case 'split':
+                    if (Array.isArray(value) && value.length > 0) {
+                        return value.map(s =>
+                            `<div class="small border-start border-primary ps-2 mb-1">
+                                <span class="text-muted">${s.company}</span><br>
+                                <strong>${formatCurrency(s.value)} RON</strong>
+                                <span class="badge bg-secondary">${s.percent}%</span>
+                            </div>`
+                        ).join('');
+                    }
+                    return '-';
                 case 'special':
                     if (col.source === 'special.actions') {
                         return `<button class="btn btn-sm btn-outline-primary" onclick="showInvoiceDetail(${inv.id})">
@@ -668,38 +919,63 @@
         }
 
         function renderCompanyTable(data) {
+            const thead = document.getElementById('companyTableHead').querySelector('tr');
             const tbody = document.getElementById('companyTable');
+            const visibleCols = companyColumnConfig.filter(c => c.visible);
+
+            // Render header
+            thead.innerHTML = visibleCols.map(col => `<th>${col.name}</th>`).join('');
+
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No data</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="${visibleCols.length}" class="text-center text-muted">No data</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = data.map(row => `
-                <tr>
-                    <td><strong>${row.company}</strong></td>
-                    <td>${formatCurrency(row.total_value)} RON</td>
-                    <td>${row.invoice_count}</td>
-                    <td>${formatCurrency(row.total_value / row.invoice_count)} RON</td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = data.map(row => {
+                // Add computed avg_value
+                row.avg_value = row.total_value / row.invoice_count;
+
+                const cells = visibleCols.map(col => {
+                    let value = row[col.source];
+                    if (col.format === 'currency') {
+                        return `<td>${formatCurrency(value)} RON</td>`;
+                    } else if (col.id === 'company') {
+                        return `<td><strong>${value}</strong></td>`;
+                    }
+                    return `<td>${value || '-'}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
         }
 
         function renderDepartmentTable(data) {
+            const thead = document.getElementById('departmentTableHead').querySelector('tr');
             const tbody = document.getElementById('departmentTable');
+            const visibleCols = departmentColumnConfig.filter(c => c.visible);
+
+            // Render header
+            thead.innerHTML = visibleCols.map(col => `<th>${col.name}</th>`).join('');
+
             if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted">No data</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="${visibleCols.length}" class="text-center text-muted">No data</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = data.map(row => `
-                <tr>
-                    <td>${row.company}</td>
-                    <td><strong>${row.department}</strong></td>
-                    <td>${row.subdepartment || '-'}</td>
-                    <td>${formatCurrency(row.total_value)} RON</td>
-                    <td>${row.invoice_count}</td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = data.map(row => {
+                // Add computed avg_value
+                row.avg_value = row.total_value / row.invoice_count;
+
+                const cells = visibleCols.map(col => {
+                    let value = row[col.source];
+                    if (col.format === 'currency') {
+                        return `<td>${formatCurrency(value)} RON</td>`;
+                    } else if (col.id === 'department') {
+                        return `<td><strong>${value}</strong></td>`;
+                    }
+                    return `<td>${value || '-'}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
         }
 
         async function showInvoiceDetail(id) {
