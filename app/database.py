@@ -628,12 +628,54 @@ def update_invoice(
     params.append(invoice_id)
 
     query = f"UPDATE invoices SET {', '.join(updates)} WHERE id = %s"
-    cursor.execute(query, params)
-    updated = cursor.rowcount > 0
 
-    conn.commit()
+    try:
+        cursor.execute(query, params)
+        updated = cursor.rowcount > 0
+        conn.commit()
+        return updated
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"Invoice number already exists in database")
+        raise
+    finally:
+        conn.close()
+
+
+def check_invoice_number_exists(invoice_number: str, exclude_id: int = None) -> dict:
+    """Check if invoice number already exists in database.
+
+    Args:
+        invoice_number: The invoice number to check
+        exclude_id: Optional invoice ID to exclude (for edit operations)
+
+    Returns:
+        dict with 'exists' (bool) and 'invoice' (existing invoice data if found)
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    if exclude_id:
+        cursor.execute('''
+            SELECT id, supplier, invoice_number, invoice_date, invoice_value, currency
+            FROM invoices WHERE invoice_number = %s AND id != %s
+        ''', (invoice_number, exclude_id))
+    else:
+        cursor.execute('''
+            SELECT id, supplier, invoice_number, invoice_date, invoice_value, currency
+            FROM invoices WHERE invoice_number = %s
+        ''', (invoice_number,))
+
+    row = cursor.fetchone()
     conn.close()
-    return updated
+
+    if row:
+        return {
+            'exists': True,
+            'invoice': dict_from_row(row)
+        }
+    return {'exists': False, 'invoice': None}
 
 
 def search_invoices(query: str) -> list[dict]:

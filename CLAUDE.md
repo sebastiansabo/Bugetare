@@ -197,6 +197,28 @@ Each tab has its own column configuration stored in localStorage:
 
 Use "Configure Columns" button to show/hide and reorder columns.
 
+## Google Drive Integration
+
+### Authentication
+The app uses OAuth2 for Google Drive access (service accounts don't have storage quota for regular Drive folders).
+
+**Local Development:**
+- OAuth credentials stored in `oauth-credentials.json` (OAuth 2.0 Desktop Client)
+- Token stored in `oauth-token.json` (auto-refreshed)
+- Run `python -c 'from app.drive_service import setup_oauth; setup_oauth()'` to authenticate
+
+**Production (DigitalOcean):**
+- Set `GOOGLE_OAUTH_TOKEN` environment variable with contents of `oauth-token.json`
+
+### Upload Workflow
+Drive upload happens **after allocation confirmation** (not during parsing):
+1. User uploads invoice file → parsing extracts data (no Drive upload)
+2. User configures allocations
+3. User clicks "Save Distribution" → file uploaded to Drive, then saved to DB
+4. Files organized by: `Root Folder / Year / Supplier / filename`
+
+This ensures only confirmed invoices are uploaded to Drive.
+
 ## Recent Changes
 - Simplified database.py to PostgreSQL-only (removed SQLite)
 - Added customer_vat_regex extraction for all template types (not just "format")
@@ -207,3 +229,4 @@ Use "Configure Columns" button to show/hide and reorder columns.
 - Added smart split redistribution when adding/removing allocations in edit mode
 - Added collapsible Split Values column with +/- toggle and allocation summary
 - Added "By Brand" (Linie de business) tab view with Invoice #, Value, Split Values columns
+- Moved Drive upload from parsing to allocation confirmation (Save Distribution)

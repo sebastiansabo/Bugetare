@@ -14,7 +14,8 @@ from database import (
     get_summary_by_company, get_summary_by_department, get_summary_by_brand, delete_invoice, update_invoice,
     update_invoice_allocations,
     get_all_invoice_templates, get_invoice_template, save_invoice_template,
-    update_invoice_template, delete_invoice_template
+    update_invoice_template, delete_invoice_template,
+    check_invoice_number_exists
 )
 
 # Google Drive integration (optional)
@@ -147,6 +148,10 @@ def api_parse_invoice():
             # Auto-detect template based on supplier VAT, fall back to AI parsing
             templates = get_all_invoice_templates()
             result = auto_detect_and_parse(file_bytes, file.filename, templates)
+
+        # Drive upload is handled separately when user confirms allocation
+        # via /api/drive/upload endpoint called from frontend during submission
+        result['drive_link'] = None
 
         return jsonify({'success': True, 'data': result})
     except Exception as e:
@@ -340,6 +345,19 @@ def api_db_search():
         return jsonify([])
     results = search_invoices(query)
     return jsonify(results)
+
+
+@app.route('/api/db/check-invoice-number')
+def api_check_invoice_number():
+    """Check if an invoice number already exists in the database."""
+    invoice_number = request.args.get('invoice_number', '').strip()
+    exclude_id = request.args.get('exclude_id', type=int)
+
+    if not invoice_number:
+        return jsonify({'exists': False, 'invoice': None})
+
+    result = check_invoice_number_exists(invoice_number, exclude_id)
+    return jsonify(result)
 
 
 @app.route('/api/db/summary/company')

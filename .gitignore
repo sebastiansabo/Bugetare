@@ -19,6 +19,9 @@ autoworldro-*.json
 credentials.json
 token.pickle
 *.json.bak
+oauth-credentials.json
+oauth-token.json
+.playwright-mcp/
 
 # Database (local development)
 *.db

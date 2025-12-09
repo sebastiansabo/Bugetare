@@ -730,6 +730,11 @@
                 alertText.textContent = 'Invoice parsed with AI - review and edit fields if needed';
             }
 
+            // Store drive link if returned from parsing (uploaded during parse)
+            if (data.drive_link) {
+                document.getElementById('driveLink').value = data.drive_link;
+            }
+
             if (data.supplier) document.getElementById('supplier').value = data.supplier;
             if (data.customer_vat) document.getElementById('customerVat').value = data.customer_vat;
             if (data.invoice_number) document.getElementById('invoiceNumber').value = data.invoice_number;
@@ -1101,6 +1106,19 @@
             if (!supplier || !invoiceNumber || !invoiceDate || !invoiceValue) {
                 alert('Please fill in all required fields');
                 return;
+            }
+
+            // Check for duplicate invoice number
+            try {
+                const dupRes = await fetch(`/api/db/check-invoice-number?invoice_number=${encodeURIComponent(invoiceNumber)}`);
+                const dupResult = await dupRes.json();
+                if (dupResult.exists) {
+                    const existing = dupResult.invoice;
+                    alert(`Invoice number "${invoiceNumber}" already exists!\n\nExisting invoice:\n- Supplier: ${existing.supplier}\n- Date: ${existing.invoice_date}\n- Value: ${existing.invoice_value} ${existing.currency}`);
+                    return;
+                }
+            } catch (e) {
+                console.error('Error checking duplicate:', e);
             }
 
             // Get dedicated company

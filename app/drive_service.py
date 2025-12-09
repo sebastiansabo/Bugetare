@@ -1,7 +1,7 @@
 import os
 import io
+import json
 from datetime import datetime
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
 
@@ -11,49 +11,116 @@ SCOPES = ['https://www.googleapis.com/auth/drive.file']
 # Root folder ID from shared link
 ROOT_FOLDER_ID = '1MbMlTE0jKnZlxCL0sW1eY4umETOfcx9M'
 
-# Service account credentials file path
+# Credentials paths
 CREDENTIALS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVICE_ACCOUNT_FILE = os.path.join(CREDENTIALS_DIR, 'service-account.json')
+OAUTH_CREDENTIALS_FILE = os.path.join(CREDENTIALS_DIR, 'oauth-credentials.json')
+OAUTH_TOKEN_FILE = os.path.join(CREDENTIALS_DIR, 'oauth-token.json')
 
-# Alternative: credentials from environment variable (for production)
+# Environment variable alternatives
 SERVICE_ACCOUNT_JSON = os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')
+GOOGLE_OAUTH_CREDENTIALS = os.environ.get('GOOGLE_OAUTH_CREDENTIALS')
+GOOGLE_OAUTH_TOKEN = os.environ.get('GOOGLE_OAUTH_TOKEN')
 
 
 def get_drive_service():
-    """Get authenticated Google Drive service using Service Account."""
+    """Get authenticated Google Drive service.
+
+    Priority:
+    1. OAuth2 user credentials (works with regular Google Drive)
+    2. Service account (requires Shared Drive or domain-wide delegation)
+    """
+
+    # Try OAuth2 first (works with regular Drive)
+    if GOOGLE_OAUTH_TOKEN or os.path.exists(OAUTH_TOKEN_FILE):
+        try:
+            from google.oauth2.credentials import Credentials
+            from google.auth.transport.requests import Request
+
+            if GOOGLE_OAUTH_TOKEN:
+                token_info = json.loads(GOOGLE_OAUTH_TOKEN)
+            else:
+                with open(OAUTH_TOKEN_FILE, 'r') as f:
+                    token_info = json.load(f)
+
+            credentials = Credentials.from_authorized_user_info(token_info, SCOPES)
+
+            # Refresh if expired
+            if credentials.expired and credentials.refresh_token:
+                credentials.refresh(Request())
+                # Save refreshed token
+                if not GOOGLE_OAUTH_TOKEN and os.path.exists(OAUTH_TOKEN_FILE):
+                    with open(OAUTH_TOKEN_FILE, 'w') as f:
+                        f.write(credentials.to_json())
+
+            return build('drive', 'v3', credentials=credentials)
+        except Exception as e:
+            print(f"OAuth2 failed: {e}, falling back to service account")
+
+    # Fall back to service account
+    from google.oauth2 import service_account as sa
 
     if SERVICE_ACCOUNT_JSON:
-        # Use credentials from environment variable (recommended for production)
-        import json
         service_account_info = json.loads(SERVICE_ACCOUNT_JSON)
-        credentials = service_account.Credentials.from_service_account_info(
+        credentials = sa.Credentials.from_service_account_info(
             service_account_info, scopes=SCOPES
         )
     elif os.path.exists(SERVICE_ACCOUNT_FILE):
-        # Use credentials from file
-        credentials = service_account.Credentials.from_service_account_file(
+        credentials = sa.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_FILE, scopes=SCOPES
         )
     else:
         raise FileNotFoundError(
             f"Google Drive credentials not found.\n"
-            f"Either set GOOGLE_SERVICE_ACCOUNT_JSON environment variable,\n"
-            f"or place service-account.json at: {SERVICE_ACCOUNT_FILE}\n\n"
-            f"To create a service account:\n"
-            f"1. Go to Google Cloud Console -> IAM & Admin -> Service Accounts\n"
-            f"2. Create a service account\n"
-            f"3. Create a JSON key and download it\n"
-            f"4. Share your Google Drive folder with the service account email"
+            f"Either:\n"
+            f"1. Set up OAuth2: place oauth-credentials.json and run the auth flow\n"
+            f"2. Use service account: place service-account.json or set GOOGLE_SERVICE_ACCOUNT_JSON\n\n"
+            f"For OAuth2 setup, run: python -c 'from app.drive_service import setup_oauth; setup_oauth()'"
         )
 
     return build('drive', 'v3', credentials=credentials)
 
 
-def find_or_create_folder(service, folder_name: str, parent_id: str) -> str:
+def setup_oauth():
+    """Interactive OAuth2 setup for regular Google Drive access."""
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    if not os.path.exists(OAUTH_CREDENTIALS_FILE) and not GOOGLE_OAUTH_CREDENTIALS:
+        print("OAuth credentials not found!")
+        print(f"Please download OAuth 2.0 Client ID credentials from Google Cloud Console")
+        print(f"and save as: {OAUTH_CREDENTIALS_FILE}")
+        print("\nSteps:")
+        print("1. Go to Google Cloud Console -> APIs & Services -> Credentials")
+        print("2. Create OAuth 2.0 Client ID (Desktop application)")
+        print("3. Download JSON and save as oauth-credentials.json")
+        return
+
+    if GOOGLE_OAUTH_CREDENTIALS:
+        creds_info = json.loads(GOOGLE_OAUTH_CREDENTIALS)
+        flow = InstalledAppFlow.from_client_config(creds_info, SCOPES)
+    else:
+        flow = InstalledAppFlow.from_client_secrets_file(OAUTH_CREDENTIALS_FILE, SCOPES)
+
+    credentials = flow.run_local_server(port=0)
+
+    # Save the token
+    with open(OAUTH_TOKEN_FILE, 'w') as f:
+        f.write(credentials.to_json())
+
+    print(f"OAuth token saved to: {OAUTH_TOKEN_FILE}")
+    print("Google Drive is now authenticated!")
+
+
+def find_or_create_folder(service, folder_name: str, parent_id: str, supports_all_drives: bool = True) -> str:
     """Find existing folder or create new one. Returns folder ID."""
     # Search for existing folder
     query = f"name='{folder_name}' and '{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-    results = service.files().list(q=query, fields="files(id, name)").execute()
+    results = service.files().list(
+        q=query,
+        fields="files(id, name)",
+        supportsAllDrives=supports_all_drives,
+        includeItemsFromAllDrives=supports_all_drives
+    ).execute()
     files = results.get('files', [])
 
     if files:
@@ -65,7 +132,11 @@ def find_or_create_folder(service, folder_name: str, parent_id: str) -> str:
         'mimeType': 'application/vnd.google-apps.folder',
         'parents': [parent_id]
     }
-    folder = service.files().create(body=file_metadata, fields='id').execute()
+    folder = service.files().create(
+        body=file_metadata,
+        fields='id',
+        supportsAllDrives=supports_all_drives
+    ).execute()
     return folder['id']
 
 
@@ -115,7 +186,8 @@ def upload_invoice_to_drive(
     file = service.files().create(
         body=file_metadata,
         media_body=media,
-        fields='id, webViewLink'
+        fields='id, webViewLink',
+        supportsAllDrives=True
     ).execute()
 
     return file.get('webViewLink', f"https://drive.google.com/file/d/{file['id']}/view")

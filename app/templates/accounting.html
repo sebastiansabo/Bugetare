@@ -535,6 +535,18 @@
                                 <input type="text" class="form-control" id="editComment" placeholder="Add a comment...">
                             </div>
                         </div>
+                        <div class="row">
+                            <div class="col-md-12 mb-3">
+                                <label class="form-label">Upload Invoice File</label>
+                                <div class="input-group">
+                                    <input type="file" class="form-control" id="editInvoiceFile" accept=".pdf,.jpg,.jpeg,.png">
+                                    <button type="button" class="btn btn-outline-success" id="uploadEditFileBtn">
+                                        <i class="bi bi-cloud-upload"></i> Upload to Drive
+                                    </button>
+                                </div>
+                                <small class="text-muted">Upload a new invoice file to Google Drive (optional)</small>
+                            </div>
+                        </div>
 
                         <!-- Allocations Section -->
                         <h6 class="border-bottom pb-2 mb-3 mt-4">
@@ -924,6 +936,7 @@
             document.getElementById('deleteInvoiceBtn').addEventListener('click', handleDelete);
             document.getElementById('editInvoiceBtn').addEventListener('click', openEditModal);
             document.getElementById('saveInvoiceBtn').addEventListener('click', handleSaveInvoice);
+            document.getElementById('uploadEditFileBtn').addEventListener('click', handleEditFileUpload);
             document.getElementById('addAllocationBtn').addEventListener('click', addNewAllocation);
             document.getElementById('addCustomColumnBtn').addEventListener('click', addCustomColumn);
             document.getElementById('resetColumnsBtn').addEventListener('click', () => {
@@ -1443,9 +1456,15 @@
                             <i class="bi bi-eye"></i> View
                         </button>`;
                     } else if (col.source === 'special.drive') {
-                        return `<a href="${inv.drive_link || '#'}" target="_blank" class="btn btn-sm btn-outline-secondary ${!inv.drive_link ? 'disabled' : ''}">
-                            <i class="bi bi-cloud"></i>
-                        </a>`;
+                        if (inv.drive_link) {
+                            return `<a href="${inv.drive_link}" target="_blank" class="btn btn-sm btn-outline-success" title="Open in Google Drive">
+                                <i class="bi bi-cloud-arrow-down"></i>
+                            </a>`;
+                        } else {
+                            return `<span class="btn btn-sm btn-outline-secondary disabled" title="No file uploaded">
+                                <i class="bi bi-cloud"></i>
+                            </span>`;
+                        }
                     }
                     return '-';
                 default:
@@ -1606,6 +1625,7 @@
                                 <tr><th>Template</th><td>${invoice.invoice_template || '-'}</td></tr>
                                 <tr><th>Created</th><td>${invoice.created_at}</td></tr>
                                 ${invoice.comment ? `<tr><th>Comment</th><td><em>${invoice.comment}</em></td></tr>` : ''}
+                                <tr><th>Invoice File</th><td>${invoice.drive_link ? `<a href="${invoice.drive_link}" target="_blank" class="btn btn-sm btn-outline-success"><i class="bi bi-cloud"></i> View on Drive</a>` : '<span class="text-muted">Not uploaded</span>'}</td></tr>
                             </table>
                         </div>
                         <div class="col-md-6">
@@ -1701,6 +1721,53 @@
             bootstrap.Modal.getInstance(document.getElementById('invoiceModal')).hide();
             const editModal = new bootstrap.Modal(document.getElementById('editInvoiceModal'));
             editModal.show();
+
+            // Reset the file input
+            document.getElementById('editInvoiceFile').value = '';
+        }
+
+        async function handleEditFileUpload() {
+            const fileInput = document.getElementById('editInvoiceFile');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please select a file first');
+                return;
+            }
+
+            const supplier = document.getElementById('editSupplier').value || 'Unknown';
+            const invoiceDate = document.getElementById('editInvoiceDate').value || '';
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('supplier', supplier);
+            formData.append('invoice_date', invoiceDate);
+
+            const btn = document.getElementById('uploadEditFileBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Uploading...';
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/drive/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await res.json();
+
+                if (result.success && result.drive_link) {
+                    document.getElementById('editDriveLink').value = result.drive_link;
+                    alert('File uploaded successfully to Google Drive!');
+                    fileInput.value = '';
+                } else {
+                    alert('Upload failed: ' + (result.error || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Upload error: ' + e.message);
+            } finally {
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
         }
 
         async function handleSaveInvoice() {
@@ -1714,6 +1781,22 @@
             if (!dedicatedCompany) {
                 alert('Please select a company');
                 return;
+            }
+
+            // Check for duplicate invoice number
+            const invoiceNumber = document.getElementById('editInvoiceNumber').value.trim();
+            if (invoiceNumber) {
+                try {
+                    const dupRes = await fetch(`/api/db/check-invoice-number?invoice_number=${encodeURIComponent(invoiceNumber)}&exclude_id=${invoiceId}`);
+                    const dupResult = await dupRes.json();
+                    if (dupResult.exists) {
+                        const existing = dupResult.invoice;
+                        alert(`Invoice number "${invoiceNumber}" already exists!\n\nExisting invoice:\n- Supplier: ${existing.supplier}\n- Date: ${existing.invoice_date}\n- Value: ${existing.invoice_value} ${existing.currency}`);
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Error checking duplicate:', e);
+                }
             }
 
             // Validate allocations
