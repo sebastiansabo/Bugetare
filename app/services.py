@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Optional
 from models import InvoiceAllocation, load_structure
-from database import get_db, get_placeholder, save_invoice as db_save_invoice
+from database import get_db, get_placeholder, get_cursor, save_invoice as db_save_invoice
 
 
 def create_allocations(
@@ -134,9 +134,9 @@ def extract_vat_numbers(vat: str) -> str:
 
 
 def get_companies_with_vat() -> list[dict]:
-    """Load companies with VAT numbers from SQLite database."""
+    """Load companies with VAT numbers from database."""
     conn = get_db()
-    cursor = conn.cursor()
+    cursor = get_cursor(conn)
 
     cursor.execute('SELECT company, brands, vat FROM companies ORDER BY company')
     companies = [dict(row) for row in cursor.fetchall()]
