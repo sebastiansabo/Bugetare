@@ -200,6 +200,10 @@ Other important notes:
         if result.get('customer_vat'):
             result['customer_vat'] = normalize_vat_number(result['customer_vat'])
 
+        # Post-process: normalize invoice_date to YYYY-MM-DD format
+        if result.get('invoice_date'):
+            result['invoice_date'] = parse_romanian_date(result['invoice_date'])
+
         return result
     except json.JSONDecodeError as e:
         return {
