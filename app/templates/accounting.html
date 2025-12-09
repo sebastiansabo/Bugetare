@@ -84,29 +84,58 @@
 
         <!-- Filters -->
         <div class="filter-section">
-            <div class="row align-items-end">
-                <div class="col-md-4">
-                    <label class="form-label"><i class="bi bi-search"></i> Search</label>
-                    <input type="text" class="form-control" id="searchInput" placeholder="Search by supplier or invoice number...">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Start Date</label>
-                    <input type="date" class="form-control" id="startDate">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">End Date</label>
-                    <input type="date" class="form-control" id="endDate">
-                </div>
-                <div class="col-md-2">
-                    <label class="form-label">Company</label>
-                    <select class="form-select" id="companyFilter">
-                        <option value="">All Companies</option>
+            <div class="row align-items-end g-1">
+                <div class="col">
+                    <label class="form-label small mb-0">Company</label>
+                    <select class="form-select form-select-sm" id="companyFilter">
+                        <option value="">All</option>
                     </select>
                 </div>
-                <div class="col-md-2">
-                    <button class="btn btn-primary w-100" id="applyFilters">
-                        <i class="bi bi-funnel"></i> Apply Filters
+                <div class="col">
+                    <label class="form-label small mb-0">Department</label>
+                    <select class="form-select form-select-sm" id="departmentFilter" onchange="updateSubdepartmentFilter()">
+                        <option value="">All</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <label class="form-label small mb-0">Subdept</label>
+                    <select class="form-select form-select-sm" id="subdepartmentFilter">
+                        <option value="">All</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <label class="form-label small mb-0">Brand</label>
+                    <select class="form-select form-select-sm" id="brandFilter">
+                        <option value="">All</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <label class="form-label small mb-0">Start</label>
+                    <input type="date" class="form-control form-control-sm" id="startDate">
+                </div>
+                <div class="col">
+                    <label class="form-label small mb-0">End</label>
+                    <input type="date" class="form-control form-control-sm" id="endDate">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">Quick</label>
+                    <select class="form-select form-select-sm" id="quickFilter" onchange="setQuickFilter(this.value)">
+                        <option value="">--</option>
+                        <option value="week">Week</option>
+                        <option value="month">Month</option>
+                        <option value="quarter">Quarter</option>
+                        <option value="year">Year</option>
+                    </select>
+                </div>
+                <div class="col-auto d-flex align-items-end">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()" title="Clear Filters">
+                        <i class="bi bi-x-circle"></i>
                     </button>
+                </div>
+            </div>
+            <div class="row mt-2">
+                <div class="col">
+                    <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Search by supplier or invoice #...">
                 </div>
             </div>
         </div>
@@ -892,7 +921,6 @@
 
         function setupEventListeners() {
             document.getElementById('searchInput').addEventListener('input', debounce(handleSearch, 300));
-            document.getElementById('applyFilters').addEventListener('click', loadData);
             document.getElementById('deleteInvoiceBtn').addEventListener('click', handleDelete);
             document.getElementById('editInvoiceBtn').addEventListener('click', openEditModal);
             document.getElementById('saveInvoiceBtn').addEventListener('click', handleSaveInvoice);
@@ -928,6 +956,32 @@
             document.getElementById('columnConfigModal').addEventListener('hidden.bs.modal', () => {
                 renderInvoicesTable(allInvoices);
             });
+
+            // Dynamic filter listeners - auto-apply on change
+            document.getElementById('companyFilter').addEventListener('change', applyFiltersOnly);
+            document.getElementById('departmentFilter').addEventListener('change', () => {
+                updateSubdepartmentFilter();
+                applyFiltersOnly();
+            });
+            document.getElementById('subdepartmentFilter').addEventListener('change', applyFiltersOnly);
+            document.getElementById('brandFilter').addEventListener('change', applyFiltersOnly);
+            document.getElementById('startDate').addEventListener('change', applyFiltersOnly);
+            document.getElementById('endDate').addEventListener('change', applyFiltersOnly);
+            document.getElementById('quickFilter').addEventListener('change', (e) => {
+                if (e.target.value) {
+                    setQuickFilter(e.target.value);
+                }
+            });
+        }
+
+        // Apply filters without reloading filter dropdowns (to avoid infinite loop)
+        async function applyFiltersOnly() {
+            await Promise.all([
+                loadInvoices(),
+                loadCompanySummary(),
+                loadDepartmentSummary(),
+                loadBrandSummary()
+            ]);
         }
 
         function debounce(func, wait) {
@@ -944,14 +998,80 @@
                 loadCompanySummary(),
                 loadDepartmentSummary(),
                 loadBrandSummary(),
-                loadCompanyFilter()
+                loadCompanyFilter(),
+                loadDepartmentFilter(),
+                loadBrandFilter()
             ]);
             updateSummaryCards();
         }
 
+        function setQuickFilter(period) {
+            if (!period) return; // Empty selection, do nothing
+
+            const startDate = document.getElementById('startDate');
+            const endDate = document.getElementById('endDate');
+            const today = new Date();
+
+            if (period === 'week') {
+                // Get current day of week (0 = Sunday, 1 = Monday, etc.)
+                const dayOfWeek = today.getDay();
+                // Calculate Monday of current week (week starts on Monday)
+                const monday = new Date(today);
+                monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+                // Calculate Sunday of current week
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                startDate.value = monday.toISOString().split('T')[0];
+                endDate.value = sunday.toISOString().split('T')[0];
+            } else if (period === 'month') {
+                // First day of current month
+                const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+                // Last day of current month
+                const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+                startDate.value = firstDay.toISOString().split('T')[0];
+                endDate.value = lastDay.toISOString().split('T')[0];
+            } else if (period === 'quarter') {
+                // Determine current quarter (0-3)
+                const quarter = Math.floor(today.getMonth() / 3);
+                // First day of quarter
+                const firstDay = new Date(today.getFullYear(), quarter * 3, 1);
+                // Last day of quarter
+                const lastDay = new Date(today.getFullYear(), quarter * 3 + 3, 0);
+                startDate.value = firstDay.toISOString().split('T')[0];
+                endDate.value = lastDay.toISOString().split('T')[0];
+            } else if (period === 'year') {
+                // First day of current year
+                const firstDay = new Date(today.getFullYear(), 0, 1);
+                // Last day of current year
+                const lastDay = new Date(today.getFullYear(), 11, 31);
+                startDate.value = firstDay.toISOString().split('T')[0];
+                endDate.value = lastDay.toISOString().split('T')[0];
+            }
+
+            // Auto-apply filters
+            applyFiltersOnly();
+        }
+
         async function loadInvoices() {
             try {
-                const res = await fetch('/api/db/invoices');
+                // Build URL with filter parameters
+                const params = new URLSearchParams();
+                const company = document.getElementById('companyFilter').value;
+                const department = document.getElementById('departmentFilter').value;
+                const subdepartment = document.getElementById('subdepartmentFilter').value;
+                const brand = document.getElementById('brandFilter').value;
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+
+                if (company) params.append('company', company);
+                if (department) params.append('department', department);
+                if (subdepartment) params.append('subdepartment', subdepartment);
+                if (brand) params.append('brand', brand);
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+
+                const url = '/api/db/invoices' + (params.toString() ? '?' + params.toString() : '');
+                const res = await fetch(url);
                 allInvoices = await res.json();
 
                 // Check if we need allocation data for any visible column
@@ -992,12 +1112,91 @@
             }
         }
 
+        let departmentStructure = [];
+
+        async function loadDepartmentFilter() {
+            try {
+                const res = await fetch('/api/structure');
+                departmentStructure = await res.json();
+                const select = document.getElementById('departmentFilter');
+                select.innerHTML = '<option value="">All Departments</option>';
+                // Get unique departments
+                const departments = [...new Set(departmentStructure.map(s => s.department))].sort();
+                departments.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d;
+                    opt.textContent = d;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('Error loading departments:', e);
+            }
+        }
+
+        function updateSubdepartmentFilter() {
+            const department = document.getElementById('departmentFilter').value;
+            const select = document.getElementById('subdepartmentFilter');
+            select.innerHTML = '<option value="">All Subdepartments</option>';
+
+            if (department) {
+                // Get subdepartments for selected department
+                const subdepts = [...new Set(
+                    departmentStructure
+                        .filter(s => s.department === department && s.subdepartment)
+                        .map(s => s.subdepartment)
+                )].sort();
+                subdepts.forEach(sd => {
+                    const opt = document.createElement('option');
+                    opt.value = sd;
+                    opt.textContent = sd;
+                    select.appendChild(opt);
+                });
+            }
+        }
+
+        function clearFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            document.getElementById('quickFilter').value = '';
+            document.getElementById('companyFilter').value = '';
+            document.getElementById('departmentFilter').value = '';
+            document.getElementById('subdepartmentFilter').innerHTML = '<option value="">All Subdepartments</option>';
+            document.getElementById('brandFilter').value = '';
+            applyFiltersOnly();
+        }
+
+        async function loadBrandFilter() {
+            try {
+                const res = await fetch('/api/structure');
+                const structure = await res.json();
+                const select = document.getElementById('brandFilter');
+                select.innerHTML = '<option value="">All Brands</option>';
+                // Get unique brands
+                const brands = [...new Set(structure.filter(s => s.brand).map(s => s.brand))].sort();
+                brands.forEach(b => {
+                    const opt = document.createElement('option');
+                    opt.value = b;
+                    opt.textContent = b;
+                    select.appendChild(opt);
+                });
+            } catch (e) {
+                console.error('Error loading brands:', e);
+            }
+        }
+
         async function loadCompanySummary() {
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
+            const department = document.getElementById('departmentFilter').value;
+            const subdepartment = document.getElementById('subdepartmentFilter').value;
+            const brand = document.getElementById('brandFilter').value;
             const params = new URLSearchParams();
             if (startDate) params.append('start_date', startDate);
             if (endDate) params.append('end_date', endDate);
+            if (department) params.append('department', department);
+            if (subdepartment) params.append('subdepartment', subdepartment);
+            if (brand) params.append('brand', brand);
 
             try {
                 const res = await fetch(`/api/db/summary/company?${params}`);
@@ -1012,10 +1211,16 @@
             const company = document.getElementById('companyFilter').value;
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
+            const department = document.getElementById('departmentFilter').value;
+            const subdepartment = document.getElementById('subdepartmentFilter').value;
+            const brand = document.getElementById('brandFilter').value;
             const params = new URLSearchParams();
             if (company) params.append('company', company);
             if (startDate) params.append('start_date', startDate);
             if (endDate) params.append('end_date', endDate);
+            if (department) params.append('department', department);
+            if (subdepartment) params.append('subdepartment', subdepartment);
+            if (brand) params.append('brand', brand);
 
             try {
                 const res = await fetch(`/api/db/summary/department?${params}`);
@@ -1030,10 +1235,16 @@
             const company = document.getElementById('companyFilter').value;
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
+            const department = document.getElementById('departmentFilter').value;
+            const subdepartment = document.getElementById('subdepartmentFilter').value;
+            const brand = document.getElementById('brandFilter').value;
             const params = new URLSearchParams();
             if (company) params.append('company', company);
             if (startDate) params.append('start_date', startDate);
             if (endDate) params.append('end_date', endDate);
+            if (department) params.append('department', department);
+            if (subdepartment) params.append('subdepartment', subdepartment);
+            if (brand) params.append('brand', brand);
 
             try {
                 const res = await fetch(`/api/db/summary/brand?${params}`);

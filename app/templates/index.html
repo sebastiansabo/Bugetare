@@ -777,6 +777,9 @@
                     dedicatedCompanySelect.dispatchEvent(new Event('change'));
                 }
             }
+
+            // Update allocation values after invoice value is filled
+            updateAllocationValues();
         }
 
         async function addAllocationRow() {
@@ -1043,15 +1046,31 @@
             const distributions = [];
 
             for (const row of rows) {
-                const brand = row.querySelector('.brand-select').value;
+                const brandSelect = row.querySelector('.brand-select');
+                const brand = brandSelect.value;
                 const dept = row.querySelector('.department-select').value;
                 const subdept = row.querySelector('.subdepartment-select').value;
                 const allocation = parseFloat(row.querySelector('.allocation-input').value) / 100;
                 const reinvoiceCheck = row.querySelector('.reinvoice-check').checked;
                 const reinvoiceCompanyVal = row.querySelector('.reinvoice-company').value;
 
+                // Check if brand is mandatory (brands exist for this company)
+                const hasBrands = brandSelect.options.length > 1; // More than just "N/A"
+                if (hasBrands && !brand) {
+                    alert('Please select a Brand for all allocations (brands are available for this company)');
+                    return;
+                }
+
                 if (!dept) {
-                    alert('Please select department for all allocations');
+                    alert('Please select Department for all allocations');
+                    return;
+                }
+
+                // Check if subdepartment is mandatory (subdepartments exist for this department)
+                const subdeptSelect = row.querySelector('.subdepartment-select');
+                const hasSubdepts = subdeptSelect.options.length > 1; // More than just "N/A"
+                if (hasSubdepts && !subdept) {
+                    alert('Please select Subdepartment for all allocations (subdepartments are available for this department)');
                     return;
                 }
 

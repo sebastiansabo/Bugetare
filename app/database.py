@@ -275,17 +275,57 @@ def save_invoice(
         conn.close()
 
 
-def get_all_invoices(limit: int = 100, offset: int = 0) -> list[dict]:
-    """Get all invoices with pagination."""
+def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] = None,
+                     start_date: Optional[str] = None, end_date: Optional[str] = None,
+                     department: Optional[str] = None, subdepartment: Optional[str] = None,
+                     brand: Optional[str] = None) -> list[dict]:
+    """Get all invoices with pagination and optional filtering by allocation fields."""
     conn = get_db()
     cursor = get_cursor(conn)
 
-    cursor.execute('''
-        SELECT * FROM invoices
-        ORDER BY created_at DESC
-        LIMIT %s OFFSET %s
-    ''', (limit, offset))
+    # Build query with optional joins and filters
+    query = '''
+        SELECT DISTINCT i.*
+        FROM invoices i
+    '''
+    params = []
+    conditions = []
 
+    # If any allocation filter is set, join with allocations table
+    if company or department or subdepartment or brand:
+        query = '''
+            SELECT DISTINCT i.*
+            FROM invoices i
+            JOIN allocations a ON a.invoice_id = i.id
+        '''
+        if company:
+            conditions.append('a.company = %s')
+            params.append(company)
+        if department:
+            conditions.append('a.department = %s')
+            params.append(department)
+        if subdepartment:
+            conditions.append('a.subdepartment = %s')
+            params.append(subdepartment)
+        if brand:
+            conditions.append('a.brand = %s')
+            params.append(brand)
+
+    # Date filters on invoice table
+    if start_date:
+        conditions.append('i.invoice_date >= %s')
+        params.append(start_date)
+    if end_date:
+        conditions.append('i.invoice_date <= %s')
+        params.append(end_date)
+
+    if conditions:
+        query += ' WHERE ' + ' AND '.join(conditions)
+
+    query += ' ORDER BY i.created_at DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
     invoices = [dict_from_row(row) for row in cursor.fetchall()]
     conn.close()
     return invoices
@@ -348,7 +388,9 @@ def get_allocations_by_department(company: str, department: str) -> list[dict]:
     return results
 
 
-def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[str] = None) -> list[dict]:
+def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[str] = None,
+                          department: Optional[str] = None, subdepartment: Optional[str] = None,
+                          brand: Optional[str] = None) -> list[dict]:
     """Get total allocation values grouped by company."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -359,15 +401,25 @@ def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[
         JOIN invoices i ON a.invoice_id = i.id
     '''
     params = []
+    conditions = []
 
-    if start_date or end_date:
-        conditions = []
-        if start_date:
-            conditions.append('i.invoice_date >= %s')
-            params.append(start_date)
-        if end_date:
-            conditions.append('i.invoice_date <= %s')
-            params.append(end_date)
+    if start_date:
+        conditions.append('i.invoice_date >= %s')
+        params.append(start_date)
+    if end_date:
+        conditions.append('i.invoice_date <= %s')
+        params.append(end_date)
+    if department:
+        conditions.append('a.department = %s')
+        params.append(department)
+    if subdepartment:
+        conditions.append('a.subdepartment = %s')
+        params.append(subdepartment)
+    if brand:
+        conditions.append('a.brand = %s')
+        params.append(brand)
+
+    if conditions:
         query += ' WHERE ' + ' AND '.join(conditions)
 
     query += ' GROUP BY a.company ORDER BY total_value DESC'
@@ -378,7 +430,9 @@ def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[
     return results
 
 
-def get_summary_by_department(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list[dict]:
+def get_summary_by_department(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
+                              department: Optional[str] = None, subdepartment: Optional[str] = None,
+                              brand: Optional[str] = None) -> list[dict]:
     """Get total allocation values grouped by department."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -400,6 +454,15 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
     if end_date:
         conditions.append('i.invoice_date <= %s')
         params.append(end_date)
+    if department:
+        conditions.append('a.department = %s')
+        params.append(department)
+    if subdepartment:
+        conditions.append('a.subdepartment = %s')
+        params.append(subdepartment)
+    if brand:
+        conditions.append('a.brand = %s')
+        params.append(brand)
 
     if conditions:
         query += ' WHERE ' + ' AND '.join(conditions)
@@ -412,7 +475,9 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
     return results
 
 
-def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None) -> list[dict]:
+def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
+                         department: Optional[str] = None, subdepartment: Optional[str] = None,
+                         brand: Optional[str] = None) -> list[dict]:
     """Get total allocation values grouped by brand (Linie de business) with invoice details."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -445,6 +510,15 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
     if end_date:
         conditions.append('i.invoice_date <= %s')
         params.append(end_date)
+    if department:
+        conditions.append('a.department = %s')
+        params.append(department)
+    if subdepartment:
+        conditions.append('a.subdepartment = %s')
+        params.append(subdepartment)
+    if brand:
+        conditions.append('a.brand = %s')
+        params.append(brand)
 
     if conditions:
         query += ' WHERE ' + ' AND '.join(conditions)

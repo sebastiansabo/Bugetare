@@ -254,10 +254,20 @@ def accounting():
 
 @app.route('/api/db/invoices')
 def api_db_invoices():
-    """Get all invoices from database with pagination."""
+    """Get all invoices from database with pagination and optional filters."""
     limit = request.args.get('limit', 100, type=int)
     offset = request.args.get('offset', 0, type=int)
-    invoices = get_all_invoices(limit=limit, offset=offset)
+    company = request.args.get('company')
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    invoices = get_all_invoices(
+        limit=limit, offset=offset, company=company,
+        start_date=start_date, end_date=end_date,
+        department=department, subdepartment=subdepartment, brand=brand
+    )
     return jsonify(invoices)
 
 
@@ -337,7 +347,10 @@ def api_db_summary_company():
     """Get summary grouped by company."""
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    summary = get_summary_by_company(start_date, end_date)
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    summary = get_summary_by_company(start_date, end_date, department, subdepartment, brand)
     return jsonify(summary)
 
 
@@ -347,7 +360,10 @@ def api_db_summary_department():
     company = request.args.get('company')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    summary = get_summary_by_department(company, start_date, end_date)
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    summary = get_summary_by_department(company, start_date, end_date, department, subdepartment, brand)
     return jsonify(summary)
 
 
@@ -357,7 +373,10 @@ def api_db_summary_brand():
     company = request.args.get('company')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    summary = get_summary_by_brand(company, start_date, end_date)
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    summary = get_summary_by_brand(company, start_date, end_date, department, subdepartment, brand)
     return jsonify(summary)
 
 
