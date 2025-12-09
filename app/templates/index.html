@@ -240,13 +240,13 @@
                         <option value="">N/A</option>
                     </select>
                 </div>
-                <div class="col-md-3 mb-2">
+                <div class="col-md-2 mb-2">
                     <label class="form-label small">Department</label>
                     <select class="form-select form-select-sm department-select" required>
                         <option value="">Select...</option>
                     </select>
                 </div>
-                <div class="col-md-3 mb-2">
+                <div class="col-md-2 mb-2">
                     <label class="form-label small">Subdepartment</label>
                     <select class="form-select form-select-sm subdepartment-select">
                         <option value="">N/A</option>
@@ -254,7 +254,14 @@
                 </div>
                 <div class="col-md-2 mb-2">
                     <label class="form-label small">Allocation %</label>
-                    <input type="number" class="form-control form-control-sm allocation-input" min="0" max="100" value="100" required>
+                    <input type="number" class="form-control form-control-sm allocation-input" min="0" max="100" step="0.01" value="100" required>
+                </div>
+                <div class="col-md-3 mb-2">
+                    <label class="form-label small">Value</label>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control form-control-sm allocation-value-input" min="0" step="0.01" value="0">
+                        <span class="input-group-text currency-label">RON</span>
+                    </div>
                 </div>
                 <div class="col-md-1 mb-2">
                     <button type="button" class="btn btn-outline-danger btn-sm remove-allocation">
@@ -521,6 +528,12 @@
 
             // Dedicated Company change - reload allocation rows
             document.getElementById('dedicatedCompany').addEventListener('change', onDedicatedCompanyChange);
+
+            // Invoice Value change - update allocation values
+            document.getElementById('invoiceValue').addEventListener('input', updateAllocationValues);
+
+            // Currency change - update labels
+            document.getElementById('currency').addEventListener('change', updateTotalAllocation);
         }
 
         async function onDedicatedCompanyChange() {
@@ -789,6 +802,8 @@
             const deptSelect = row.querySelector('.department-select');
             const subdeptSelect = row.querySelector('.subdepartment-select');
             const allocationInput = row.querySelector('.allocation-input');
+            const allocationValueInput = row.querySelector('.allocation-value-input');
+            const currencyLabel = row.querySelector('.currency-label');
             const managerDisplay = row.querySelector('.manager-display');
             const removeBtn = row.querySelector('.remove-allocation');
             const reinvoiceCheck = row.querySelector('.reinvoice-check');
@@ -868,28 +883,142 @@
                 }
             }
 
-            allocationInput.addEventListener('input', updateTotalAllocation);
+            // Sync percentage and value inputs with smart redistribution
+            allocationInput.addEventListener('input', () => {
+                const rowElement = allocationInput.closest('.allocation-row');
+                onAllocationChange(rowElement, 'percent');
+            });
+
+            allocationValueInput.addEventListener('input', () => {
+                const rowElement = allocationValueInput.closest('.allocation-row');
+                onAllocationChange(rowElement, 'value');
+            });
 
             removeBtn.addEventListener('click', () => {
                 removeBtn.closest('.allocation-row').remove();
-                updateTotalAllocation();
+                redistributeAllocations(); // Redistribute after removing
             });
 
             container.appendChild(row);
-            updateTotalAllocation();
+            redistributeAllocations(); // Smart redistribute when adding
         }
 
         function updateTotalAllocation() {
-            const inputs = document.querySelectorAll('.allocation-input');
-            let total = 0;
-            inputs.forEach(input => {
-                total += parseFloat(input.value) || 0;
+            const percentInputs = document.querySelectorAll('.allocation-input');
+            const valueInputs = document.querySelectorAll('.allocation-value-input');
+            const invoiceValue = parseFloat(document.getElementById('invoiceValue').value) || 0;
+            const currency = document.getElementById('currency').value || 'RON';
+
+            let totalPercent = 0;
+            let totalValue = 0;
+            percentInputs.forEach(input => {
+                totalPercent += parseFloat(input.value) || 0;
+            });
+            valueInputs.forEach(input => {
+                totalValue += parseFloat(input.value) || 0;
             });
 
             const display = document.getElementById('totalAllocation');
-            display.textContent = `${total}%`;
+            display.textContent = `${totalPercent.toFixed(2)}% | ${formatCurrency(totalValue)} ${currency}`;
             display.classList.remove('valid', 'invalid');
-            display.classList.add(Math.abs(total - 100) < 0.01 ? 'valid' : 'invalid');
+            display.classList.add(Math.abs(totalPercent - 100) < 0.01 ? 'valid' : 'invalid');
+
+            // Update currency labels in allocation rows
+            document.querySelectorAll('.currency-label').forEach(label => {
+                label.textContent = currency;
+            });
+        }
+
+        function formatCurrency(value) {
+            return new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+        }
+
+        function updateAllocationValues() {
+            const invoiceValue = parseFloat(document.getElementById('invoiceValue').value) || 0;
+            const rows = document.querySelectorAll('.allocation-row');
+            rows.forEach(row => {
+                const percentInput = row.querySelector('.allocation-input');
+                const valueInput = row.querySelector('.allocation-value-input');
+                const percent = parseFloat(percentInput.value) || 0;
+                valueInput.value = ((invoiceValue * percent) / 100).toFixed(2);
+            });
+            updateTotalAllocation();
+        }
+
+        // Smart allocation splitting - redistributes percentages when adding/removing allocations
+        function redistributeAllocations() {
+            const rows = document.querySelectorAll('.allocation-row');
+            const count = rows.length;
+            if (count === 0) return;
+
+            const invoiceValue = parseFloat(document.getElementById('invoiceValue').value) || 0;
+            let percentages = getSmartSplit(count);
+
+            rows.forEach((row, idx) => {
+                const percentInput = row.querySelector('.allocation-input');
+                const valueInput = row.querySelector('.allocation-value-input');
+                percentInput.value = percentages[idx].toFixed(2);
+                valueInput.value = ((invoiceValue * percentages[idx]) / 100).toFixed(2);
+            });
+            updateTotalAllocation();
+        }
+
+        // Get smart split percentages based on count
+        // 1: 100%, 2: 50-50, 3: 40-30-30, 4: 40-20-20-20, etc.
+        function getSmartSplit(count) {
+            if (count === 1) return [100];
+            if (count === 2) return [50, 50];
+
+            // For 3+: first gets 40%, rest split equally
+            const firstPercent = 40;
+            const remaining = 100 - firstPercent;
+            const otherPercent = remaining / (count - 1);
+
+            const result = [firstPercent];
+            for (let i = 1; i < count; i++) {
+                result.push(otherPercent);
+            }
+            return result;
+        }
+
+        // When user changes an allocation, redistribute the difference to others
+        function onAllocationChange(changedRow, changeType) {
+            const rows = Array.from(document.querySelectorAll('.allocation-row'));
+            const count = rows.length;
+            if (count <= 1) {
+                updateTotalAllocation();
+                return;
+            }
+
+            const invoiceValue = parseFloat(document.getElementById('invoiceValue').value) || 0;
+            const changedPercentInput = changedRow.querySelector('.allocation-input');
+            const changedValueInput = changedRow.querySelector('.allocation-value-input');
+
+            let changedPercent;
+            if (changeType === 'percent') {
+                changedPercent = parseFloat(changedPercentInput.value) || 0;
+                changedValueInput.value = ((invoiceValue * changedPercent) / 100).toFixed(2);
+            } else {
+                const changedValue = parseFloat(changedValueInput.value) || 0;
+                changedPercent = invoiceValue > 0 ? (changedValue / invoiceValue) * 100 : 0;
+                changedPercentInput.value = changedPercent.toFixed(2);
+            }
+
+            // Calculate remaining percentage to distribute
+            const remaining = 100 - changedPercent;
+            const otherRows = rows.filter(r => r !== changedRow);
+
+            if (otherRows.length > 0 && remaining >= 0) {
+                const perOther = remaining / otherRows.length;
+                otherRows.forEach(row => {
+                    const pInput = row.querySelector('.allocation-input');
+                    const vInput = row.querySelector('.allocation-value-input');
+                    pInput.value = perOther.toFixed(2);
+                    vInput.value = ((invoiceValue * perOther) / 100).toFixed(2);
+                });
+            }
+
+            updateTotalAllocation();
         }
 
         async function uploadToDrive(file, supplier, invoiceDate) {

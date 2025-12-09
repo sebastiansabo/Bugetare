@@ -12,6 +12,7 @@ from invoice_parser import parse_invoice, parse_invoice_with_template_from_bytes
 from database import (
     get_all_invoices, get_invoice_with_allocations, search_invoices,
     get_summary_by_company, get_summary_by_department, delete_invoice, update_invoice,
+    update_invoice_allocations,
     get_all_invoice_templates, get_invoice_template, save_invoice_template,
     update_invoice_template, delete_invoice_template
 )
@@ -288,14 +289,35 @@ def api_db_update_invoice(invoice_id):
             supplier=data.get('supplier'),
             invoice_number=data.get('invoice_number'),
             invoice_date=data.get('invoice_date'),
-            invoice_value=float(data['invoice_value']) if data.get('invoice_value') is not None else None,
+            invoice_value=float(data['invoice_value']) if data.get('invoice_value') else None,
             currency=data.get('currency'),
             drive_link=data.get('drive_link'),
             comment=data.get('comment')
         )
         if updated:
             return jsonify({'success': True})
-        return jsonify({'success': False, 'error': 'Invoice not found'}), 404
+        return jsonify({'error': 'Invoice not found or no changes made'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/db/invoices/<int:invoice_id>/allocations', methods=['PUT'])
+def api_db_update_allocations(invoice_id):
+    """Update all allocations for an invoice."""
+    data = request.json
+    allocations = data.get('allocations', [])
+
+    if not allocations:
+        return jsonify({'success': False, 'error': 'At least one allocation is required'}), 400
+
+    # Validate allocations sum to 100%
+    total_percent = sum(float(a.get('allocation_percent', 0)) for a in allocations)
+    if abs(total_percent - 100) > 0.01:
+        return jsonify({'success': False, 'error': f'Allocations must sum to 100%, got {total_percent}%'}), 400
+
+    try:
+        update_invoice_allocations(invoice_id, allocations)
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

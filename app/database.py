@@ -134,12 +134,6 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_company ON allocations(company)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_department ON allocations(department)')
 
-        # Add comment column to invoices if it doesn't exist (for existing databases)
-        try:
-            cursor.execute('ALTER TABLE invoices ADD COLUMN IF NOT EXISTS comment TEXT')
-        except Exception:
-            pass  # Column might already exist or syntax not supported
-
     else:
         # SQLite table definitions
         cursor.execute('''
@@ -182,7 +176,7 @@ def init_db():
         except sqlite3.OperationalError:
             pass  # Column already exists
 
-        # Add comment column to invoices if it doesn't exist (for existing databases)
+        # Add comment column if it doesn't exist (for existing databases)
         try:
             cursor.execute('ALTER TABLE invoices ADD COLUMN comment TEXT')
         except sqlite3.OperationalError:
@@ -609,17 +603,12 @@ def update_invoice(
     params.append(invoice_id)
 
     query = f"UPDATE invoices SET {', '.join(updates)} WHERE id = {ph}"
+    cursor.execute(query, params)
+    updated = cursor.rowcount > 0
 
-    try:
-        cursor.execute(query, params)
-        updated = cursor.rowcount > 0
-        conn.commit()
-        return updated
-    except Exception as e:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def search_invoices(query: str) -> list[dict]:
@@ -639,6 +628,164 @@ def search_invoices(query: str) -> list[dict]:
     results = [dict_from_row(row) for row in cursor.fetchall()]
     conn.close()
     return results
+
+
+# ============== ALLOCATION FUNCTIONS ==============
+
+def update_allocation(
+    allocation_id: int,
+    company: str = None,
+    brand: str = None,
+    department: str = None,
+    subdepartment: str = None,
+    allocation_percent: float = None,
+    allocation_value: float = None,
+    responsible: str = None,
+    reinvoice_to: str = None
+) -> bool:
+    """Update an existing allocation."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    ph = get_placeholder()
+
+    updates = []
+    params = []
+
+    if company is not None:
+        updates.append(f'company = {ph}')
+        params.append(company)
+    if brand is not None:
+        updates.append(f'brand = {ph}')
+        params.append(brand)
+    if department is not None:
+        updates.append(f'department = {ph}')
+        params.append(department)
+    if subdepartment is not None:
+        updates.append(f'subdepartment = {ph}')
+        params.append(subdepartment)
+    if allocation_percent is not None:
+        updates.append(f'allocation_percent = {ph}')
+        params.append(allocation_percent)
+    if allocation_value is not None:
+        updates.append(f'allocation_value = {ph}')
+        params.append(allocation_value)
+    if responsible is not None:
+        updates.append(f'responsible = {ph}')
+        params.append(responsible)
+    if reinvoice_to is not None:
+        updates.append(f'reinvoice_to = {ph}')
+        params.append(reinvoice_to)
+
+    if not updates:
+        conn.close()
+        return False
+
+    params.append(allocation_id)
+    query = f"UPDATE allocations SET {', '.join(updates)} WHERE id = {ph}"
+    cursor.execute(query, params)
+    updated = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def delete_allocation(allocation_id: int) -> bool:
+    """Delete an allocation."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    ph = get_placeholder()
+
+    cursor.execute(f'DELETE FROM allocations WHERE id = {ph}', (allocation_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def add_allocation(
+    invoice_id: int,
+    company: str,
+    department: str,
+    allocation_percent: float,
+    allocation_value: float,
+    brand: str = None,
+    subdepartment: str = None,
+    responsible: str = None,
+    reinvoice_to: str = None
+) -> int:
+    """Add a new allocation to an invoice. Returns allocation ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    ph = get_placeholder()
+
+    try:
+        if USE_POSTGRES:
+            cursor.execute(f'''
+                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
+                    allocation_percent, allocation_value, responsible, reinvoice_to)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+                RETURNING id
+            ''', (invoice_id, company, brand, department, subdepartment,
+                  allocation_percent, allocation_value, responsible, reinvoice_to))
+            allocation_id = cursor.fetchone()['id']
+        else:
+            cursor.execute(f'''
+                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
+                    allocation_percent, allocation_value, responsible, reinvoice_to)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            ''', (invoice_id, company, brand, department, subdepartment,
+                  allocation_percent, allocation_value, responsible, reinvoice_to))
+            allocation_id = cursor.lastrowid
+
+        conn.commit()
+        return allocation_id
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool:
+    """
+    Replace all allocations for an invoice with new ones.
+    This is a transactional operation - either all succeed or all fail.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+    ph = get_placeholder()
+
+    try:
+        # Delete existing allocations
+        cursor.execute(f'DELETE FROM allocations WHERE invoice_id = {ph}', (invoice_id,))
+
+        # Insert new allocations
+        for alloc in allocations:
+            cursor.execute(f'''
+                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
+                    allocation_percent, allocation_value, responsible, reinvoice_to)
+                VALUES ({ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph}, {ph})
+            ''', (
+                invoice_id,
+                alloc['company'],
+                alloc.get('brand'),
+                alloc['department'],
+                alloc.get('subdepartment'),
+                alloc['allocation_percent'],
+                alloc['allocation_value'],
+                alloc.get('responsible'),
+                alloc.get('reinvoice_to')
+            ))
+
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 # ============== INVOICE TEMPLATE FUNCTIONS ==============
