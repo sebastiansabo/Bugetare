@@ -1,9 +1,11 @@
 import os
+import json
 from datetime import datetime
 from typing import Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # PostgreSQL connection - DATABASE_URL is required
 DATABASE_URL = os.environ.get('DATABASE_URL')
@@ -105,8 +107,26 @@ def init_db():
             subdepartment TEXT,
             manager TEXT,
             marketing TEXT,
+            responsable_id INTEGER REFERENCES responsables(id) ON DELETE SET NULL,
+            manager_ids INTEGER[],
+            marketing_ids INTEGER[],
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    ''')
+
+    # Add manager_ids and marketing_ids columns if they don't exist
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'department_structure' AND column_name = 'manager_ids') THEN
+                ALTER TABLE department_structure ADD COLUMN manager_ids INTEGER[];
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'department_structure' AND column_name = 'marketing_ids') THEN
+                ALTER TABLE department_structure ADD COLUMN marketing_ids INTEGER[];
+            END IF;
+        END $$;
     ''')
 
     cursor.execute('''
@@ -148,10 +168,130 @@ def init_db():
         )
     ''')
 
+    # Roles table - defines permission sets
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS roles (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            description TEXT,
+            can_add_invoices BOOLEAN DEFAULT FALSE,
+            can_delete_invoices BOOLEAN DEFAULT FALSE,
+            can_view_invoices BOOLEAN DEFAULT FALSE,
+            can_access_accounting BOOLEAN DEFAULT FALSE,
+            can_access_settings BOOLEAN DEFAULT FALSE,
+            can_access_connectors BOOLEAN DEFAULT FALSE,
+            can_access_templates BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Users table - references role
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            phone TEXT,
+            password_hash TEXT,
+            role_id INTEGER REFERENCES roles(id),
+            is_active BOOLEAN DEFAULT TRUE,
+            last_login TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Add password_hash and last_login columns if they don't exist (migration)
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'password_hash') THEN
+                ALTER TABLE users ADD COLUMN password_hash TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'last_login') THEN
+                ALTER TABLE users ADD COLUMN last_login TIMESTAMP;
+            END IF;
+        END $$;
+    ''')
+
+    # Insert default roles if they don't exist
+    cursor.execute('''
+        INSERT INTO roles (name, description, can_add_invoices, can_delete_invoices, can_view_invoices,
+                          can_access_accounting, can_access_settings, can_access_connectors, can_access_templates)
+        VALUES
+            ('Admin', 'Full access to all features', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
+            ('Manager', 'Can manage invoices and view reports', TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE),
+            ('User', 'Can add and view invoices', TRUE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE),
+            ('Viewer', 'Read-only access to invoices', FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE)
+        ON CONFLICT (name) DO NOTHING
+    ''')
+
+    # Responsables table - people responsible for departments who receive notifications
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS responsables (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE,
+            phone TEXT,
+            departments TEXT,
+            notify_on_allocation BOOLEAN DEFAULT TRUE,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Notification settings table - email/SMTP configuration
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notification_settings (
+            id SERIAL PRIMARY KEY,
+            setting_key TEXT NOT NULL UNIQUE,
+            setting_value TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Notification log table - track sent notifications
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS notification_log (
+            id SERIAL PRIMARY KEY,
+            responsable_id INTEGER REFERENCES responsables(id),
+            invoice_id INTEGER REFERENCES invoices(id) ON DELETE CASCADE,
+            notification_type TEXT NOT NULL,
+            subject TEXT,
+            message TEXT,
+            status TEXT DEFAULT 'pending',
+            error_message TEXT,
+            sent_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # User events/audit log table - tracks user actions
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_events (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            user_email TEXT,
+            event_type TEXT NOT NULL,
+            event_description TEXT,
+            entity_type TEXT,
+            entity_id INTEGER,
+            ip_address TEXT,
+            user_agent TEXT,
+            details JSONB DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # Create indexes
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_company ON allocations(company)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_department ON allocations(department)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_events_user_id ON user_events(user_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_events_event_type ON user_events(event_type)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_events_created_at ON user_events(created_at DESC)')
 
     # Commit table creation before attempting migrations
     conn.commit()
@@ -231,6 +371,42 @@ def init_db():
     # Create index for soft delete queries
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_deleted_at ON invoices(deleted_at)')
     conn.commit()
+
+    # Add role_id column to users table if it doesn't exist (migration from old schema)
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN role_id INTEGER REFERENCES roles(id)')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Add is_active column to users table if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Add updated_at column to users table if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE users ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Add responsable_id column to department_structure if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE department_structure ADD COLUMN responsable_id INTEGER REFERENCES responsables(id) ON DELETE SET NULL')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
 
     # Seed initial data if tables are empty
     cursor.execute('SELECT COUNT(*) FROM department_structure')
@@ -1452,6 +1628,1015 @@ def get_connector_sync_logs(connector_id: int, limit: int = 20) -> list[dict]:
     logs = [dict_from_row(row) for row in cursor.fetchall()]
     conn.close()
     return logs
+
+
+# ============ Role Management Functions ============
+
+def get_all_roles() -> list[dict]:
+    """Get all roles."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM roles ORDER BY name')
+    roles = [dict_from_row(row) for row in cursor.fetchall()]
+
+    conn.close()
+    return roles
+
+
+def get_role(role_id: int) -> Optional[dict]:
+    """Get a specific role by ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM roles WHERE id = %s', (role_id,))
+    role = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(role) if role else None
+
+
+def save_role(
+    name: str,
+    description: str = None,
+    can_add_invoices: bool = False,
+    can_delete_invoices: bool = False,
+    can_view_invoices: bool = False,
+    can_access_accounting: bool = False,
+    can_access_settings: bool = False,
+    can_access_connectors: bool = False,
+    can_access_templates: bool = False
+) -> int:
+    """Save a new role. Returns role ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    try:
+        cursor.execute('''
+            INSERT INTO roles (name, description, can_add_invoices, can_delete_invoices,
+                can_view_invoices, can_access_accounting, can_access_settings,
+                can_access_connectors, can_access_templates)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            name, description, can_add_invoices, can_delete_invoices,
+            can_view_invoices, can_access_accounting, can_access_settings,
+            can_access_connectors, can_access_templates
+        ))
+
+        role_id = cursor.fetchone()['id']
+        conn.commit()
+        return role_id
+
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"Role '{name}' already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def update_role(
+    role_id: int,
+    name: str = None,
+    description: str = None,
+    can_add_invoices: bool = None,
+    can_delete_invoices: bool = None,
+    can_view_invoices: bool = None,
+    can_access_accounting: bool = None,
+    can_access_settings: bool = None,
+    can_access_connectors: bool = None,
+    can_access_templates: bool = None
+) -> bool:
+    """Update a role. Returns True if updated."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    updates = []
+    params = []
+
+    if name is not None:
+        updates.append('name = %s')
+        params.append(name)
+    if description is not None:
+        updates.append('description = %s')
+        params.append(description)
+    if can_add_invoices is not None:
+        updates.append('can_add_invoices = %s')
+        params.append(can_add_invoices)
+    if can_delete_invoices is not None:
+        updates.append('can_delete_invoices = %s')
+        params.append(can_delete_invoices)
+    if can_view_invoices is not None:
+        updates.append('can_view_invoices = %s')
+        params.append(can_view_invoices)
+    if can_access_accounting is not None:
+        updates.append('can_access_accounting = %s')
+        params.append(can_access_accounting)
+    if can_access_settings is not None:
+        updates.append('can_access_settings = %s')
+        params.append(can_access_settings)
+    if can_access_connectors is not None:
+        updates.append('can_access_connectors = %s')
+        params.append(can_access_connectors)
+    if can_access_templates is not None:
+        updates.append('can_access_templates = %s')
+        params.append(can_access_templates)
+
+    if not updates:
+        conn.close()
+        return False
+
+    params.append(role_id)
+    query = f"UPDATE roles SET {', '.join(updates)} WHERE id = %s"
+
+    try:
+        cursor.execute(query, params)
+        updated = cursor.rowcount > 0
+        conn.commit()
+        return updated
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"Role with that name already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def delete_role(role_id: int) -> bool:
+    """Delete a role. Returns False if role is in use by users."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Check if role is in use
+    cursor.execute('SELECT COUNT(*) as count FROM users WHERE role_id = %s', (role_id,))
+    if cursor.fetchone()['count'] > 0:
+        conn.close()
+        raise ValueError("Cannot delete role that is assigned to users")
+
+    cursor.execute('DELETE FROM roles WHERE id = %s', (role_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ============ User Management Functions ============
+
+def get_all_users() -> list[dict]:
+    """Get all users with their role information."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT u.*, r.name as role_name, r.description as role_description
+        FROM users u
+        LEFT JOIN roles r ON u.role_id = r.id
+        ORDER BY u.name
+    ''')
+    users = [dict_from_row(row) for row in cursor.fetchall()]
+
+    conn.close()
+    return users
+
+
+def get_user(user_id: int) -> Optional[dict]:
+    """Get a specific user by ID with role information."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT u.*, r.name as role_name, r.description as role_description,
+               r.can_add_invoices, r.can_delete_invoices, r.can_view_invoices,
+               r.can_access_accounting, r.can_access_settings, r.can_access_connectors,
+               r.can_access_templates
+        FROM users u
+        LEFT JOIN roles r ON u.role_id = r.id
+        WHERE u.id = %s
+    ''', (user_id,))
+    user = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(user) if user else None
+
+
+def get_user_by_email(email: str) -> Optional[dict]:
+    """Get a user by email address with role information."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT u.*, r.name as role_name, r.description as role_description,
+               r.can_add_invoices, r.can_delete_invoices, r.can_view_invoices,
+               r.can_access_accounting, r.can_access_settings, r.can_access_connectors,
+               r.can_access_templates
+        FROM users u
+        LEFT JOIN roles r ON u.role_id = r.id
+        WHERE u.email = %s
+    ''', (email,))
+    user = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(user) if user else None
+
+
+def save_user(
+    name: str,
+    email: str,
+    phone: str = None,
+    role_id: int = None,
+    is_active: bool = True
+) -> int:
+    """Save a new user. Returns user ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    try:
+        cursor.execute('''
+            INSERT INTO users (name, email, phone, role_id, is_active)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (name, email, phone, role_id, is_active))
+
+        user_id = cursor.fetchone()['id']
+        conn.commit()
+        return user_id
+
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"User with email '{email}' already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def update_user(
+    user_id: int,
+    name: str = None,
+    email: str = None,
+    phone: str = None,
+    role_id: int = None,
+    is_active: bool = None
+) -> bool:
+    """Update a user. Returns True if updated."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    updates = []
+    params = []
+
+    if name is not None:
+        updates.append('name = %s')
+        params.append(name)
+    if email is not None:
+        updates.append('email = %s')
+        params.append(email)
+    if phone is not None:
+        updates.append('phone = %s')
+        params.append(phone)
+    if role_id is not None:
+        updates.append('role_id = %s')
+        params.append(role_id)
+    if is_active is not None:
+        updates.append('is_active = %s')
+        params.append(is_active)
+
+    if not updates:
+        conn.close()
+        return False
+
+    updates.append('updated_at = CURRENT_TIMESTAMP')
+    params.append(user_id)
+
+    query = f"UPDATE users SET {', '.join(updates)} WHERE id = %s"
+
+    try:
+        cursor.execute(query, params)
+        updated = cursor.rowcount > 0
+        conn.commit()
+        return updated
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"User with that email already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def delete_user(user_id: int) -> bool:
+    """Delete a user."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('DELETE FROM users WHERE id = %s', (user_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ============== Responsables CRUD ==============
+
+def get_all_responsables() -> list[dict]:
+    """Get all responsables."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT * FROM responsables
+        ORDER BY name
+    ''')
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def get_responsable(responsable_id: int) -> Optional[dict]:
+    """Get a specific responsable by ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM responsables WHERE id = %s', (responsable_id,))
+    row = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(row) if row else None
+
+
+def get_responsables_by_department(department: str) -> list[dict]:
+    """Get responsables assigned to a specific department."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT * FROM responsables
+        WHERE departments LIKE %s AND is_active = TRUE AND notify_on_allocation = TRUE
+    ''', (f'%{department}%',))
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def save_responsable(name: str, email: str, phone: str = None, departments: str = None,
+                     notify_on_allocation: bool = True, is_active: bool = True) -> int:
+    """Create a new responsable."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    try:
+        cursor.execute('''
+            INSERT INTO responsables (name, email, phone, departments, notify_on_allocation, is_active)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (name, email, phone, departments, notify_on_allocation, is_active))
+
+        responsable_id = cursor.fetchone()['id']
+        conn.commit()
+        return responsable_id
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"Responsable with email '{email}' already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def update_responsable(responsable_id: int, name: str = None, email: str = None, phone: str = None,
+                       departments: str = None, notify_on_allocation: bool = None, is_active: bool = None) -> bool:
+    """Update a responsable."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    updates = []
+    params = []
+
+    if name is not None:
+        updates.append('name = %s')
+        params.append(name)
+    if email is not None:
+        updates.append('email = %s')
+        params.append(email)
+    if phone is not None:
+        updates.append('phone = %s')
+        params.append(phone)
+    if departments is not None:
+        updates.append('departments = %s')
+        params.append(departments)
+    if notify_on_allocation is not None:
+        updates.append('notify_on_allocation = %s')
+        params.append(notify_on_allocation)
+    if is_active is not None:
+        updates.append('is_active = %s')
+        params.append(is_active)
+
+    if not updates:
+        conn.close()
+        return False
+
+    updates.append('updated_at = CURRENT_TIMESTAMP')
+    params.append(responsable_id)
+
+    query = f"UPDATE responsables SET {', '.join(updates)} WHERE id = %s"
+
+    try:
+        cursor.execute(query, params)
+        updated = cursor.rowcount > 0
+        conn.commit()
+        return updated
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"Responsable with that email already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def delete_responsable(responsable_id: int) -> bool:
+    """Delete a responsable."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('DELETE FROM responsables WHERE id = %s', (responsable_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ============== Notification Settings CRUD ==============
+
+def get_notification_settings() -> dict:
+    """Get all notification settings as a dictionary."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT setting_key, setting_value FROM notification_settings')
+    rows = cursor.fetchall()
+
+    settings = {}
+    for row in rows:
+        settings[row['setting_key']] = row['setting_value']
+
+    conn.close()
+    return settings
+
+
+def save_notification_setting(key: str, value: str) -> bool:
+    """Save or update a notification setting."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        INSERT INTO notification_settings (setting_key, setting_value)
+        VALUES (%s, %s)
+        ON CONFLICT (setting_key)
+        DO UPDATE SET setting_value = %s, updated_at = CURRENT_TIMESTAMP
+    ''', (key, value, value))
+
+    conn.commit()
+    conn.close()
+    return True
+
+
+def save_notification_settings_bulk(settings: dict) -> bool:
+    """Save multiple notification settings at once."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    for key, value in settings.items():
+        cursor.execute('''
+            INSERT INTO notification_settings (setting_key, setting_value)
+            VALUES (%s, %s)
+            ON CONFLICT (setting_key)
+            DO UPDATE SET setting_value = %s, updated_at = CURRENT_TIMESTAMP
+        ''', (key, value, value))
+
+    conn.commit()
+    conn.close()
+    return True
+
+
+# ============== Notification Log CRUD ==============
+
+def log_notification(responsable_id: int, invoice_id: int, notification_type: str,
+                     subject: str, message: str, status: str = 'pending') -> int:
+    """Log a notification."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        INSERT INTO notification_log (responsable_id, invoice_id, notification_type, subject, message, status)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+    ''', (responsable_id, invoice_id, notification_type, subject, message, status))
+
+    log_id = cursor.fetchone()['id']
+    conn.commit()
+    conn.close()
+    return log_id
+
+
+def update_notification_status(log_id: int, status: str, error_message: str = None) -> bool:
+    """Update notification log status."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    if status == 'sent':
+        cursor.execute('''
+            UPDATE notification_log
+            SET status = %s, sent_at = CURRENT_TIMESTAMP, error_message = %s
+            WHERE id = %s
+        ''', (status, error_message, log_id))
+    else:
+        cursor.execute('''
+            UPDATE notification_log
+            SET status = %s, error_message = %s
+            WHERE id = %s
+        ''', (status, error_message, log_id))
+
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def get_notification_logs(limit: int = 100) -> list[dict]:
+    """Get recent notification logs."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT nl.*, r.name as responsable_name, r.email as responsable_email,
+               i.invoice_number, i.supplier
+        FROM notification_log nl
+        LEFT JOIN responsables r ON nl.responsable_id = r.id
+        LEFT JOIN invoices i ON nl.invoice_id = i.id
+        ORDER BY nl.created_at DESC
+        LIMIT %s
+    ''', (limit,))
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+# ============== Companies CRUD ==============
+
+def get_all_companies() -> list[dict]:
+    """Get all companies."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT * FROM companies
+        ORDER BY company
+    ''')
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def get_company(company_id: int) -> Optional[dict]:
+    """Get a specific company by ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM companies WHERE id = %s', (company_id,))
+    row = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(row) if row else None
+
+
+def save_company(company: str, brands: str = None, vat: str = None) -> int:
+    """Create a new company."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    try:
+        cursor.execute('''
+            INSERT INTO companies (company, brands, vat)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        ''', (company, brands, vat))
+
+        company_id = cursor.fetchone()['id']
+        conn.commit()
+        return company_id
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"Company '{company}' already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def update_company(company_id: int, company: str = None, brands: str = None, vat: str = None) -> bool:
+    """Update a company."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    updates = []
+    params = []
+
+    if company is not None:
+        updates.append('company = %s')
+        params.append(company)
+    if brands is not None:
+        updates.append('brands = %s')
+        params.append(brands)
+    if vat is not None:
+        updates.append('vat = %s')
+        params.append(vat)
+
+    if not updates:
+        conn.close()
+        return False
+
+    params.append(company_id)
+
+    try:
+        cursor.execute(f'''
+            UPDATE companies
+            SET {', '.join(updates)}
+            WHERE id = %s
+        ''', params)
+
+        updated = cursor.rowcount > 0
+        conn.commit()
+        return updated
+    except Exception as e:
+        conn.rollback()
+        if 'unique' in str(e).lower() or 'duplicate' in str(e).lower():
+            raise ValueError(f"Company name '{company}' already exists")
+        raise
+    finally:
+        conn.close()
+
+
+def delete_company(company_id: int) -> bool:
+    """Delete a company."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('DELETE FROM companies WHERE id = %s', (company_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+# ============== Department Structure CRUD ==============
+
+def get_all_department_structures() -> list[dict]:
+    """Get all department structures with responsable info."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT ds.*, r.name as responsable_name, r.email as responsable_email
+        FROM department_structure ds
+        LEFT JOIN responsables r ON ds.responsable_id = r.id
+        ORDER BY ds.company, ds.brand, ds.department, ds.subdepartment
+    ''')
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def get_department_structure(structure_id: int) -> Optional[dict]:
+    """Get a specific department structure by ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT ds.*, r.name as responsable_name, r.email as responsable_email
+        FROM department_structure ds
+        LEFT JOIN responsables r ON ds.responsable_id = r.id
+        WHERE ds.id = %s
+    ''', (structure_id,))
+    row = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(row) if row else None
+
+
+def save_department_structure(company: str, department: str, brand: str = None,
+                               subdepartment: str = None, manager: str = None,
+                               marketing: str = None, responsable_id: int = None,
+                               manager_ids: list = None, marketing_ids: list = None) -> int:
+    """Create a new department structure entry."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        INSERT INTO department_structure (company, brand, department, subdepartment, manager, marketing, responsable_id, manager_ids, marketing_ids)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    ''', (company, brand, department, subdepartment, manager, marketing, responsable_id, manager_ids, marketing_ids))
+
+    structure_id = cursor.fetchone()['id']
+    conn.commit()
+    conn.close()
+    return structure_id
+
+
+def update_department_structure(structure_id: int, company: str = None, department: str = None,
+                                 brand: str = None, subdepartment: str = None, manager: str = None,
+                                 marketing: str = None, responsable_id: int = None,
+                                 manager_ids: list = None, marketing_ids: list = None) -> bool:
+    """Update a department structure entry."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    updates = []
+    params = []
+
+    if company is not None:
+        updates.append('company = %s')
+        params.append(company)
+    if department is not None:
+        updates.append('department = %s')
+        params.append(department)
+    if brand is not None:
+        updates.append('brand = %s')
+        params.append(brand)
+    if subdepartment is not None:
+        updates.append('subdepartment = %s')
+        params.append(subdepartment)
+    if manager is not None:
+        updates.append('manager = %s')
+        params.append(manager)
+    if marketing is not None:
+        updates.append('marketing = %s')
+        params.append(marketing)
+    if responsable_id is not None:
+        updates.append('responsable_id = %s')
+        params.append(responsable_id if responsable_id != 0 else None)
+    if manager_ids is not None:
+        updates.append('manager_ids = %s')
+        params.append(manager_ids if manager_ids else None)
+    if marketing_ids is not None:
+        updates.append('marketing_ids = %s')
+        params.append(marketing_ids if marketing_ids else None)
+
+    if not updates:
+        conn.close()
+        return False
+
+    params.append(structure_id)
+
+    cursor.execute(f'''
+        UPDATE department_structure
+        SET {', '.join(updates)}
+        WHERE id = %s
+    ''', params)
+
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def delete_department_structure(structure_id: int) -> bool:
+    """Delete a department structure entry."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('DELETE FROM department_structure WHERE id = %s', (structure_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def get_unique_departments() -> list[str]:
+    """Get unique department names."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT DISTINCT department FROM department_structure
+        WHERE department IS NOT NULL
+        ORDER BY department
+    ''')
+
+    results = [row['department'] for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def get_unique_brands() -> list[str]:
+    """Get unique brand names."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT DISTINCT brand FROM department_structure
+        WHERE brand IS NOT NULL AND brand != ''
+        ORDER BY brand
+    ''')
+
+    results = [row['brand'] for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+# ============== Authentication Functions ==============
+
+def authenticate_user(email: str, password: str) -> Optional[dict]:
+    """Authenticate a user by email and password.
+
+    Returns user dict with role info if successful, None if authentication fails.
+    """
+    user = get_user_by_email(email)
+
+    if not user:
+        return None
+
+    if not user.get('is_active', False):
+        return None
+
+    if not user.get('password_hash'):
+        return None
+
+    if not check_password_hash(user['password_hash'], password):
+        return None
+
+    return user
+
+
+def set_user_password(user_id: int, password: str) -> bool:
+    """Set password for a user."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    password_hash = generate_password_hash(password)
+
+    cursor.execute('''
+        UPDATE users SET password_hash = %s, updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s
+    ''', (password_hash, user_id))
+
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def update_user_last_login(user_id: int) -> bool:
+    """Update the last login timestamp for a user."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        UPDATE users SET last_login = CURRENT_TIMESTAMP
+        WHERE id = %s
+    ''', (user_id,))
+
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def set_default_password_for_users(default_password: str = 'changeme123') -> int:
+    """Set default password for all users without a password. Returns count updated."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    password_hash = generate_password_hash(default_password)
+
+    cursor.execute('''
+        UPDATE users SET password_hash = %s, updated_at = CURRENT_TIMESTAMP
+        WHERE password_hash IS NULL OR password_hash = ''
+    ''', (password_hash,))
+
+    updated_count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return updated_count
+
+
+# ============== User Event/Audit Log Functions ==============
+
+def log_user_event(
+    event_type: str,
+    event_description: str = None,
+    user_id: int = None,
+    user_email: str = None,
+    entity_type: str = None,
+    entity_id: int = None,
+    ip_address: str = None,
+    user_agent: str = None,
+    details: dict = None
+) -> int:
+    """Log a user event/action for audit purposes. Returns event ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        INSERT INTO user_events
+        (user_id, user_email, event_type, event_description, entity_type, entity_id,
+         ip_address, user_agent, details)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    ''', (
+        user_id,
+        user_email,
+        event_type,
+        event_description,
+        entity_type,
+        entity_id,
+        ip_address,
+        user_agent,
+        json.dumps(details or {})
+    ))
+
+    event_id = cursor.fetchone()['id']
+    conn.commit()
+    conn.close()
+    return event_id
+
+
+def get_user_events(
+    limit: int = 100,
+    offset: int = 0,
+    user_id: int = None,
+    event_type: str = None,
+    entity_type: str = None,
+    start_date: str = None,
+    end_date: str = None
+) -> list[dict]:
+    """Get user events with optional filtering."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    query = '''
+        SELECT ue.*, u.name as user_name
+        FROM user_events ue
+        LEFT JOIN users u ON ue.user_id = u.id
+    '''
+    params = []
+    conditions = []
+
+    if user_id:
+        conditions.append('ue.user_id = %s')
+        params.append(user_id)
+    if event_type:
+        conditions.append('ue.event_type = %s')
+        params.append(event_type)
+    if entity_type:
+        conditions.append('ue.entity_type = %s')
+        params.append(entity_type)
+    if start_date:
+        conditions.append('ue.created_at >= %s')
+        params.append(start_date)
+    if end_date:
+        conditions.append('ue.created_at <= %s')
+        params.append(end_date)
+
+    if conditions:
+        query += ' WHERE ' + ' AND '.join(conditions)
+
+    query += ' ORDER BY ue.created_at DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return results
+
+
+def get_event_types() -> list[str]:
+    """Get distinct event types for filtering."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT DISTINCT event_type FROM user_events
+        ORDER BY event_type
+    ''')
+
+    results = [row['event_type'] for row in cursor.fetchall()]
+    conn.close()
+    return results
 
 
 # Initialize database on import

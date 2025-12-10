@@ -2,7 +2,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask, render_template, request, jsonify
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from models import load_structure, get_companies, get_brands_for_company, get_departments_for_company, get_subdepartments, get_manager
 from services import (
     save_invoice_to_db,
@@ -18,7 +20,16 @@ from database import (
     check_invoice_number_exists,
     restore_invoice, bulk_soft_delete_invoices, bulk_restore_invoices,
     permanently_delete_invoice, bulk_permanently_delete_invoices,
-    get_invoice_drive_link, get_invoice_drive_links
+    get_invoice_drive_link, get_invoice_drive_links,
+    get_all_users, get_user, get_user_by_email, save_user, update_user, delete_user,
+    get_all_roles, get_role, save_role, update_role, delete_role,
+    get_all_responsables, get_responsable, save_responsable, update_responsable, delete_responsable,
+    get_notification_settings, save_notification_settings_bulk, get_notification_logs,
+    get_all_companies, get_company, save_company, update_company, delete_company as delete_company_db,
+    get_all_department_structures, get_department_structure, save_department_structure,
+    update_department_structure, delete_department_structure, get_unique_departments, get_unique_brands,
+    authenticate_user, set_user_password, update_user_last_login, set_default_password_for_users,
+    log_user_event, get_user_events, get_event_types
 )
 
 # Google Drive integration (optional)
@@ -37,16 +48,261 @@ try:
 except ImportError:
     CURRENCY_CONVERSION_ENABLED = False
 
-app = Flask(__name__)
+# Email notifications
+try:
+    from notification_service import (
+        notify_invoice_allocations,
+        send_test_email,
+        is_smtp_configured
+    )
+    NOTIFICATIONS_ENABLED = True
+except ImportError:
+    NOTIFICATIONS_ENABLED = False
 
+app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Flask-Login setup
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to access this page.'
+
+
+class User(UserMixin):
+    """User class for Flask-Login."""
+
+    def __init__(self, user_data):
+        self.id = user_data['id']
+        self.email = user_data['email']
+        self.name = user_data['name']
+        self.role_id = user_data.get('role_id')
+        self.role_name = user_data.get('role_name')
+        self.is_active_user = user_data.get('is_active', True)
+        # Role permissions
+        self.can_add_invoices = user_data.get('can_add_invoices', False)
+        self.can_delete_invoices = user_data.get('can_delete_invoices', False)
+        self.can_view_invoices = user_data.get('can_view_invoices', False)
+        self.can_access_accounting = user_data.get('can_access_accounting', False)
+        self.can_access_settings = user_data.get('can_access_settings', False)
+        self.can_access_connectors = user_data.get('can_access_connectors', False)
+        self.can_access_templates = user_data.get('can_access_templates', False)
+
+    @property
+    def is_active(self):
+        return self.is_active_user
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Load user by ID for Flask-Login."""
+    user_data = get_user(int(user_id))
+    if user_data:
+        return User(user_data)
+    return None
+
+
+def log_event(event_type, description=None, entity_type=None, entity_id=None, details=None):
+    """Helper to log user events with current user info."""
+    user_id = current_user.id if current_user.is_authenticated else None
+    user_email = current_user.email if current_user.is_authenticated else None
+    ip_address = request.remote_addr if request else None
+    user_agent = request.headers.get('User-Agent', '')[:500] if request else None
+
+    log_user_event(
+        event_type=event_type,
+        event_description=description,
+        user_id=user_id,
+        user_email=user_email,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+        details=details
+    )
+
+
+# ============== Authentication Routes ==============
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page and form handler."""
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
+
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip()
+        password = request.form.get('password', '')
+
+        if not email or not password:
+            flash('Please enter both email and password.', 'error')
+            return render_template('login.html')
+
+        user_data = authenticate_user(email, password)
+        if user_data:
+            user = User(user_data)
+            login_user(user)
+            update_user_last_login(user.id)
+            log_event('login', f'User {email} logged in')
+
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('index'))
+        else:
+            log_event('login_failed', f'Failed login attempt for {email}')
+            flash('Invalid email or password.', 'error')
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Logout current user."""
+    log_event('logout', f'User {current_user.email} logged out')
+    logout_user()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
+
+
+@app.route('/api/auth/current-user')
+def api_current_user():
+    """Get current user info for UI."""
+    if current_user.is_authenticated:
+        return jsonify({
+            'authenticated': True,
+            'id': current_user.id,
+            'name': current_user.name,
+            'email': current_user.email,
+            'role': current_user.role_name,
+            'permissions': {
+                'can_add_invoices': current_user.can_add_invoices,
+                'can_delete_invoices': current_user.can_delete_invoices,
+                'can_view_invoices': current_user.can_view_invoices,
+                'can_access_accounting': current_user.can_access_accounting,
+                'can_access_settings': current_user.can_access_settings,
+                'can_access_connectors': current_user.can_access_connectors,
+                'can_access_templates': current_user.can_access_templates
+            }
+        })
+    return jsonify({'authenticated': False})
+
+
+@app.route('/api/auth/change-password', methods=['POST'])
+@login_required
+def api_change_password():
+    """Change current user's password."""
+    data = request.get_json()
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+
+    if not current_password or not new_password:
+        return jsonify({'success': False, 'error': 'Both current and new passwords are required'}), 400
+
+    if len(new_password) < 6:
+        return jsonify({'success': False, 'error': 'New password must be at least 6 characters'}), 400
+
+    # Verify current password
+    user_data = authenticate_user(current_user.email, current_password)
+    if not user_data:
+        return jsonify({'success': False, 'error': 'Current password is incorrect'}), 400
+
+    # Set new password
+    set_user_password(current_user.id, new_password)
+    log_event('password_changed', 'User changed their password')
+
+    return jsonify({'success': True, 'message': 'Password changed successfully'})
+
+
+@app.route('/api/users/<int:user_id>/set-password', methods=['POST'])
+@login_required
+def api_set_user_password(user_id):
+    """Admin route to set a user's password."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    data = request.get_json()
+    new_password = data.get('password', '')
+
+    if not new_password or len(new_password) < 6:
+        return jsonify({'success': False, 'error': 'Password must be at least 6 characters'}), 400
+
+    user = get_user(user_id)
+    if not user:
+        return jsonify({'success': False, 'error': 'User not found'}), 404
+
+    set_user_password(user_id, new_password)
+    log_event('admin_password_reset', f'Password reset for user {user["email"]}', 'user', user_id)
+
+    return jsonify({'success': True, 'message': f'Password set for {user["name"]}'})
+
+
+@app.route('/api/users/set-default-passwords', methods=['POST'])
+@login_required
+def api_set_default_passwords():
+    """Set default password for all users without one."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    data = request.get_json() or {}
+    default_password = data.get('password', 'changeme123')
+
+    updated_count = set_default_password_for_users(default_password)
+    log_event('bulk_password_set', f'Set default password for {updated_count} users')
+
+    return jsonify({
+        'success': True,
+        'message': f'Default password set for {updated_count} users',
+        'updated_count': updated_count
+    })
+
+
+# ============== Event Log Routes ==============
+
+@app.route('/api/events', methods=['GET'])
+@login_required
+def api_get_events():
+    """Get user events/audit log."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    limit = request.args.get('limit', 100, type=int)
+    offset = request.args.get('offset', 0, type=int)
+    user_id = request.args.get('user_id', type=int)
+    event_type = request.args.get('event_type', '')
+    entity_type = request.args.get('entity_type', '')
+
+    events = get_user_events(
+        limit=limit,
+        offset=offset,
+        user_id=user_id if user_id else None,
+        event_type=event_type if event_type else None,
+        entity_type=entity_type if entity_type else None
+    )
+
+    return jsonify(events)
+
+
+@app.route('/api/events/types', methods=['GET'])
+@login_required
+def api_get_event_types():
+    """Get distinct event types for filtering."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    return jsonify(get_event_types())
+
+
+# ============== Main Routes ==============
 
 @app.route('/')
+@login_required
 def index():
     """Main page with invoice distribution form."""
     return render_template('index.html')
 
 
 @app.route('/api/structure')
+@login_required
 def get_structure():
     """Get the full organizational structure."""
     units = load_structure()
@@ -63,30 +319,35 @@ def get_structure():
 
 
 @app.route('/api/companies')
+@login_required
 def api_companies():
     """Get list of companies."""
     return jsonify(get_companies())
 
 
 @app.route('/api/brands/<company>')
+@login_required
 def api_brands(company):
     """Get brands for a company."""
     return jsonify(get_brands_for_company(company))
 
 
 @app.route('/api/departments/<company>')
+@login_required
 def api_departments(company):
     """Get departments for a company."""
     return jsonify(get_departments_for_company(company))
 
 
 @app.route('/api/subdepartments/<company>/<department>')
+@login_required
 def api_subdepartments(company, department):
     """Get subdepartments for a company and department."""
     return jsonify(get_subdepartments(company, department))
 
 
 @app.route('/api/manager')
+@login_required
 def api_manager():
     """Get manager for a department."""
     company = request.args.get('company')
@@ -96,6 +357,7 @@ def api_manager():
 
 
 @app.route('/api/submit', methods=['POST'])
+@login_required
 def submit_invoice():
     """Submit an invoice with its cost distribution."""
     data = request.json
@@ -116,11 +378,26 @@ def submit_invoice():
             exchange_rate=data.get('exchange_rate')
         )
 
+        # Send email notifications to responsables
+        notifications_sent = 0
+        if NOTIFICATIONS_ENABLED and is_smtp_configured():
+            invoice_data = {
+                'id': invoice_id,
+                'invoice_number': data['invoice_number'],
+                'supplier': data['supplier'],
+                'invoice_date': data['invoice_date'],
+                'invoice_value': float(data['invoice_value']),
+                'currency': data.get('currency', 'RON'),
+            }
+            results = notify_invoice_allocations(invoice_data, data['distributions'])
+            notifications_sent = sum(1 for r in results if r.get('success'))
+
         return jsonify({
             'success': True,
             'message': f'Successfully saved {len(data["distributions"])} allocation(s)',
             'allocations': len(data['distributions']),
-            'invoice_id': invoice_id
+            'invoice_id': invoice_id,
+            'notifications_sent': notifications_sent
         })
 
     except ValueError as e:
@@ -130,12 +407,14 @@ def submit_invoice():
 
 
 @app.route('/api/data')
+@login_required
 def get_data():
     """Get existing data (returns empty - legacy endpoint)."""
     return jsonify([])
 
 
 @app.route('/api/parse-invoice', methods=['POST'])
+@login_required
 def api_parse_invoice():
     """Parse an uploaded invoice using AI or template (with auto-detection)."""
     if 'file' not in request.files:
@@ -196,6 +475,7 @@ def api_parse_invoice():
 
 
 @app.route('/api/parse-existing/<path:filepath>')
+@login_required
 def api_parse_existing(filepath):
     """Parse an existing invoice from the Invoices folder."""
     from config import INVOICES_DIR
@@ -212,6 +492,7 @@ def api_parse_existing(filepath):
 
 
 @app.route('/api/invoices')
+@login_required
 def api_list_invoices():
     """List available invoices in the Invoices folder (including subfolders)."""
     from config import INVOICES_DIR
@@ -231,6 +512,7 @@ def api_list_invoices():
 # ============== GOOGLE DRIVE ENDPOINTS ==============
 
 @app.route('/api/drive/status')
+@login_required
 def api_drive_status():
     """Check if Google Drive is configured and authenticated."""
     if not DRIVE_ENABLED:
@@ -243,6 +525,7 @@ def api_drive_status():
 
 
 @app.route('/api/drive/upload', methods=['POST'])
+@login_required
 def api_drive_upload():
     """Upload invoice to Google Drive organized by Year/Supplier."""
     if not DRIVE_ENABLED:
@@ -289,6 +572,7 @@ def api_drive_upload():
 # ============== ACCOUNTING INTERFACE ENDPOINTS ==============
 
 @app.route('/accounting')
+@login_required
 def accounting():
     """Accounting dashboard for viewing all allocations."""
     return render_template('accounting.html')
@@ -297,6 +581,7 @@ def accounting():
 # ============== CONNECTORS INTERFACE ENDPOINTS ==============
 
 @app.route('/connectors')
+@login_required
 def connectors():
     """Connectors page for managing external integrations."""
     from database import get_all_connectors, get_connector_by_type, get_connector_sync_logs
@@ -318,6 +603,7 @@ def connectors():
 
 
 @app.route('/api/connectors', methods=['GET'])
+@login_required
 def api_get_connectors():
     """Get all connectors."""
     from database import get_all_connectors
@@ -325,6 +611,7 @@ def api_get_connectors():
 
 
 @app.route('/api/connectors/<int:connector_id>', methods=['GET'])
+@login_required
 def api_get_connector(connector_id):
     """Get a specific connector."""
     from database import get_connector
@@ -335,6 +622,7 @@ def api_get_connector(connector_id):
 
 
 @app.route('/api/connectors', methods=['POST'])
+@login_required
 def api_create_connector():
     """Create a new connector."""
     from database import save_connector, get_connector_by_type
@@ -374,6 +662,7 @@ def api_create_connector():
 
 
 @app.route('/api/connectors/<int:connector_id>', methods=['PUT'])
+@login_required
 def api_update_connector(connector_id):
     """Update a connector."""
     from database import update_connector, get_connector
@@ -414,6 +703,7 @@ def api_update_connector(connector_id):
 
 
 @app.route('/api/connectors/<int:connector_id>', methods=['DELETE'])
+@login_required
 def api_delete_connector(connector_id):
     """Delete a connector."""
     from database import delete_connector
@@ -425,6 +715,7 @@ def api_delete_connector(connector_id):
 
 
 @app.route('/api/connectors/<int:connector_id>/sync', methods=['POST'])
+@login_required
 def api_sync_connector(connector_id):
     """Trigger a sync for a connector."""
     from database import get_connector, update_connector, add_connector_sync_log
@@ -475,6 +766,7 @@ def api_sync_connector(connector_id):
 
 
 @app.route('/api/db/invoices')
+@login_required
 def api_db_invoices():
     """Get all invoices from database with pagination and optional filters."""
     limit = request.args.get('limit', 100, type=int)
@@ -494,6 +786,7 @@ def api_db_invoices():
 
 
 @app.route('/api/db/invoices/<int:invoice_id>')
+@login_required
 def api_db_invoice_detail(invoice_id):
     """Get invoice with all allocations."""
     invoice = get_invoice_with_allocations(invoice_id)
@@ -503,6 +796,7 @@ def api_db_invoice_detail(invoice_id):
 
 
 @app.route('/api/db/invoices/<int:invoice_id>', methods=['DELETE'])
+@login_required
 def api_db_delete_invoice(invoice_id):
     """Soft delete an invoice (move to bin)."""
     if delete_invoice(invoice_id):
@@ -511,6 +805,7 @@ def api_db_delete_invoice(invoice_id):
 
 
 @app.route('/api/db/invoices/<int:invoice_id>/restore', methods=['POST'])
+@login_required
 def api_db_restore_invoice(invoice_id):
     """Restore a soft-deleted invoice from the bin."""
     if restore_invoice(invoice_id):
@@ -519,6 +814,7 @@ def api_db_restore_invoice(invoice_id):
 
 
 @app.route('/api/db/invoices/<int:invoice_id>/permanent', methods=['DELETE'])
+@login_required
 def api_db_permanently_delete_invoice(invoice_id):
     """Permanently delete an invoice (cannot be restored). Also deletes from Google Drive."""
     # Get drive_link before deleting the invoice
@@ -534,6 +830,7 @@ def api_db_permanently_delete_invoice(invoice_id):
 
 
 @app.route('/api/db/invoices/bulk-delete', methods=['POST'])
+@login_required
 def api_db_bulk_delete_invoices():
     """Soft delete multiple invoices."""
     data = request.json
@@ -545,6 +842,7 @@ def api_db_bulk_delete_invoices():
 
 
 @app.route('/api/db/invoices/bulk-restore', methods=['POST'])
+@login_required
 def api_db_bulk_restore_invoices():
     """Restore multiple soft-deleted invoices."""
     data = request.json
@@ -556,6 +854,7 @@ def api_db_bulk_restore_invoices():
 
 
 @app.route('/api/db/invoices/bulk-permanent-delete', methods=['POST'])
+@login_required
 def api_db_bulk_permanently_delete_invoices():
     """Permanently delete multiple invoices (cannot be restored). Also deletes from Google Drive."""
     data = request.json
@@ -577,6 +876,7 @@ def api_db_bulk_permanently_delete_invoices():
 
 
 @app.route('/api/db/invoices/bin', methods=['GET'])
+@login_required
 def api_db_get_deleted_invoices():
     """Get all soft-deleted invoices (bin)."""
     invoices = get_all_invoices(include_deleted=True, limit=500)
@@ -584,6 +884,7 @@ def api_db_get_deleted_invoices():
 
 
 @app.route('/api/db/invoices/<int:invoice_id>', methods=['PUT'])
+@login_required
 def api_db_update_invoice(invoice_id):
     """Update an invoice."""
     data = request.json
@@ -607,6 +908,7 @@ def api_db_update_invoice(invoice_id):
 
 
 @app.route('/api/db/invoices/<int:invoice_id>/allocations', methods=['PUT'])
+@login_required
 def api_db_update_allocations(invoice_id):
     """Update all allocations for an invoice."""
     data = request.json
@@ -622,12 +924,30 @@ def api_db_update_allocations(invoice_id):
 
     try:
         update_invoice_allocations(invoice_id, allocations)
-        return jsonify({'success': True})
+
+        # Send email notifications to responsables
+        notifications_sent = 0
+        if NOTIFICATIONS_ENABLED and is_smtp_configured():
+            invoice = get_invoice_with_allocations(invoice_id)
+            if invoice:
+                invoice_data = {
+                    'id': invoice_id,
+                    'invoice_number': invoice.get('invoice_number'),
+                    'supplier': invoice.get('supplier'),
+                    'invoice_date': invoice.get('invoice_date'),
+                    'invoice_value': invoice.get('invoice_value'),
+                    'currency': invoice.get('currency', 'RON'),
+                }
+                results = notify_invoice_allocations(invoice_data, allocations)
+                notifications_sent = sum(1 for r in results if r.get('success'))
+
+        return jsonify({'success': True, 'notifications_sent': notifications_sent})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/invoices/<int:invoice_id>/drive-link', methods=['PUT'])
+@login_required
 def api_update_invoice_drive_link(invoice_id):
     """Update only the drive_link for an invoice (used after successful Drive upload)."""
     data = request.json
@@ -646,6 +966,7 @@ def api_update_invoice_drive_link(invoice_id):
 
 
 @app.route('/api/db/search')
+@login_required
 def api_db_search():
     """Search invoices by supplier or invoice number."""
     query = request.args.get('q', '')
@@ -656,6 +977,7 @@ def api_db_search():
 
 
 @app.route('/api/db/check-invoice-number')
+@login_required
 def api_check_invoice_number():
     """Check if an invoice number already exists in the database."""
     invoice_number = request.args.get('invoice_number', '').strip()
@@ -669,6 +991,7 @@ def api_check_invoice_number():
 
 
 @app.route('/api/db/summary/company')
+@login_required
 def api_db_summary_company():
     """Get summary grouped by company."""
     start_date = request.args.get('start_date')
@@ -681,6 +1004,7 @@ def api_db_summary_company():
 
 
 @app.route('/api/db/summary/department')
+@login_required
 def api_db_summary_department():
     """Get summary grouped by department."""
     company = request.args.get('company')
@@ -694,6 +1018,7 @@ def api_db_summary_department():
 
 
 @app.route('/api/db/summary/brand')
+@login_required
 def api_db_summary_brand():
     """Get summary grouped by brand (Linie de business)."""
     company = request.args.get('company')
@@ -709,6 +1034,7 @@ def api_db_summary_brand():
 # ============== COMPANY VAT MANAGEMENT ENDPOINTS ==============
 
 @app.route('/api/companies-vat')
+@login_required
 def api_companies_vat():
     """Get all companies with their VAT numbers."""
     companies = get_companies_with_vat()
@@ -716,6 +1042,7 @@ def api_companies_vat():
 
 
 @app.route('/api/companies-vat', methods=['POST'])
+@login_required
 def api_add_company_vat():
     """Add a new company with VAT."""
     data = request.json
@@ -734,6 +1061,7 @@ def api_add_company_vat():
 
 
 @app.route('/api/companies-vat/<company>', methods=['PUT'])
+@login_required
 def api_update_company_vat(company):
     """Update company VAT."""
     data = request.json
@@ -749,6 +1077,7 @@ def api_update_company_vat(company):
 
 
 @app.route('/api/companies-vat/<company>', methods=['DELETE'])
+@login_required
 def api_delete_company_vat(company):
     """Delete a company."""
     if delete_company(company):
@@ -757,6 +1086,7 @@ def api_delete_company_vat(company):
 
 
 @app.route('/api/match-vat/<vat>')
+@login_required
 def api_match_vat(vat):
     """Match a VAT number to a company."""
     company = match_company_by_vat(vat)
@@ -768,12 +1098,14 @@ def api_match_vat(vat):
 # ============== INVOICE TEMPLATES ENDPOINTS ==============
 
 @app.route('/templates')
+@login_required
 def templates_page():
     """Invoice templates management page."""
     return render_template('templates.html')
 
 
 @app.route('/api/templates')
+@login_required
 def api_get_templates():
     """Get all invoice templates."""
     templates = get_all_invoice_templates()
@@ -781,6 +1113,7 @@ def api_get_templates():
 
 
 @app.route('/api/templates/<int:template_id>')
+@login_required
 def api_get_template(template_id):
     """Get a specific invoice template."""
     template = get_invoice_template(template_id)
@@ -790,6 +1123,7 @@ def api_get_template(template_id):
 
 
 @app.route('/api/templates', methods=['POST'])
+@login_required
 def api_create_template():
     """Create a new invoice template."""
     data = request.json
@@ -821,6 +1155,7 @@ def api_create_template():
 
 
 @app.route('/api/templates/<int:template_id>', methods=['PUT'])
+@login_required
 def api_update_template(template_id):
     """Update an invoice template."""
     data = request.json
@@ -853,6 +1188,7 @@ def api_update_template(template_id):
 
 
 @app.route('/api/templates/<int:template_id>', methods=['DELETE'])
+@login_required
 def api_delete_template(template_id):
     """Delete an invoice template."""
     if delete_invoice_template(template_id):
@@ -861,6 +1197,7 @@ def api_delete_template(template_id):
 
 
 @app.route('/api/templates/generate', methods=['POST'])
+@login_required
 def api_generate_template():
     """
     Generate a template from a sample invoice using AI.
@@ -898,6 +1235,479 @@ def api_generate_template():
 
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ============== SETTINGS INTERFACE ENDPOINTS ==============
+
+@app.route('/settings')
+@login_required
+def settings():
+    """Settings page for managing users and permissions."""
+    return render_template('settings.html')
+
+
+# ============== ROLE MANAGEMENT ENDPOINTS ==============
+
+@app.route('/api/roles', methods=['GET'])
+@login_required
+def api_get_roles():
+    """Get all roles."""
+    roles = get_all_roles()
+    return jsonify(roles)
+
+
+@app.route('/api/roles/<int:role_id>', methods=['GET'])
+@login_required
+def api_get_role(role_id):
+    """Get a specific role."""
+    role = get_role(role_id)
+    if role:
+        return jsonify(role)
+    return jsonify({'error': 'Role not found'}), 404
+
+
+@app.route('/api/roles', methods=['POST'])
+@login_required
+def api_create_role():
+    """Create a new role."""
+    data = request.get_json()
+
+    name = data.get('name', '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+
+    try:
+        role_id = save_role(
+            name=name,
+            description=data.get('description'),
+            can_add_invoices=data.get('can_add_invoices', False),
+            can_delete_invoices=data.get('can_delete_invoices', False),
+            can_view_invoices=data.get('can_view_invoices', False),
+            can_access_accounting=data.get('can_access_accounting', False),
+            can_access_settings=data.get('can_access_settings', False),
+            can_access_connectors=data.get('can_access_connectors', False),
+            can_access_templates=data.get('can_access_templates', False)
+        )
+        return jsonify({'success': True, 'id': role_id})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/roles/<int:role_id>', methods=['PUT'])
+def api_update_role(role_id):
+    """Update a role."""
+    data = request.get_json()
+
+    try:
+        updated = update_role(
+            role_id=role_id,
+            name=data.get('name'),
+            description=data.get('description'),
+            can_add_invoices=data.get('can_add_invoices'),
+            can_delete_invoices=data.get('can_delete_invoices'),
+            can_view_invoices=data.get('can_view_invoices'),
+            can_access_accounting=data.get('can_access_accounting'),
+            can_access_settings=data.get('can_access_settings'),
+            can_access_connectors=data.get('can_access_connectors'),
+            can_access_templates=data.get('can_access_templates')
+        )
+        if updated:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Role not found'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/roles/<int:role_id>', methods=['DELETE'])
+def api_delete_role(role_id):
+    """Delete a role."""
+    try:
+        if delete_role(role_id):
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Role not found'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+# ============== USER MANAGEMENT ENDPOINTS ==============
+
+@app.route('/api/users', methods=['GET'])
+def api_get_users():
+    """Get all users with role information."""
+    users = get_all_users()
+    return jsonify(users)
+
+
+@app.route('/api/users/<int:user_id>', methods=['GET'])
+def api_get_user(user_id):
+    """Get a specific user with role information."""
+    user = get_user(user_id)
+    if user:
+        return jsonify(user)
+    return jsonify({'error': 'User not found'}), 404
+
+
+@app.route('/api/users', methods=['POST'])
+def api_create_user():
+    """Create a new user."""
+    data = request.get_json()
+
+    name = data.get('name', '').strip() if data.get('name') else ''
+    email = data.get('email', '').strip() if data.get('email') else ''
+    phone = data.get('phone', '').strip() if data.get('phone') else ''
+    password = data.get('password', '').strip() if data.get('password') else ''
+
+    if not name or not email:
+        return jsonify({'error': 'Name and email are required'}), 400
+
+    try:
+        user_id = save_user(
+            name=name,
+            email=email,
+            phone=phone if phone else None,
+            role_id=data.get('role_id'),
+            is_active=data.get('is_active', True)
+        )
+        # Set password if provided
+        if password:
+            from database import set_user_password
+            set_user_password(user_id, password)
+        return jsonify({'success': True, 'id': user_id})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+def api_update_user(user_id):
+    """Update a user."""
+    data = request.get_json()
+
+    try:
+        updated = update_user(
+            user_id=user_id,
+            name=data.get('name'),
+            email=data.get('email'),
+            phone=data.get('phone'),
+            role_id=data.get('role_id'),
+            is_active=data.get('is_active')
+        )
+        if updated:
+            # Update password if provided
+            password = data.get('password', '').strip() if data.get('password') else ''
+            if password:
+                from database import set_user_password
+                set_user_password(user_id, password)
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'User not found'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+def api_delete_user(user_id):
+    """Delete a user."""
+    if delete_user(user_id):
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'User not found'}), 404
+
+
+# Responsables API endpoints
+@app.route('/api/responsables', methods=['GET'])
+def api_get_responsables():
+    """Get all responsables."""
+    responsables = get_all_responsables()
+    return jsonify(responsables)
+
+
+@app.route('/api/responsables/<int:responsable_id>', methods=['GET'])
+def api_get_responsable(responsable_id):
+    """Get a specific responsable."""
+    responsable = get_responsable(responsable_id)
+    if responsable:
+        return jsonify(responsable)
+    return jsonify({'error': 'Responsable not found'}), 404
+
+
+@app.route('/api/responsables', methods=['POST'])
+def api_create_responsable():
+    """Create a new responsable."""
+    data = request.get_json()
+
+    name = data.get('name', '').strip()
+    email = data.get('email', '').strip()
+    phone = data.get('phone', '').strip() if data.get('phone') else None
+    departments = data.get('departments', '').strip() if data.get('departments') else None
+
+    if not name or not email:
+        return jsonify({'error': 'Name and email are required'}), 400
+
+    try:
+        responsable_id = save_responsable(
+            name=name,
+            email=email,
+            phone=phone,
+            departments=departments,
+            notify_on_allocation=data.get('notify_on_allocation', True),
+            is_active=data.get('is_active', True)
+        )
+        return jsonify({'success': True, 'id': responsable_id})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/responsables/<int:responsable_id>', methods=['PUT'])
+def api_update_responsable(responsable_id):
+    """Update a responsable."""
+    data = request.get_json()
+
+    try:
+        updated = update_responsable(
+            responsable_id=responsable_id,
+            name=data.get('name'),
+            email=data.get('email'),
+            phone=data.get('phone'),
+            departments=data.get('departments'),
+            notify_on_allocation=data.get('notify_on_allocation'),
+            is_active=data.get('is_active')
+        )
+        if updated:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Responsable not found'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/responsables/<int:responsable_id>', methods=['DELETE'])
+def api_delete_responsable(responsable_id):
+    """Delete a responsable."""
+    if delete_responsable(responsable_id):
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Responsable not found'}), 404
+
+
+# Notification Settings API endpoints
+@app.route('/api/notification-settings', methods=['GET'])
+def api_get_notification_settings():
+    """Get all notification settings."""
+    settings = get_notification_settings()
+    return jsonify(settings)
+
+
+@app.route('/api/notification-settings', methods=['POST'])
+def api_save_notification_settings():
+    """Save notification settings."""
+    data = request.get_json()
+
+    try:
+        save_notification_settings_bulk(data)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/notification-logs', methods=['GET'])
+def api_get_notification_logs():
+    """Get notification logs with optional filters."""
+    responsable_id = request.args.get('responsable_id', type=int)
+    status = request.args.get('status')
+    limit = request.args.get('limit', 100, type=int)
+
+    logs = get_notification_logs(
+        responsable_id=responsable_id,
+        status=status,
+        limit=limit
+    )
+    return jsonify(logs)
+
+
+@app.route('/api/notification-settings/test', methods=['POST'])
+def api_test_email():
+    """Send a test email to verify SMTP configuration."""
+    if not NOTIFICATIONS_ENABLED:
+        return jsonify({'success': False, 'error': 'Notifications module not available'}), 500
+
+    data = request.get_json()
+    to_email = data.get('email')
+
+    if not to_email:
+        return jsonify({'success': False, 'error': 'Email address is required'}), 400
+
+    success, error_message = send_test_email(to_email)
+
+    if success:
+        return jsonify({'success': True, 'message': f'Test email sent to {to_email}'})
+    else:
+        return jsonify({'success': False, 'error': error_message}), 500
+
+
+# ============================================================================
+# Companies Configuration API
+# ============================================================================
+
+@app.route('/api/companies-config', methods=['GET'])
+def api_get_companies_config():
+    """Get all companies for configuration."""
+    companies = get_all_companies()
+    return jsonify(companies)
+
+
+@app.route('/api/companies-config', methods=['POST'])
+def api_create_company_config():
+    """Create a new company."""
+    data = request.get_json()
+    if not data or not data.get('company'):
+        return jsonify({'success': False, 'error': 'Company name is required'}), 400
+
+    try:
+        company_id = save_company(
+            company=data.get('company'),
+            brands=data.get('brands'),
+            vat=data.get('vat')
+        )
+        return jsonify({'success': True, 'id': company_id})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/companies-config/<int:company_id>', methods=['GET'])
+def api_get_company_config(company_id):
+    """Get a specific company."""
+    company = get_company(company_id)
+    if not company:
+        return jsonify({'success': False, 'error': 'Company not found'}), 404
+    return jsonify(company)
+
+
+@app.route('/api/companies-config/<int:company_id>', methods=['PUT'])
+def api_update_company_config(company_id):
+    """Update a company."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+    try:
+        success = update_company(
+            company_id=company_id,
+            company=data.get('company'),
+            brands=data.get('brands'),
+            vat=data.get('vat')
+        )
+        if success:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Company not found'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+
+
+@app.route('/api/companies-config/<int:company_id>', methods=['DELETE'])
+def api_delete_company_config(company_id):
+    """Delete a company."""
+    success = delete_company_db(company_id)
+    if success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Company not found'}), 404
+
+
+# ============================================================================
+# Department Structure API
+# ============================================================================
+
+@app.route('/api/department-structures', methods=['GET'])
+def api_get_department_structures():
+    """Get all department structures."""
+    structures = get_all_department_structures()
+    return jsonify(structures)
+
+
+@app.route('/api/department-structures', methods=['POST'])
+def api_create_department_structure():
+    """Create a new department structure."""
+    data = request.get_json()
+    if not data or not data.get('company') or not data.get('department'):
+        return jsonify({'success': False, 'error': 'Company and department are required'}), 400
+
+    structure_id = save_department_structure(
+        company=data.get('company'),
+        department=data.get('department'),
+        brand=data.get('brand'),
+        subdepartment=data.get('subdepartment'),
+        manager=data.get('manager'),
+        marketing=data.get('marketing'),
+        responsable_id=data.get('responsable_id'),
+        manager_ids=data.get('manager_ids'),
+        marketing_ids=data.get('marketing_ids')
+    )
+    return jsonify({'success': True, 'id': structure_id})
+
+
+@app.route('/api/department-structures/<int:structure_id>', methods=['GET'])
+def api_get_department_structure(structure_id):
+    """Get a specific department structure."""
+    structure = get_department_structure(structure_id)
+    if not structure:
+        return jsonify({'success': False, 'error': 'Department structure not found'}), 404
+    return jsonify(structure)
+
+
+@app.route('/api/department-structures/<int:structure_id>', methods=['PUT'])
+def api_update_department_structure(structure_id):
+    """Update a department structure."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+    success = update_department_structure(
+        structure_id=structure_id,
+        company=data.get('company'),
+        department=data.get('department'),
+        brand=data.get('brand'),
+        subdepartment=data.get('subdepartment'),
+        manager=data.get('manager'),
+        marketing=data.get('marketing'),
+        responsable_id=data.get('responsable_id'),
+        manager_ids=data.get('manager_ids'),
+        marketing_ids=data.get('marketing_ids')
+    )
+    if success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Department structure not found'}), 404
+
+
+@app.route('/api/department-structures/<int:structure_id>', methods=['DELETE'])
+def api_delete_department_structure(structure_id):
+    """Delete a department structure."""
+    success = delete_department_structure(structure_id)
+    if success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Department structure not found'}), 404
+
+
+@app.route('/api/department-structures/unique-departments', methods=['GET'])
+def api_get_unique_departments():
+    """Get unique departments for a company."""
+    company = request.args.get('company', '')
+    departments = get_unique_departments(company)
+    return jsonify(departments)
+
+
+@app.route('/api/department-structures/unique-brands', methods=['GET'])
+def api_get_unique_brands():
+    """Get unique brands for a company."""
+    company = request.args.get('company', '')
+    brands = get_unique_brands(company)
+    return jsonify(brands)
 
 
 if __name__ == '__main__':

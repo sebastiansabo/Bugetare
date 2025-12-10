@@ -1,0 +1,368 @@
+"""Email notification service for invoice allocations."""
+
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from typing import Optional
+import logging
+
+from database import (
+    get_notification_settings,
+    get_responsables_by_department,
+    get_all_responsables,
+    log_notification,
+    update_notification_status,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def get_smtp_config() -> dict:
+    """Get SMTP configuration from notification settings."""
+    settings = get_notification_settings()
+    return {
+        'host': settings.get('smtp_host', ''),
+        'port': int(settings.get('smtp_port', 587) or 587),
+        'use_tls': settings.get('smtp_tls', 'true').lower() == 'true',
+        'username': settings.get('smtp_username', ''),
+        'password': settings.get('smtp_password', ''),
+        'from_email': settings.get('from_email', ''),
+        'from_name': settings.get('from_name', 'Bugetare System'),
+    }
+
+
+def is_smtp_configured() -> bool:
+    """Check if SMTP is properly configured."""
+    config = get_smtp_config()
+    return bool(config['host'] and config['from_email'])
+
+
+def send_email(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    text_body: Optional[str] = None
+) -> tuple[bool, str]:
+    """
+    Send an email using configured SMTP settings.
+
+    Returns:
+        tuple: (success: bool, error_message: str)
+    """
+    config = get_smtp_config()
+
+    if not config['host']:
+        return False, "SMTP host not configured"
+
+    if not config['from_email']:
+        return False, "From email not configured"
+
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = f"{config['from_name']} <{config['from_email']}>" if config['from_name'] else config['from_email']
+        msg['To'] = to_email
+
+        if text_body:
+            msg.attach(MIMEText(text_body, 'plain'))
+        msg.attach(MIMEText(html_body, 'html'))
+
+        if config['use_tls']:
+            context = ssl.create_default_context()
+            with smtplib.SMTP(config['host'], config['port']) as server:
+                server.starttls(context=context)
+                if config['username'] and config['password']:
+                    server.login(config['username'], config['password'])
+                server.sendmail(config['from_email'], to_email, msg.as_string())
+        else:
+            with smtplib.SMTP(config['host'], config['port']) as server:
+                if config['username'] and config['password']:
+                    server.login(config['username'], config['password'])
+                server.sendmail(config['from_email'], to_email, msg.as_string())
+
+        return True, ""
+
+    except smtplib.SMTPAuthenticationError as e:
+        error_msg = f"SMTP authentication failed: {str(e)}"
+        logger.error(error_msg)
+        return False, error_msg
+    except smtplib.SMTPException as e:
+        error_msg = f"SMTP error: {str(e)}"
+        logger.error(error_msg)
+        return False, error_msg
+    except Exception as e:
+        error_msg = f"Failed to send email: {str(e)}"
+        logger.error(error_msg)
+        return False, error_msg
+
+
+def send_test_email(to_email: str) -> tuple[bool, str]:
+    """Send a test email to verify SMTP configuration."""
+    subject = "Test Email - Bugetare Notification System"
+    html_body = """
+    <html>
+    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #333;">Test Email</h2>
+        <p>This is a test email from the Bugetare notification system.</p>
+        <p>If you received this email, your SMTP configuration is working correctly.</p>
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;">
+        <p style="color: #666; font-size: 12px;">This is an automated message from Bugetare.</p>
+    </body>
+    </html>
+    """
+    text_body = "This is a test email from the Bugetare notification system.\n\nIf you received this email, your SMTP configuration is working correctly."
+
+    return send_email(to_email, subject, html_body, text_body)
+
+
+def format_currency(value: float, currency: str = 'RON') -> str:
+    """Format a value as currency."""
+    return f"{value:,.2f} {currency}"
+
+
+def create_allocation_email_html(
+    responsable_name: str,
+    invoice_data: dict,
+    allocation: dict
+) -> str:
+    """Create HTML email body for allocation notification."""
+    invoice_number = invoice_data.get('invoice_number', 'N/A')
+    supplier = invoice_data.get('supplier', 'N/A')
+    invoice_date = invoice_data.get('invoice_date', 'N/A')
+    invoice_value = invoice_data.get('invoice_value', 0)
+    currency = invoice_data.get('currency', 'RON')
+
+    company = allocation.get('company', 'N/A')
+    brand = allocation.get('brand', '')
+    department = allocation.get('department', 'N/A')
+    subdepartment = allocation.get('subdepartment', '')
+    allocation_percent = allocation.get('allocation_percent', 0)
+    allocation_value = allocation.get('allocation_value', 0)
+
+    location = f"{company}"
+    if brand:
+        location += f" / {brand}"
+    location += f" / {department}"
+    if subdepartment:
+        location += f" / {subdepartment}"
+
+    return f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #333; border-bottom: 2px solid #4CAF50; padding-bottom: 10px;">
+            New Invoice Allocation
+        </h2>
+
+        <p>Hello {responsable_name},</p>
+
+        <p>An invoice has been allocated to your department:</p>
+
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <tr style="background-color: #f5f5f5;">
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Invoice Number</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{invoice_number}</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Supplier</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{supplier}</td>
+            </tr>
+            <tr style="background-color: #f5f5f5;">
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Invoice Date</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{invoice_date}</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Total Value</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{format_currency(invoice_value, currency)}</td>
+            </tr>
+        </table>
+
+        <h3 style="color: #333;">Your Allocation</h3>
+
+        <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+            <tr style="background-color: #e8f5e9;">
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Location</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{location}</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Allocation %</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{allocation_percent}%</td>
+            </tr>
+            <tr style="background-color: #e8f5e9;">
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Allocation Value</td>
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold; color: #4CAF50;">
+                    {format_currency(allocation_value, currency)}
+                </td>
+            </tr>
+        </table>
+
+        <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
+
+        <p style="color: #666; font-size: 12px;">
+            This is an automated notification from the Bugetare system.<br>
+            Please do not reply to this email.
+        </p>
+    </body>
+    </html>
+    """
+
+
+def create_allocation_email_text(
+    responsable_name: str,
+    invoice_data: dict,
+    allocation: dict
+) -> str:
+    """Create plain text email body for allocation notification."""
+    invoice_number = invoice_data.get('invoice_number', 'N/A')
+    supplier = invoice_data.get('supplier', 'N/A')
+    invoice_date = invoice_data.get('invoice_date', 'N/A')
+    invoice_value = invoice_data.get('invoice_value', 0)
+    currency = invoice_data.get('currency', 'RON')
+
+    company = allocation.get('company', 'N/A')
+    brand = allocation.get('brand', '')
+    department = allocation.get('department', 'N/A')
+    subdepartment = allocation.get('subdepartment', '')
+    allocation_percent = allocation.get('allocation_percent', 0)
+    allocation_value = allocation.get('allocation_value', 0)
+
+    location = f"{company}"
+    if brand:
+        location += f" / {brand}"
+    location += f" / {department}"
+    if subdepartment:
+        location += f" / {subdepartment}"
+
+    return f"""
+New Invoice Allocation
+
+Hello {responsable_name},
+
+An invoice has been allocated to your department:
+
+Invoice Details:
+- Invoice Number: {invoice_number}
+- Supplier: {supplier}
+- Invoice Date: {invoice_date}
+- Total Value: {format_currency(invoice_value, currency)}
+
+Your Allocation:
+- Location: {location}
+- Allocation %: {allocation_percent}%
+- Allocation Value: {format_currency(allocation_value, currency)}
+
+---
+This is an automated notification from the Bugetare system.
+Please do not reply to this email.
+"""
+
+
+def find_responsables_for_allocation(allocation: dict) -> list[dict]:
+    """
+    Find all responsables that should be notified for a given allocation.
+
+    Matches responsables based on their department assignments.
+    """
+    department = allocation.get('department', '')
+    if not department:
+        return []
+
+    # Get responsables assigned to this department
+    responsables = get_responsables_by_department(department)
+
+    # Filter to only active responsables with notifications enabled
+    return [
+        r for r in responsables
+        if r.get('is_active', True) and r.get('notify_on_allocation', True)
+    ]
+
+
+def notify_allocation(invoice_data: dict, allocation: dict) -> list[dict]:
+    """
+    Send notification emails for a single allocation.
+
+    Args:
+        invoice_data: Dict with invoice details (invoice_number, supplier, etc.)
+        allocation: Dict with allocation details (company, department, etc.)
+
+    Returns:
+        List of notification results with responsable info and send status
+    """
+    if not is_smtp_configured():
+        logger.warning("SMTP not configured, skipping notifications")
+        return []
+
+    results = []
+    responsables = find_responsables_for_allocation(allocation)
+
+    invoice_id = invoice_data.get('id')
+    invoice_value = float(invoice_data.get('invoice_value', 0) or 0)
+
+    # Calculate allocation_percent and allocation_value if not provided
+    # Frontend sends 'allocation' as decimal (0.5 = 50%), template expects 'allocation_percent' (50)
+    allocation_decimal = float(allocation.get('allocation', 0) or allocation.get('allocation_percent', 0) / 100 if allocation.get('allocation_percent') else 0)
+    if not allocation.get('allocation_percent'):
+        allocation['allocation_percent'] = round(allocation_decimal * 100, 2)
+    if not allocation.get('allocation_value'):
+        allocation['allocation_value'] = round(invoice_value * allocation_decimal, 2)
+
+    for responsable in responsables:
+        responsable_id = responsable.get('id')
+        responsable_name = responsable.get('name', 'User')
+        responsable_email = responsable.get('email')
+
+        if not responsable_email:
+            continue
+
+        subject = f"New Invoice Allocation - {invoice_data.get('invoice_number', 'Invoice')}"
+        html_body = create_allocation_email_html(responsable_name, invoice_data, allocation)
+        text_body = create_allocation_email_text(responsable_name, invoice_data, allocation)
+
+        # Log the notification attempt
+        log_id = log_notification(
+            responsable_id=responsable_id,
+            invoice_id=invoice_id,
+            notification_type='allocation',
+            subject=subject,
+            message=text_body,
+            status='pending'
+        )
+
+        # Send the email
+        success, error_message = send_email(responsable_email, subject, html_body, text_body)
+
+        # Update notification status
+        if success:
+            update_notification_status(log_id, 'sent')
+        else:
+            update_notification_status(log_id, 'failed', error_message)
+
+        results.append({
+            'responsable_id': responsable_id,
+            'responsable_name': responsable_name,
+            'responsable_email': responsable_email,
+            'success': success,
+            'error': error_message if not success else None
+        })
+
+    return results
+
+
+def notify_invoice_allocations(invoice_data: dict, allocations: list[dict]) -> list[dict]:
+    """
+    Send notification emails for all allocations of an invoice.
+
+    Args:
+        invoice_data: Dict with invoice details
+        allocations: List of allocation dicts
+
+    Returns:
+        List of all notification results
+    """
+    all_results = []
+
+    for allocation in allocations:
+        results = notify_allocation(invoice_data, allocation)
+        all_results.extend(results)
+
+    return all_results

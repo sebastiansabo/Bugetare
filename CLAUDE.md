@@ -262,7 +262,15 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Added collapsible Split Values column with +/- toggle and allocation summary
 - Added "By Brand" (Linie de business) tab view with Invoice #, Value, Split Values columns
 - Moved Drive upload from parsing to allocation confirmation (Save Distribution)
-- to memorize
-- to memorize
-- to memorize
-- add to memory
+- Added Flask-Login authentication with login required for all routes
+- Added user password management with bcrypt hashing in database.py
+- Moved VAT Registry from Add Invoice page to Settings → Company Configuration tab
+- Company dropdown in Department Structure modal now populated from VAT Registry
+- Added edit functionality to VAT Registry entries (Edit VAT Registry modal)
+- Added password field to user creation/editing forms in Settings → Users
+- Removed "Open in Drive" button from Invoice Details modal
+- Repositioned Invoice Details modal buttons: Edit/Delete on left, Close on right
+- Fixed import error in user creation (from database import set_user_password)
+- Added email notification system with Office365 SMTP support
+- Fixed notification_service.py to use correct settings keys (from_email, smtp_tls)
+- Fixed allocation value calculation in notification emails (was showing 0.00)
