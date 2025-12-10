@@ -47,6 +47,7 @@ def init_db():
             exchange_rate REAL,
             drive_link TEXT,
             comment TEXT,
+            deleted_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -114,6 +115,35 @@ def init_db():
             company TEXT NOT NULL UNIQUE,
             brands TEXT,
             vat TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS connectors (
+            id SERIAL PRIMARY KEY,
+            connector_type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            status TEXT DEFAULT 'disconnected',
+            config JSONB DEFAULT '{}',
+            credentials JSONB DEFAULT '{}',
+            last_sync TIMESTAMP,
+            last_error TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS connector_sync_log (
+            id SERIAL PRIMARY KEY,
+            connector_id INTEGER NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+            sync_type TEXT NOT NULL,
+            status TEXT NOT NULL,
+            invoices_found INTEGER DEFAULT 0,
+            invoices_imported INTEGER DEFAULT 0,
+            error_message TEXT,
+            details JSONB DEFAULT '{}',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -188,6 +218,19 @@ def init_db():
         conn.rollback()
     except Exception:
         conn.rollback()
+
+    # Add deleted_at column for soft delete (bin functionality)
+    try:
+        cursor.execute('ALTER TABLE invoices ADD COLUMN deleted_at TIMESTAMP')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Create index for soft delete queries
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_deleted_at ON invoices(deleted_at)')
+    conn.commit()
 
     # Seed initial data if tables are empty
     cursor.execute('SELECT COUNT(*) FROM department_structure')
@@ -344,8 +387,12 @@ def save_invoice(
 def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] = None,
                      start_date: Optional[str] = None, end_date: Optional[str] = None,
                      department: Optional[str] = None, subdepartment: Optional[str] = None,
-                     brand: Optional[str] = None) -> list[dict]:
-    """Get all invoices with pagination and optional filtering by allocation fields."""
+                     brand: Optional[str] = None, include_deleted: bool = False) -> list[dict]:
+    """Get all invoices with pagination and optional filtering by allocation fields.
+
+    By default, deleted invoices (with deleted_at set) are excluded.
+    Set include_deleted=True to get only deleted invoices (for the bin view).
+    """
     conn = get_db()
     cursor = get_cursor(conn)
 
@@ -376,6 +423,12 @@ def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] =
         if brand:
             conditions.append('a.brand = %s')
             params.append(brand)
+
+    # Soft delete filter
+    if include_deleted:
+        conditions.append('i.deleted_at IS NOT NULL')
+    else:
+        conditions.append('i.deleted_at IS NULL')
 
     # Date filters on invoice table
     if start_date:
@@ -601,7 +654,57 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
 
 
 def delete_invoice(invoice_id: int) -> bool:
-    """Delete an invoice and its allocations."""
+    """Soft delete an invoice (move to bin)."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('UPDATE invoices SET deleted_at = CURRENT_TIMESTAMP WHERE id = %s AND deleted_at IS NULL', (invoice_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def restore_invoice(invoice_id: int) -> bool:
+    """Restore a soft-deleted invoice from the bin."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('UPDATE invoices SET deleted_at = NULL WHERE id = %s AND deleted_at IS NOT NULL', (invoice_id,))
+    restored = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return restored
+
+
+def get_invoice_drive_link(invoice_id: int) -> str | None:
+    """Get the drive_link for a single invoice."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute('SELECT drive_link FROM invoices WHERE id = %s', (invoice_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result['drive_link'] if result else None
+
+
+def get_invoice_drive_links(invoice_ids: list[int]) -> list[str]:
+    """Get drive_links for multiple invoices. Returns list of non-null links."""
+    if not invoice_ids:
+        return []
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+    placeholders = ','.join(['%s'] * len(invoice_ids))
+    cursor.execute(f'SELECT drive_link FROM invoices WHERE id IN ({placeholders}) AND drive_link IS NOT NULL', invoice_ids)
+    results = cursor.fetchall()
+    conn.close()
+    return [r['drive_link'] for r in results if r['drive_link']]
+
+
+def permanently_delete_invoice(invoice_id: int) -> bool:
+    """Permanently delete an invoice and its allocations."""
     conn = get_db()
     cursor = get_cursor(conn)
 
@@ -611,6 +714,74 @@ def delete_invoice(invoice_id: int) -> bool:
     conn.commit()
     conn.close()
     return deleted
+
+
+def bulk_soft_delete_invoices(invoice_ids: list[int]) -> int:
+    """Soft delete multiple invoices. Returns count of deleted invoices."""
+    if not invoice_ids:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    placeholders = ','.join(['%s'] * len(invoice_ids))
+    cursor.execute(f'UPDATE invoices SET deleted_at = CURRENT_TIMESTAMP WHERE id IN ({placeholders}) AND deleted_at IS NULL', invoice_ids)
+    deleted_count = cursor.rowcount
+
+    conn.commit()
+    conn.close()
+    return deleted_count
+
+
+def bulk_restore_invoices(invoice_ids: list[int]) -> int:
+    """Restore multiple soft-deleted invoices. Returns count of restored invoices."""
+    if not invoice_ids:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    placeholders = ','.join(['%s'] * len(invoice_ids))
+    cursor.execute(f'UPDATE invoices SET deleted_at = NULL WHERE id IN ({placeholders}) AND deleted_at IS NOT NULL', invoice_ids)
+    restored_count = cursor.rowcount
+
+    conn.commit()
+    conn.close()
+    return restored_count
+
+
+def bulk_permanently_delete_invoices(invoice_ids: list[int]) -> int:
+    """Permanently delete multiple invoices. Returns count of deleted invoices."""
+    if not invoice_ids:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    placeholders = ','.join(['%s'] * len(invoice_ids))
+    cursor.execute(f'DELETE FROM invoices WHERE id IN ({placeholders})', invoice_ids)
+    deleted_count = cursor.rowcount
+
+    conn.commit()
+    conn.close()
+    return deleted_count
+
+
+def cleanup_old_deleted_invoices(days: int = 30) -> int:
+    """Permanently delete invoices that have been in the bin for more than specified days."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        DELETE FROM invoices
+        WHERE deleted_at IS NOT NULL
+        AND deleted_at < CURRENT_TIMESTAMP - INTERVAL '%s days'
+    ''', (days,))
+    deleted_count = cursor.rowcount
+
+    conn.commit()
+    conn.close()
+    return deleted_count
 
 
 def update_invoice(
@@ -1096,6 +1267,191 @@ def get_invoice_template_by_name(name: str) -> Optional[dict]:
 
     conn.close()
     return dict_from_row(template) if template else None
+
+
+# ============ Connector Functions ============
+
+def get_all_connectors() -> list[dict]:
+    """Get all connectors."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM connectors ORDER BY name')
+    connectors = [dict_from_row(row) for row in cursor.fetchall()]
+
+    conn.close()
+    return connectors
+
+
+def get_connector(connector_id: int) -> Optional[dict]:
+    """Get a specific connector by ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM connectors WHERE id = %s', (connector_id,))
+    connector = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(connector) if connector else None
+
+
+def get_connector_by_type(connector_type: str) -> Optional[dict]:
+    """Get a connector by type (e.g., 'google_ads', 'meta')."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM connectors WHERE connector_type = %s', (connector_type,))
+    connector = cursor.fetchone()
+
+    conn.close()
+    return dict_from_row(connector) if connector else None
+
+
+def save_connector(
+    connector_type: str,
+    name: str,
+    status: str = 'disconnected',
+    config: dict = None,
+    credentials: dict = None
+) -> int:
+    """Save a new connector. Returns connector ID."""
+    import json
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        INSERT INTO connectors (connector_type, name, status, config, credentials)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+    ''', (
+        connector_type,
+        name,
+        status,
+        json.dumps(config or {}),
+        json.dumps(credentials or {})
+    ))
+
+    connector_id = cursor.fetchone()['id']
+    conn.commit()
+    conn.close()
+    return connector_id
+
+
+def update_connector(
+    connector_id: int,
+    name: str = None,
+    status: str = None,
+    config: dict = None,
+    credentials: dict = None,
+    last_sync: datetime = None,
+    last_error: str = None
+) -> bool:
+    """Update a connector. Returns True if updated."""
+    import json
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    updates = []
+    params = []
+
+    if name is not None:
+        updates.append('name = %s')
+        params.append(name)
+    if status is not None:
+        updates.append('status = %s')
+        params.append(status)
+    if config is not None:
+        updates.append('config = %s')
+        params.append(json.dumps(config))
+    if credentials is not None:
+        updates.append('credentials = %s')
+        params.append(json.dumps(credentials))
+    if last_sync is not None:
+        updates.append('last_sync = %s')
+        params.append(last_sync)
+    if last_error is not None:
+        updates.append('last_error = %s')
+        params.append(last_error)
+
+    if not updates:
+        conn.close()
+        return False
+
+    updates.append('updated_at = CURRENT_TIMESTAMP')
+    params.append(connector_id)
+
+    query = f"UPDATE connectors SET {', '.join(updates)} WHERE id = %s"
+    cursor.execute(query, params)
+    updated = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return updated
+
+
+def delete_connector(connector_id: int) -> bool:
+    """Delete a connector and its sync logs."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('DELETE FROM connectors WHERE id = %s', (connector_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    conn.close()
+    return deleted
+
+
+def add_connector_sync_log(
+    connector_id: int,
+    sync_type: str,
+    status: str,
+    invoices_found: int = 0,
+    invoices_imported: int = 0,
+    error_message: str = None,
+    details: dict = None
+) -> int:
+    """Add a sync log entry. Returns log ID."""
+    import json
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        INSERT INTO connector_sync_log
+        (connector_id, sync_type, status, invoices_found, invoices_imported, error_message, details)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    ''', (
+        connector_id,
+        sync_type,
+        status,
+        invoices_found,
+        invoices_imported,
+        error_message,
+        json.dumps(details or {})
+    ))
+
+    log_id = cursor.fetchone()['id']
+    conn.commit()
+    conn.close()
+    return log_id
+
+
+def get_connector_sync_logs(connector_id: int, limit: int = 20) -> list[dict]:
+    """Get sync logs for a connector, most recent first."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT * FROM connector_sync_log
+        WHERE connector_id = %s
+        ORDER BY created_at DESC
+        LIMIT %s
+    ''', (connector_id, limit))
+
+    logs = [dict_from_row(row) for row in cursor.fetchall()]
+    conn.close()
+    return logs
 
 
 # Initialize database on import

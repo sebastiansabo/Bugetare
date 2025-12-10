@@ -31,6 +31,11 @@
         .allocation-edit-row .form-control, .allocation-edit-row .form-select { font-size: 0.9em; }
         .allocation-edit-row .delete-allocation-btn { position: absolute; top: 5px; right: 5px; }
         .allocation-value-display { font-weight: bold; color: #198754; }
+        .bulk-action-bar { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 8px 12px; margin-bottom: 10px; display: none; }
+        .bulk-action-bar.show { display: flex; align-items: center; gap: 10px; }
+        .select-checkbox { cursor: pointer; width: 18px; height: 18px; }
+        .bin-badge { background: #dc3545; color: white; font-size: 0.7em; padding: 2px 6px; border-radius: 10px; margin-left: 5px; }
+        .deleted-row { opacity: 0.7; background: #fff3cd; }
     </style>
 </head>
 <body>
@@ -39,9 +44,14 @@
             <span class="navbar-brand mb-0 h1">
                 <i class="bi bi-calculator"></i> Accounting Dashboard
             </span>
-            <a href="/" class="btn btn-outline-light btn-sm">
-                <i class="bi bi-plus-circle"></i> New Invoice
-            </a>
+            <div>
+                <a href="/connectors" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-plug"></i> Connectors
+                </a>
+                <a href="/" class="btn btn-outline-light btn-sm">
+                    <i class="bi bi-plus-circle"></i> New Invoice
+                </a>
+            </div>
         </div>
     </nav>
 
@@ -168,6 +178,11 @@
                     <i class="bi bi-tag"></i> By Brand
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link" data-bs-toggle="tab" href="#binTab" onclick="loadBinData()">
+                    <i class="bi bi-trash3"></i> Bin <span id="binCount" class="bin-badge" style="display: none;">0</span>
+                </a>
+            </li>
         </ul>
 
         <div class="tab-content">
@@ -176,11 +191,26 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-table"></i> Invoice Data</span>
-                        <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#columnConfigModal">
-                            <i class="bi bi-gear"></i> Configure Columns
-                        </button>
+                        <div class="d-flex gap-2 align-items-center">
+                            <select class="form-select form-select-sm" id="sortOrder" onchange="applySorting()" style="width: auto;">
+                                <option value="newest">Newest first</option>
+                                <option value="oldest">Oldest first</option>
+                            </select>
+                            <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#columnConfigModal">
+                                <i class="bi bi-gear"></i> Configure Columns
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
+                        <div class="bulk-action-bar" id="bulkActionBar">
+                            <span><strong id="selectedCount">0</strong> selected</span>
+                            <button class="btn btn-danger btn-sm" onclick="bulkDeleteSelected()">
+                                <i class="bi bi-trash"></i> Delete Selected
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="clearSelection()">
+                                Clear Selection
+                            </button>
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-hover" id="invoicesDataTable">
                                 <thead class="table-light" id="invoicesTableHead">
@@ -275,6 +305,46 @@
                                 <tbody id="brandTable">
                                     <tr>
                                         <td colspan="3" class="text-center">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bin Tab -->
+            <div class="tab-pane fade" id="binTab">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-trash3"></i> Deleted Invoices (Bin) - Auto-deleted after 30 days</span>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-success btn-sm" onclick="bulkRestoreSelected()" id="binRestoreBtn" disabled>
+                                <i class="bi bi-arrow-counterclockwise"></i> Restore Selected
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="bulkPermanentDeleteSelected()" id="binPermanentDeleteBtn" disabled>
+                                <i class="bi bi-trash"></i> Delete Permanently
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover" id="binDataTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th><input type="checkbox" class="select-checkbox" id="binSelectAll" onchange="toggleBinSelectAll(this)"></th>
+                                        <th>ID</th>
+                                        <th>Date</th>
+                                        <th>Supplier</th>
+                                        <th>Invoice #</th>
+                                        <th>Value</th>
+                                        <th>Deleted At</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="binTable">
+                                    <tr>
+                                        <td colspan="8" class="text-center text-muted">Click "Bin" tab to load deleted invoices</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -598,8 +668,14 @@
         let summaryTotalEur = 0;
         let currentEurRate = 5.0; // Default EUR/RON rate, will be fetched from API
 
+        // Selection state
+        let selectedInvoices = new Set();
+        let binInvoices = [];
+        let selectedBinInvoices = new Set();
+
         // Default column configuration
         const DEFAULT_COLUMNS = [
+            { id: 'select', name: '', source: 'special.select', format: 'special', visible: true, custom: false },
             { id: 'id', name: 'ID', source: 'invoice.id', format: 'text', visible: true, custom: false },
             { id: 'date', name: 'Date', source: 'invoice.invoice_date', format: 'date', visible: true, custom: false },
             { id: 'supplier', name: 'Supplier', source: 'invoice.supplier', format: 'text', visible: true, custom: false },
@@ -662,6 +738,10 @@
             const saved = localStorage.getItem('accountingColumnConfig');
             if (saved) {
                 columnConfig = JSON.parse(saved);
+                // Ensure select column exists (for migration from old configs)
+                if (!columnConfig.find(c => c.id === 'select')) {
+                    columnConfig.unshift({ id: 'select', name: '', source: 'special.select', format: 'special', visible: true, custom: false });
+                }
             } else {
                 columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
             }
@@ -1498,8 +1578,14 @@
             const tbody = document.getElementById('invoicesTable');
             const visibleCols = columnConfig.filter(c => c.visible);
 
-            // Render header
-            thead.innerHTML = visibleCols.map(col => `<th>${col.name}</th>`).join('');
+            // Render header with select all checkbox for select column
+            thead.innerHTML = visibleCols.map(col => {
+                if (col.id === 'select') {
+                    const allSelected = invoices.length > 0 && invoices.every(inv => selectedInvoices.has(inv.id));
+                    return `<th><input type="checkbox" class="select-checkbox" id="selectAll" onchange="toggleSelectAll(this)" ${allSelected ? 'checked' : ''}></th>`;
+                }
+                return `<th>${col.name}</th>`;
+            }).join('');
 
             if (invoices.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="${visibleCols.length}" class="text-center text-muted">No invoices found</td></tr>`;
@@ -1508,12 +1594,19 @@
 
             tbody.innerHTML = invoices.map(inv => {
                 const cells = visibleCols.map(col => {
+                    if (col.id === 'select') {
+                        const checked = selectedInvoices.has(inv.id) ? 'checked' : '';
+                        return `<td><input type="checkbox" class="select-checkbox" data-id="${inv.id}" onchange="toggleInvoiceSelect(${inv.id})" ${checked}></td>`;
+                    }
                     const value = getColumnValue(inv, col);
                     const formatted = formatColumnValue(value, col, inv);
                     return `<td>${formatted}</td>`;
                 }).join('');
                 return `<tr>${cells}</tr>`;
             }).join('');
+
+            // Update selection UI
+            updateSelectionUI();
         }
 
         function renderCompanyTable(data) {
@@ -2475,6 +2568,344 @@
                 return dateStr;
             }
         }
+
+        // ================= SORTING FUNCTIONS =================
+
+        function applySorting() {
+            const sortOrder = document.getElementById('sortOrder').value;
+            let sortedInvoices = [...allInvoices];
+
+            sortedInvoices.sort((a, b) => {
+                const dateA = new Date(a.invoice_date || '1970-01-01');
+                const dateB = new Date(b.invoice_date || '1970-01-01');
+
+                if (sortOrder === 'newest') {
+                    return dateB - dateA;
+                } else {
+                    return dateA - dateB;
+                }
+            });
+
+            renderInvoicesTable(sortedInvoices);
+        }
+
+        // ================= SELECTION FUNCTIONS =================
+
+        function toggleSelectAll(checkbox) {
+            const isChecked = checkbox.checked;
+
+            // Get currently displayed invoices (after filtering)
+            const displayedInvoices = allInvoices;
+
+            if (isChecked) {
+                displayedInvoices.forEach(inv => selectedInvoices.add(inv.id));
+            } else {
+                displayedInvoices.forEach(inv => selectedInvoices.delete(inv.id));
+            }
+
+            // Update individual checkboxes
+            document.querySelectorAll('#invoicesTable input.select-checkbox').forEach(cb => {
+                cb.checked = isChecked;
+            });
+
+            updateSelectionUI();
+        }
+
+        function toggleInvoiceSelect(id) {
+            if (selectedInvoices.has(id)) {
+                selectedInvoices.delete(id);
+            } else {
+                selectedInvoices.add(id);
+            }
+
+            updateSelectionUI();
+
+            // Update select all checkbox state
+            const selectAll = document.getElementById('selectAll');
+            if (selectAll) {
+                const allChecked = allInvoices.length > 0 && allInvoices.every(inv => selectedInvoices.has(inv.id));
+                selectAll.checked = allChecked;
+            }
+        }
+
+        function updateSelectionUI() {
+            const count = selectedInvoices.size;
+            const bulkActionBar = document.getElementById('bulkActionBar');
+            const selectedCountEl = document.getElementById('selectedCount');
+
+            if (count > 0) {
+                bulkActionBar.classList.add('show');
+                selectedCountEl.textContent = count;
+            } else {
+                bulkActionBar.classList.remove('show');
+            }
+        }
+
+        function clearSelection() {
+            selectedInvoices.clear();
+            document.querySelectorAll('#invoicesTable input.select-checkbox, #selectAll').forEach(cb => {
+                cb.checked = false;
+            });
+            updateSelectionUI();
+        }
+
+        // ================= BULK DELETE FUNCTIONS =================
+
+        async function bulkDeleteSelected() {
+            if (selectedInvoices.size === 0) return;
+
+            if (!confirm(`Are you sure you want to move ${selectedInvoices.size} invoice(s) to the bin?`)) {
+                return;
+            }
+
+            try {
+                const invoice_ids = Array.from(selectedInvoices);
+                const response = await fetch('/api/db/invoices/bulk-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoice_ids })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    // Remove deleted invoices from local data
+                    allInvoices = allInvoices.filter(inv => !selectedInvoices.has(inv.id));
+                    selectedInvoices.clear();
+
+                    // Re-render table
+                    applySorting();
+                    updateSummaryCards();
+                    loadBinCount();
+
+                    alert(`${result.deleted_count} invoice(s) moved to bin.`);
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to delete'));
+                }
+            } catch (err) {
+                console.error('Bulk delete error:', err);
+                alert('Error deleting invoices');
+            }
+        }
+
+        // ================= BIN FUNCTIONS =================
+
+        async function loadBinCount() {
+            try {
+                const response = await fetch('/api/db/invoices/bin');
+                const data = await response.json();
+                const count = data.length;
+
+                const binBadge = document.getElementById('binCount');
+                if (count > 0) {
+                    binBadge.textContent = count;
+                    binBadge.style.display = 'inline';
+                } else {
+                    binBadge.style.display = 'none';
+                }
+            } catch (err) {
+                console.error('Error loading bin count:', err);
+            }
+        }
+
+        async function loadBinData() {
+            const tbody = document.getElementById('binTable');
+            tbody.innerHTML = '<tr><td colspan="8" class="text-center"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
+
+            try {
+                const response = await fetch('/api/db/invoices/bin');
+                binInvoices = await response.json();
+                renderBinTable();
+            } catch (err) {
+                console.error('Error loading bin data:', err);
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">Error loading deleted invoices</td></tr>';
+            }
+        }
+
+        function renderBinTable() {
+            const tbody = document.getElementById('binTable');
+
+            if (binInvoices.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No deleted invoices in bin</td></tr>';
+                document.getElementById('binCount').style.display = 'none';
+                return;
+            }
+
+            // Update bin count badge
+            document.getElementById('binCount').textContent = binInvoices.length;
+            document.getElementById('binCount').style.display = 'inline';
+
+            tbody.innerHTML = binInvoices.map(inv => {
+                const checked = selectedBinInvoices.has(inv.id) ? 'checked' : '';
+                const deletedAt = inv.deleted_at ? formatDateRomanian(inv.deleted_at) : '-';
+                return `
+                    <tr class="deleted-row">
+                        <td><input type="checkbox" class="select-checkbox" data-bin-id="${inv.id}" onchange="toggleBinInvoiceSelect(${inv.id})" ${checked}></td>
+                        <td>${inv.id}</td>
+                        <td>${formatDateRomanian(inv.invoice_date)}</td>
+                        <td>${inv.supplier || '-'}</td>
+                        <td><code>${inv.invoice_number || '-'}</code></td>
+                        <td>${formatCurrency(inv.invoice_value)} ${inv.currency || 'RON'}</td>
+                        <td>${deletedAt}</td>
+                        <td>
+                            <button class="btn btn-outline-success btn-sm" onclick="restoreInvoice(${inv.id})" title="Restore">
+                                <i class="bi bi-arrow-counterclockwise"></i>
+                            </button>
+                            <button class="btn btn-outline-danger btn-sm" onclick="permanentDeleteInvoice(${inv.id})" title="Delete Permanently">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            updateBinSelectionUI();
+        }
+
+        function toggleBinSelectAll(checkbox) {
+            const isChecked = checkbox.checked;
+
+            if (isChecked) {
+                binInvoices.forEach(inv => selectedBinInvoices.add(inv.id));
+            } else {
+                selectedBinInvoices.clear();
+            }
+
+            document.querySelectorAll('#binTable input.select-checkbox').forEach(cb => {
+                cb.checked = isChecked;
+            });
+
+            updateBinSelectionUI();
+        }
+
+        function toggleBinInvoiceSelect(id) {
+            if (selectedBinInvoices.has(id)) {
+                selectedBinInvoices.delete(id);
+            } else {
+                selectedBinInvoices.add(id);
+            }
+
+            updateBinSelectionUI();
+
+            // Update select all checkbox state
+            const selectAll = document.getElementById('binSelectAll');
+            if (selectAll) {
+                const allChecked = binInvoices.length > 0 && binInvoices.every(inv => selectedBinInvoices.has(inv.id));
+                selectAll.checked = allChecked;
+            }
+        }
+
+        function updateBinSelectionUI() {
+            const count = selectedBinInvoices.size;
+            const restoreBtn = document.getElementById('binRestoreBtn');
+            const deleteBtn = document.getElementById('binPermanentDeleteBtn');
+
+            restoreBtn.disabled = count === 0;
+            deleteBtn.disabled = count === 0;
+        }
+
+        async function restoreInvoice(id) {
+            if (!confirm('Restore this invoice from the bin?')) return;
+
+            try {
+                const response = await fetch(`/api/db/invoices/${id}/restore`, {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    loadBinData();
+                    loadData();
+                } else {
+                    const result = await response.json();
+                    alert('Error: ' + (result.error || 'Failed to restore'));
+                }
+            } catch (err) {
+                console.error('Restore error:', err);
+                alert('Error restoring invoice');
+            }
+        }
+
+        async function permanentDeleteInvoice(id) {
+            if (!confirm('PERMANENTLY delete this invoice? This cannot be undone!')) return;
+
+            try {
+                const response = await fetch(`/api/db/invoices/${id}/permanent`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    loadBinData();
+                } else {
+                    const result = await response.json();
+                    alert('Error: ' + (result.error || 'Failed to delete'));
+                }
+            } catch (err) {
+                console.error('Permanent delete error:', err);
+                alert('Error deleting invoice');
+            }
+        }
+
+        async function bulkRestoreSelected() {
+            if (selectedBinInvoices.size === 0) return;
+
+            if (!confirm(`Restore ${selectedBinInvoices.size} invoice(s) from the bin?`)) return;
+
+            try {
+                const invoice_ids = Array.from(selectedBinInvoices);
+                const response = await fetch('/api/db/invoices/bulk-restore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoice_ids })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    selectedBinInvoices.clear();
+                    loadBinData();
+                    loadData();
+                    alert(`${result.restored_count} invoice(s) restored.`);
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to restore'));
+                }
+            } catch (err) {
+                console.error('Bulk restore error:', err);
+                alert('Error restoring invoices');
+            }
+        }
+
+        async function bulkPermanentDeleteSelected() {
+            if (selectedBinInvoices.size === 0) return;
+
+            if (!confirm(`PERMANENTLY delete ${selectedBinInvoices.size} invoice(s)? This cannot be undone!`)) return;
+
+            try {
+                const invoice_ids = Array.from(selectedBinInvoices);
+                const response = await fetch('/api/db/invoices/bulk-permanent-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ invoice_ids })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    selectedBinInvoices.clear();
+                    loadBinData();
+                    alert(`${result.deleted_count} invoice(s) permanently deleted.`);
+                } else {
+                    alert('Error: ' + (result.error || 'Failed to delete'));
+                }
+            } catch (err) {
+                console.error('Bulk permanent delete error:', err);
+                alert('Error deleting invoices');
+            }
+        }
+
+        // Load bin count on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadBinCount();
+        });
     </script>
 </body>
 </html>

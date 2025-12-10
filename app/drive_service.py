@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import json
 import base64
 from datetime import datetime
@@ -221,3 +222,58 @@ def list_folder_contents(folder_id: str = ROOT_FOLDER_ID) -> list:
     query = f"'{folder_id}' in parents and trashed=false"
     results = service.files().list(q=query, fields="files(id, name, mimeType)").execute()
     return results.get('files', [])
+
+
+def extract_file_id_from_link(drive_link: str) -> str | None:
+    """Extract Google Drive file ID from a web view link.
+
+    Supports formats like:
+    - https://drive.google.com/file/d/{FILE_ID}/view
+    - https://drive.google.com/open?id={FILE_ID}
+    """
+    if not drive_link:
+        return None
+
+    # Pattern for /file/d/{id}/view format
+    match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', drive_link)
+    if match:
+        return match.group(1)
+
+    # Pattern for ?id={id} format
+    match = re.search(r'[?&]id=([a-zA-Z0-9_-]+)', drive_link)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def delete_file_from_drive(drive_link: str) -> bool:
+    """Delete a file from Google Drive using its web view link.
+
+    Returns True if file was deleted, False if file not found or error occurred.
+    """
+    file_id = extract_file_id_from_link(drive_link)
+    if not file_id:
+        print(f"Could not extract file ID from link: {drive_link}")
+        return False
+
+    try:
+        service = get_drive_service()
+        service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
+        print(f"Deleted file from Drive: {file_id}")
+        return True
+    except Exception as e:
+        print(f"Error deleting file from Drive: {e}")
+        return False
+
+
+def delete_files_from_drive(drive_links: list[str]) -> int:
+    """Delete multiple files from Google Drive.
+
+    Returns count of successfully deleted files.
+    """
+    deleted_count = 0
+    for link in drive_links:
+        if link and delete_file_from_drive(link):
+            deleted_count += 1
+    return deleted_count

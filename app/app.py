@@ -15,15 +15,20 @@ from database import (
     update_invoice_allocations,
     get_all_invoice_templates, get_invoice_template, save_invoice_template,
     update_invoice_template, delete_invoice_template,
-    check_invoice_number_exists
+    check_invoice_number_exists,
+    restore_invoice, bulk_soft_delete_invoices, bulk_restore_invoices,
+    permanently_delete_invoice, bulk_permanently_delete_invoices,
+    get_invoice_drive_link, get_invoice_drive_links
 )
 
 # Google Drive integration (optional)
 try:
-    from drive_service import upload_invoice_to_drive, check_drive_auth
+    from drive_service import upload_invoice_to_drive, check_drive_auth, delete_file_from_drive, delete_files_from_drive
     DRIVE_ENABLED = True
 except ImportError:
     DRIVE_ENABLED = False
+    delete_file_from_drive = None
+    delete_files_from_drive = None
 
 # Currency conversion (BNR rates)
 try:
@@ -289,6 +294,186 @@ def accounting():
     return render_template('accounting.html')
 
 
+# ============== CONNECTORS INTERFACE ENDPOINTS ==============
+
+@app.route('/connectors')
+def connectors():
+    """Connectors page for managing external integrations."""
+    from database import get_all_connectors, get_connector_by_type, get_connector_sync_logs
+
+    all_connectors = get_all_connectors()
+
+    # Add sync logs to each connector
+    for connector in all_connectors:
+        connector['sync_logs'] = get_connector_sync_logs(connector['id'], limit=10)
+
+    # Get specific connectors for the template
+    google_ads_connector = get_connector_by_type('google_ads')
+    if google_ads_connector:
+        google_ads_connector['sync_logs'] = get_connector_sync_logs(google_ads_connector['id'], limit=10)
+
+    return render_template('connectors.html',
+                           connectors=all_connectors,
+                           google_ads_connector=google_ads_connector)
+
+
+@app.route('/api/connectors', methods=['GET'])
+def api_get_connectors():
+    """Get all connectors."""
+    from database import get_all_connectors
+    return jsonify(get_all_connectors())
+
+
+@app.route('/api/connectors/<int:connector_id>', methods=['GET'])
+def api_get_connector(connector_id):
+    """Get a specific connector."""
+    from database import get_connector
+    connector = get_connector(connector_id)
+    if connector:
+        return jsonify(connector)
+    return jsonify({'error': 'Connector not found'}), 404
+
+
+@app.route('/api/connectors', methods=['POST'])
+def api_create_connector():
+    """Create a new connector."""
+    from database import save_connector, get_connector_by_type
+
+    data = request.get_json()
+    connector_type = data.get('connector_type')
+    name = data.get('name')
+
+    if not connector_type or not name:
+        return jsonify({'error': 'connector_type and name are required'}), 400
+
+    # Check if connector of this type already exists
+    existing = get_connector_by_type(connector_type)
+    if existing:
+        return jsonify({'error': f'A {connector_type} connector already exists'}), 400
+
+    # Build config and credentials based on connector type
+    config = {}
+    credentials = {}
+
+    if connector_type == 'google_ads':
+        config['customer_id'] = data.get('customer_id', '').replace('-', '')
+        credentials['developer_token'] = data.get('developer_token', '')
+        credentials['oauth_client_id'] = data.get('oauth_client_id', '')
+        credentials['oauth_client_secret'] = data.get('oauth_client_secret', '')
+        credentials['refresh_token'] = data.get('refresh_token', '')
+
+    connector_id = save_connector(
+        connector_type=connector_type,
+        name=name,
+        status='connected',
+        config=config,
+        credentials=credentials
+    )
+
+    return jsonify({'success': True, 'id': connector_id})
+
+
+@app.route('/api/connectors/<int:connector_id>', methods=['PUT'])
+def api_update_connector(connector_id):
+    """Update a connector."""
+    from database import update_connector, get_connector
+
+    connector = get_connector(connector_id)
+    if not connector:
+        return jsonify({'error': 'Connector not found'}), 404
+
+    data = request.get_json()
+
+    # Update name if provided
+    name = data.get('name')
+
+    # Update config
+    config = connector.get('config', {})
+    if data.get('customer_id'):
+        config['customer_id'] = data.get('customer_id', '').replace('-', '')
+
+    # Update credentials only if new values provided
+    credentials = connector.get('credentials', {})
+    if data.get('developer_token'):
+        credentials['developer_token'] = data['developer_token']
+    if data.get('oauth_client_id'):
+        credentials['oauth_client_id'] = data['oauth_client_id']
+    if data.get('oauth_client_secret'):
+        credentials['oauth_client_secret'] = data['oauth_client_secret']
+    if data.get('refresh_token'):
+        credentials['refresh_token'] = data['refresh_token']
+
+    success = update_connector(
+        connector_id,
+        name=name,
+        config=config,
+        credentials=credentials
+    )
+
+    return jsonify({'success': success})
+
+
+@app.route('/api/connectors/<int:connector_id>', methods=['DELETE'])
+def api_delete_connector(connector_id):
+    """Delete a connector."""
+    from database import delete_connector
+
+    success = delete_connector(connector_id)
+    if success:
+        return jsonify({'success': True})
+    return jsonify({'error': 'Connector not found'}), 404
+
+
+@app.route('/api/connectors/<int:connector_id>/sync', methods=['POST'])
+def api_sync_connector(connector_id):
+    """Trigger a sync for a connector."""
+    from database import get_connector, update_connector, add_connector_sync_log
+    from datetime import datetime
+
+    connector = get_connector(connector_id)
+    if not connector:
+        return jsonify({'error': 'Connector not found'}), 404
+
+    # For now, just log a placeholder sync
+    # Real implementation would call the appropriate connector service
+    try:
+        if connector['connector_type'] == 'google_ads':
+            # TODO: Implement actual Google Ads invoice sync
+            # from google_ads_connector import sync_google_ads_invoices
+            # result = sync_google_ads_invoices(connector)
+
+            # Placeholder response
+            log_id = add_connector_sync_log(
+                connector_id=connector_id,
+                sync_type='manual',
+                status='success',
+                invoices_found=0,
+                invoices_imported=0,
+                details={'message': 'Google Ads connector not yet implemented'}
+            )
+
+            update_connector(connector_id, last_sync=datetime.now(), status='connected')
+
+            return jsonify({
+                'success': True,
+                'invoices_found': 0,
+                'invoices_imported': 0,
+                'message': 'Google Ads API integration not yet implemented'
+            })
+        else:
+            return jsonify({'error': f'Unknown connector type: {connector["connector_type"]}'}), 400
+
+    except Exception as e:
+        add_connector_sync_log(
+            connector_id=connector_id,
+            sync_type='manual',
+            status='error',
+            error_message=str(e)
+        )
+        update_connector(connector_id, last_error=str(e), status='error')
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/db/invoices')
 def api_db_invoices():
     """Get all invoices from database with pagination and optional filters."""
@@ -319,10 +504,83 @@ def api_db_invoice_detail(invoice_id):
 
 @app.route('/api/db/invoices/<int:invoice_id>', methods=['DELETE'])
 def api_db_delete_invoice(invoice_id):
-    """Delete an invoice."""
+    """Soft delete an invoice (move to bin)."""
     if delete_invoice(invoice_id):
         return jsonify({'success': True})
     return jsonify({'error': 'Invoice not found'}), 404
+
+
+@app.route('/api/db/invoices/<int:invoice_id>/restore', methods=['POST'])
+def api_db_restore_invoice(invoice_id):
+    """Restore a soft-deleted invoice from the bin."""
+    if restore_invoice(invoice_id):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Invoice not found in bin'}), 404
+
+
+@app.route('/api/db/invoices/<int:invoice_id>/permanent', methods=['DELETE'])
+def api_db_permanently_delete_invoice(invoice_id):
+    """Permanently delete an invoice (cannot be restored). Also deletes from Google Drive."""
+    # Get drive_link before deleting the invoice
+    drive_link = get_invoice_drive_link(invoice_id)
+
+    if permanently_delete_invoice(invoice_id):
+        # Delete from Google Drive if link exists and Drive is enabled
+        drive_deleted = False
+        if drive_link and DRIVE_ENABLED and delete_file_from_drive:
+            drive_deleted = delete_file_from_drive(drive_link)
+        return jsonify({'success': True, 'drive_deleted': drive_deleted})
+    return jsonify({'error': 'Invoice not found'}), 404
+
+
+@app.route('/api/db/invoices/bulk-delete', methods=['POST'])
+def api_db_bulk_delete_invoices():
+    """Soft delete multiple invoices."""
+    data = request.json
+    invoice_ids = data.get('invoice_ids', [])
+    if not invoice_ids:
+        return jsonify({'error': 'No invoice IDs provided'}), 400
+    count = bulk_soft_delete_invoices(invoice_ids)
+    return jsonify({'success': True, 'deleted_count': count})
+
+
+@app.route('/api/db/invoices/bulk-restore', methods=['POST'])
+def api_db_bulk_restore_invoices():
+    """Restore multiple soft-deleted invoices."""
+    data = request.json
+    invoice_ids = data.get('invoice_ids', [])
+    if not invoice_ids:
+        return jsonify({'error': 'No invoice IDs provided'}), 400
+    count = bulk_restore_invoices(invoice_ids)
+    return jsonify({'success': True, 'restored_count': count})
+
+
+@app.route('/api/db/invoices/bulk-permanent-delete', methods=['POST'])
+def api_db_bulk_permanently_delete_invoices():
+    """Permanently delete multiple invoices (cannot be restored). Also deletes from Google Drive."""
+    data = request.json
+    invoice_ids = data.get('invoice_ids', [])
+    if not invoice_ids:
+        return jsonify({'error': 'No invoice IDs provided'}), 400
+
+    # Get drive_links before deleting the invoices
+    drive_links = get_invoice_drive_links(invoice_ids)
+
+    count = bulk_permanently_delete_invoices(invoice_ids)
+
+    # Delete from Google Drive if links exist and Drive is enabled
+    drive_deleted_count = 0
+    if drive_links and DRIVE_ENABLED and delete_files_from_drive:
+        drive_deleted_count = delete_files_from_drive(drive_links)
+
+    return jsonify({'success': True, 'deleted_count': count, 'drive_deleted_count': drive_deleted_count})
+
+
+@app.route('/api/db/invoices/bin', methods=['GET'])
+def api_db_get_deleted_invoices():
+    """Get all soft-deleted invoices (bin)."""
+    invoices = get_all_invoices(include_deleted=True, limit=500)
+    return jsonify(invoices)
 
 
 @app.route('/api/db/invoices/<int:invoice_id>', methods=['PUT'])

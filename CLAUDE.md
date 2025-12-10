@@ -262,3 +262,7 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Added collapsible Split Values column with +/- toggle and allocation summary
 - Added "By Brand" (Linie de business) tab view with Invoice #, Value, Split Values columns
 - Moved Drive upload from parsing to allocation confirmation (Save Distribution)
+- to memorize
+- to memorize
+- to memorize
+- add to memory
