@@ -155,28 +155,32 @@ def upload_invoice_to_drive(
     mime_type: str = 'application/pdf'
 ) -> str:
     """
-    Upload invoice to Google Drive organized by Year/Supplier.
+    Upload invoice to Google Drive organized by Year/Month/Supplier.
     Returns the file's web view link.
 
-    Structure: Root Folder / Year / Supplier / filename
+    Structure: Root Folder / Year / Month / Supplier / filename
     """
     service = get_drive_service()
 
-    # Extract year from invoice date
+    # Extract year and month from invoice date
     try:
         date_obj = datetime.strptime(invoice_date, '%Y-%m-%d')
         year = str(date_obj.year)
+        month = f"{date_obj.month:02d}"  # Zero-padded month (01-12)
     except:
-        year = str(datetime.now().year)
+        now = datetime.now()
+        year = str(now.year)
+        month = f"{now.month:02d}"
 
     # Clean supplier name for folder (remove special characters)
     clean_supplier = ''.join(c for c in supplier if c.isalnum() or c in ' -_').strip()
     if not clean_supplier:
         clean_supplier = 'Unknown Supplier'
 
-    # Create folder structure: Root / Year / Supplier
+    # Create folder structure: Root / Year / Month / Supplier
     year_folder_id = find_or_create_folder(service, year, ROOT_FOLDER_ID)
-    supplier_folder_id = find_or_create_folder(service, clean_supplier, year_folder_id)
+    month_folder_id = find_or_create_folder(service, month, year_folder_id)
+    supplier_folder_id = find_or_create_folder(service, clean_supplier, month_folder_id)
 
     # Upload the file
     file_metadata = {
