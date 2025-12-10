@@ -45,7 +45,8 @@ docker run -p 8080:8080 -e DATABASE_URL="..." -e ANTHROPIC_API_KEY="..." bugetar
 ## Environment Variables
 - `DATABASE_URL` - PostgreSQL connection string (required)
 - `ANTHROPIC_API_KEY` - Claude API key for invoice parsing (stored in ~/.zshrc)
-- `GOOGLE_CREDENTIALS_JSON` - Google Drive API credentials
+- `GOOGLE_CREDENTIALS_JSON` - Google Drive API credentials (service account)
+- `GOOGLE_OAUTH_TOKEN` - Base64-encoded OAuth token for Google Drive (production)
 
 ## Database Schema
 - `invoices` - Invoice header records
@@ -209,7 +210,9 @@ The app uses OAuth2 for Google Drive access (service accounts don't have storage
 - Run `python -c 'from app.drive_service import setup_oauth; setup_oauth()'` to authenticate
 
 **Production (DigitalOcean):**
-- Set `GOOGLE_OAUTH_TOKEN` environment variable with contents of `oauth-token.json`
+- Set `GOOGLE_OAUTH_TOKEN` environment variable with base64-encoded contents of `oauth-token.json`
+- Generate with: `base64 -i oauth-token.json | tr -d '\n'`
+- The `drive_service.py` automatically decodes base64 tokens (avoids JSON parsing issues in env vars)
 
 ### Upload Workflow
 Drive upload happens **after allocation confirmation** (not during parsing):
@@ -244,6 +247,8 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Uses BNR exchange rates from invoice dates
 
 ## Recent Changes
+- Added GOOGLE_OAUTH_TOKEN env var support with base64 encoding for production
+- Added missing `requests` package to requirements.txt (for BNR currency converter)
 - Added BNR currency converter module for automatic EUR/RON conversion
 - Added EUR/RON toggle on accounting dashboard Total Value card
 - Fixed currency display in Split Values, Reinvoice To columns and invoice detail modal (was hardcoded to RON)
