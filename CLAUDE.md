@@ -13,14 +13,15 @@ Flask-based web application for managing invoice allocations across companies, b
 ## Project Structure
 ```
 app/
-├── app.py           # Main Flask application and routes
-├── database.py      # Database operations (PostgreSQL)
-├── models.py        # Data models and structure loading
-├── services.py      # Business logic for allocations
-├── invoice_parser.py # AI-powered invoice parsing with Claude
-├── drive_service.py # Google Drive integration
-├── config.py        # Configuration settings
-└── templates/       # Jinja2 HTML templates
+├── app.py              # Main Flask application and routes
+├── database.py         # Database operations (PostgreSQL)
+├── models.py           # Data models and structure loading
+├── services.py         # Business logic for allocations
+├── invoice_parser.py   # AI-powered invoice parsing with Claude
+├── drive_service.py    # Google Drive integration
+├── currency_converter.py # BNR exchange rate fetching and conversion
+├── config.py           # Configuration settings
+└── templates/          # Jinja2 HTML templates
 ```
 
 ## Key Commands
@@ -219,7 +220,33 @@ Drive upload happens **after allocation confirmation** (not during parsing):
 
 This ensures only confirmed invoices are uploaded to Drive.
 
+## Currency Conversion
+
+### BNR Exchange Rates (`currency_converter.py`)
+Automatic currency conversion using BNR (National Bank of Romania) exchange rates:
+- Fetches rates from `https://www.bnr.ro/nbrfxrates.xml` (current year)
+- Historical rates from `https://www.bnr.ro/files/xml/years/nbrfxrates{YEAR}.xml`
+- In-memory cache to avoid repeated API calls
+- Fallback to previous days for weekends/holidays (up to 10 days back)
+
+### Invoice Currency Storage
+Each invoice stores:
+- `currency` - Original invoice currency (RON, EUR, USD, etc.)
+- `invoice_value` - Original amount in invoice currency
+- `value_ron` - Converted amount in RON
+- `value_eur` - Converted amount in EUR
+- `exchange_rate` - EUR/RON rate used for conversion
+
+### Dashboard Currency Toggle
+The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
+- Stored in localStorage as `totalValueDisplayCurrency`
+- Shows either total in RON or converted total in EUR
+- Uses BNR exchange rates from invoice dates
+
 ## Recent Changes
+- Added BNR currency converter module for automatic EUR/RON conversion
+- Added EUR/RON toggle on accounting dashboard Total Value card
+- Fixed currency display in Split Values, Reinvoice To columns and invoice detail modal (was hardcoded to RON)
 - Simplified database.py to PostgreSQL-only (removed SQLite)
 - Added customer_vat_regex extraction for all template types (not just "format")
 - Fixed Meta template invoice_number_regex to include capture groups

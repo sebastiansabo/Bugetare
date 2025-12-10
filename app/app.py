@@ -25,6 +25,13 @@ try:
 except ImportError:
     DRIVE_ENABLED = False
 
+# Currency conversion (BNR rates)
+try:
+    from currency_converter import get_eur_ron_conversion
+    CURRENCY_CONVERSION_ENABLED = True
+except ImportError:
+    CURRENCY_CONVERSION_ENABLED = False
+
 app = Flask(__name__)
 
 
@@ -98,7 +105,10 @@ def submit_invoice():
             invoice_value=float(data['invoice_value']),
             currency=data.get('currency', 'RON'),
             drive_link=data.get('drive_link', ''),
-            distributions=data['distributions']
+            distributions=data['distributions'],
+            value_ron=data.get('value_ron'),
+            value_eur=data.get('value_eur'),
+            exchange_rate=data.get('exchange_rate')
         )
 
         return jsonify({
@@ -152,6 +162,28 @@ def api_parse_invoice():
         # Drive upload is handled separately when user confirms allocation
         # via /api/drive/upload endpoint called from frontend during submission
         result['drive_link'] = None
+
+        # Add currency conversion if we have invoice_value, currency, and invoice_date
+        if CURRENCY_CONVERSION_ENABLED and result.get('invoice_value') and result.get('currency') and result.get('invoice_date'):
+            try:
+                conversion = get_eur_ron_conversion(
+                    float(result['invoice_value']),
+                    result['currency'],
+                    result['invoice_date']
+                )
+                result['value_ron'] = conversion.get('value_ron')
+                result['value_eur'] = conversion.get('value_eur')
+                result['exchange_rate'] = conversion.get('exchange_rate')
+            except Exception as conv_error:
+                # Conversion failed, but don't fail the whole parsing
+                print(f"Currency conversion failed: {conv_error}")
+                result['value_ron'] = None
+                result['value_eur'] = None
+                result['exchange_rate'] = None
+        else:
+            result['value_ron'] = None
+            result['value_eur'] = None
+            result['exchange_rate'] = None
 
         return jsonify({'success': True, 'data': result})
     except Exception as e:

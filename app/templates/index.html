@@ -136,7 +136,27 @@
                                     </select>
                                 </div>
                             </div>
+                            <!-- Currency Conversion Display -->
+                            <div class="row mb-3" id="conversionDisplay" style="display: none;">
+                                <div class="col-12">
+                                    <div class="alert alert-light py-2 mb-0 d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <i class="bi bi-currency-exchange text-primary"></i>
+                                            <span class="ms-2">
+                                                <strong id="displayValueRon">0.00</strong> RON =
+                                                <strong id="displayValueEur">0.00</strong> EUR
+                                            </span>
+                                        </div>
+                                        <small class="text-muted" id="exchangeRateInfo">
+                                            Rate: <span id="displayExchangeRate">0.0000</span> EUR/RON
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
                             <input type="hidden" id="driveLink">
+                            <input type="hidden" id="valueRon">
+                            <input type="hidden" id="valueEur">
+                            <input type="hidden" id="exchangeRate">
                         </form>
                     </div>
                 </div>
@@ -749,6 +769,21 @@
                     }
                 }
             }
+
+            // Display currency conversion if available
+            if (data.value_ron && data.value_eur) {
+                document.getElementById('valueRon').value = data.value_ron;
+                document.getElementById('valueEur').value = data.value_eur;
+                document.getElementById('exchangeRate').value = data.exchange_rate || '';
+
+                document.getElementById('displayValueRon').textContent = formatCurrency(data.value_ron);
+                document.getElementById('displayValueEur').textContent = formatCurrency(data.value_eur);
+                document.getElementById('displayExchangeRate').textContent = data.exchange_rate ? data.exchange_rate.toFixed(4) : '-';
+                document.getElementById('conversionDisplay').style.display = 'block';
+            } else {
+                document.getElementById('conversionDisplay').style.display = 'none';
+            }
+
             // PRIORITY 1: Try to match company by VAT number
             let matchedCompany = null;
             if (data.customer_vat) {
@@ -1242,6 +1277,11 @@
 
                 btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
 
+                // Get conversion values if available
+                const valueRon = document.getElementById('valueRon').value;
+                const valueEur = document.getElementById('valueEur').value;
+                const exchangeRate = document.getElementById('exchangeRate').value;
+
                 const res = await fetch('/api/submit', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1252,7 +1292,10 @@
                         invoice_value: invoiceValue,
                         currency: document.getElementById('currency').value,
                         drive_link: driveLink,
-                        distributions
+                        distributions,
+                        value_ron: valueRon ? parseFloat(valueRon) : null,
+                        value_eur: valueEur ? parseFloat(valueEur) : null,
+                        exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null
                     })
                 });
 
@@ -1265,8 +1308,12 @@
                     document.getElementById('allocationsContainer').innerHTML = '';
                     // Reset dedicated company
                     document.getElementById('dedicatedCompany').value = '';
-                    // Hide entry mode alert
+                    // Hide entry mode alert and conversion display
                     document.getElementById('entryModeAlert').style.display = 'none';
+                    document.getElementById('conversionDisplay').style.display = 'none';
+                    document.getElementById('valueRon').value = '';
+                    document.getElementById('valueEur').value = '';
+                    document.getElementById('exchangeRate').value = '';
                     addAllocationRow();
                     // Reset file input area
                     uploadedFile = null;

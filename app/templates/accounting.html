@@ -59,7 +59,13 @@
             <div class="col-md-3">
                 <div class="card summary-card bg-success text-white">
                     <div class="card-body">
-                        <h6 class="card-title"><i class="bi bi-currency-exchange"></i> Total Value</h6>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h6 class="card-title mb-0"><i class="bi bi-currency-exchange"></i> Total Value</h6>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="currencyToggle" style="cursor: pointer;">
+                                <label class="form-check-label small" for="currencyToggle" id="currencyToggleLabel" style="cursor: pointer;">EUR</label>
+                            </div>
+                        </div>
                         <h2 id="totalValue">0 RON</h2>
                     </div>
                 </div>
@@ -587,6 +593,11 @@
         let organizationalStructure = []; // Cache for company/department structure
         let editAllocations = []; // Current allocations being edited
 
+        // Summary card totals for currency toggle
+        let summaryTotalRon = 0;
+        let summaryTotalEur = 0;
+        let currentEurRate = 5.0; // Default EUR/RON rate, will be fetched from API
+
         // Default column configuration
         const DEFAULT_COLUMNS = [
             { id: 'id', name: 'ID', source: 'invoice.id', format: 'text', visible: true, custom: false },
@@ -958,6 +969,11 @@
                 if (confirm('Reset brand columns to default?')) {
                     resetBrandColumnConfig();
                 }
+            });
+
+            // Currency toggle for summary card
+            document.getElementById('currencyToggle').addEventListener('change', (e) => {
+                updateTotalValueDisplay(e.target.checked);
             });
 
             // Tab change listeners
@@ -1358,7 +1374,7 @@
                                 : '';
                             return `<div class="small border-start ${borderColor} ps-2">
                                 <span class="text-muted">${location}${brandPart}</span><br>
-                                <strong>${formatCurrency(s.value)} RON</strong>
+                                <strong>${formatCurrency(s.value)} ${inv.currency || 'RON'}</strong>
                                 <span class="badge bg-secondary">${s.percent}%</span>${reinvoiceLine}
                             </div>`;
                         }
@@ -1371,7 +1387,8 @@
                         const reinvoicedAllocs = value.filter(s => s.reinvoice_to);
 
                         // Build summary text
-                        let summaryText = `${value.length} allocations • ${formatCurrency(totalValue)} RON`;
+                        const currency = inv.currency || 'RON';
+                        let summaryText = `${value.length} allocations • ${formatCurrency(totalValue)} ${currency}`;
                         if (reinvoicedAllocs.length > 0) {
                             summaryText += ` <span class="text-warning">(→)</span>`;
                         }
@@ -1386,7 +1403,7 @@
                                 : '';
                             return `<div class="small border-start ${borderColor} ps-2 mb-1">
                                 <span class="text-muted">${location}${brandPart}</span><br>
-                                <strong>${formatCurrency(s.value)} RON</strong>
+                                <strong>${formatCurrency(s.value)} ${currency}</strong>
                                 <span class="badge bg-secondary">${s.percent}%</span>${reinvoiceLine}
                             </div>`;
                         }).join('');
@@ -1415,12 +1432,14 @@
                             return dest;
                         };
 
+                        const reinvCurrency = inv.currency || 'RON';
+
                         // Single allocation - show inline
                         if (value.length === 1) {
                             const r = value[0];
                             return `<div class="small border-start border-warning ps-2">
                                 <span class="text-muted">${r.department}${r.brand ? ' (' + r.brand + ')' : ''}</span><br>
-                                <strong>${formatCurrency(r.value)} RON</strong>
+                                <strong>${formatCurrency(r.value)} ${reinvCurrency}</strong>
                                 <span class="badge bg-secondary">${r.percent}%</span><br>
                                 <span class="text-warning"><i class="bi bi-arrow-right"></i> ${formatReinvoiceDest(r)}</span>
                             </div>`;
@@ -1429,12 +1448,12 @@
                         // Multiple allocations - collapsible
                         const reinvCollapseId = `reinv-collapse-${inv.id}-${col.id}`;
                         const totalReinvoiceValue = value.reduce((sum, r) => sum + r.value, 0);
-                        const summaryText = `${value.length} reinvoices • ${formatCurrency(totalReinvoiceValue)} RON`;
+                        const summaryText = `${value.length} reinvoices • ${formatCurrency(totalReinvoiceValue)} ${reinvCurrency}`;
 
                         const reinvoiceDetails = value.map(r =>
                             `<div class="small border-start border-warning ps-2 mb-1">
                                 <span class="text-muted">${r.department}${r.brand ? ' (' + r.brand + ')' : ''}</span><br>
-                                <strong>${formatCurrency(r.value)} RON</strong>
+                                <strong>${formatCurrency(r.value)} ${reinvCurrency}</strong>
                                 <span class="badge bg-secondary">${r.percent}%</span><br>
                                 <span class="text-warning"><i class="bi bi-arrow-right"></i> ${formatReinvoiceDest(r)}</span>
                             </div>`
@@ -1640,7 +1659,7 @@
                                         ${a.department}${a.subdepartment ? ' > ' + a.subdepartment : ''}
                                         ${a.brand ? ' (' + a.brand + ')' : ''}
                                     </div>
-                                    <div class="fw-bold text-success">${formatCurrency(a.allocation_value)} RON</div>
+                                    <div class="fw-bold text-success">${formatCurrency(a.allocation_value)} ${invoice.currency || 'RON'}</div>
                                     <div class="small">Responsible: ${a.responsible || '-'}</div>
                                     ${a.reinvoice_to ? `<div class="small text-warning"><i class="bi bi-arrow-right"></i> Reinvoice to: ${a.reinvoice_to}${a.reinvoice_department ? ' / ' + a.reinvoice_department : ''}${a.reinvoice_subdepartment ? ' / ' + a.reinvoice_subdepartment : ''}</div>` : ''}
                                 </div>
@@ -2387,8 +2406,35 @@
 
         function updateSummaryCards() {
             document.getElementById('totalInvoices').textContent = allInvoices.length;
-            const totalValue = allInvoices.reduce((sum, inv) => sum + (inv.invoice_value || 0), 0);
-            document.getElementById('totalValue').textContent = formatCurrency(totalValue) + ' RON';
+
+            // Calculate totals in both currencies
+            // For RON: sum all values, converting EUR to RON where needed
+            // For EUR: sum all values, converting RON to EUR where needed
+            summaryTotalRon = 0;
+            summaryTotalEur = 0;
+
+            allInvoices.forEach(inv => {
+                const value = inv.invoice_value || 0;
+                const currency = (inv.currency || 'RON').toUpperCase();
+
+                if (inv.value_ron && inv.value_eur) {
+                    // Use pre-calculated values if available
+                    summaryTotalRon += inv.value_ron;
+                    summaryTotalEur += inv.value_eur;
+                } else if (currency === 'EUR') {
+                    // EUR invoice without pre-calculated values
+                    summaryTotalEur += value;
+                    summaryTotalRon += value * currentEurRate;
+                } else {
+                    // RON invoice without pre-calculated values
+                    summaryTotalRon += value;
+                    summaryTotalEur += value / currentEurRate;
+                }
+            });
+
+            // Display based on toggle state
+            const showEur = document.getElementById('currencyToggle').checked;
+            updateTotalValueDisplay(showEur);
 
             // Count unique companies and departments from summaries
             fetch('/api/db/summary/company').then(r => r.json()).then(data => {
@@ -2397,6 +2443,19 @@
             fetch('/api/db/summary/department').then(r => r.json()).then(data => {
                 document.getElementById('totalDepartments').textContent = data.length;
             });
+        }
+
+        function updateTotalValueDisplay(showEur) {
+            const totalValueEl = document.getElementById('totalValue');
+            const toggleLabel = document.getElementById('currencyToggleLabel');
+
+            if (showEur) {
+                totalValueEl.textContent = formatCurrency(summaryTotalEur) + ' EUR';
+                toggleLabel.textContent = 'RON';
+            } else {
+                totalValueEl.textContent = formatCurrency(summaryTotalRon) + ' RON';
+                toggleLabel.textContent = 'EUR';
+            }
         }
 
         function formatCurrency(value) {

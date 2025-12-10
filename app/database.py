@@ -42,6 +42,9 @@ def init_db():
             invoice_date DATE NOT NULL,
             invoice_value REAL NOT NULL,
             currency TEXT DEFAULT 'RON',
+            value_ron REAL,
+            value_eur REAL,
+            exchange_rate REAL,
             drive_link TEXT,
             comment TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -159,6 +162,33 @@ def init_db():
     except Exception:
         conn.rollback()
 
+    # Add value_ron column if it doesn't exist (for currency conversion)
+    try:
+        cursor.execute('ALTER TABLE invoices ADD COLUMN value_ron REAL')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Add value_eur column if it doesn't exist (for currency conversion)
+    try:
+        cursor.execute('ALTER TABLE invoices ADD COLUMN value_eur REAL')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Add exchange_rate column if it doesn't exist (for currency conversion)
+    try:
+        cursor.execute('ALTER TABLE invoices ADD COLUMN exchange_rate REAL')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
     # Seed initial data if tables are empty
     cursor.execute('SELECT COUNT(*) FROM department_structure')
     result = cursor.fetchone()
@@ -258,7 +288,10 @@ def save_invoice(
     invoice_value: float,
     currency: str,
     drive_link: str,
-    distributions: list[dict]
+    distributions: list[dict],
+    value_ron: float = None,
+    value_eur: float = None,
+    exchange_rate: float = None
 ) -> int:
     """
     Save invoice and its allocations to database.
@@ -269,10 +302,10 @@ def save_invoice(
 
     try:
         cursor.execute('''
-            INSERT INTO invoices (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO invoices (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        ''', (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link))
+        ''', (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate))
         invoice_id = cursor.fetchone()['id']
 
         # Insert allocations
