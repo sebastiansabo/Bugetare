@@ -374,11 +374,16 @@
                                             <small class="text-muted">Notification Preferences</small>
                                         </div>
                                         <div class="card-body">
-                                            <div class="form-check form-switch mb-2">
+                                            <div class="form-check form-switch mb-3">
                                                 <input class="form-check-input" type="checkbox" id="notifyOnAllocation" checked>
                                                 <label class="form-check-label" for="notifyOnAllocation">
                                                     Send email when invoice is allocated to a department
                                                 </label>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label">Global CC Address</label>
+                                                <input type="email" class="form-control" id="globalCc" placeholder="cc@yourcompany.com">
+                                                <small class="text-muted">All notification emails will be copied to this address</small>
                                             </div>
                                         </div>
                                     </div>
@@ -1317,6 +1322,7 @@
             document.getElementById('fromEmail').value = notificationSettings.from_email || '';
             document.getElementById('fromName').value = notificationSettings.from_name || '';
             document.getElementById('notifyOnAllocation').checked = notificationSettings.notify_on_allocation !== 'false';
+            document.getElementById('globalCc').value = notificationSettings.global_cc || '';
         }
 
         async function saveNotificationSettings() {
@@ -1328,7 +1334,8 @@
                 smtp_password: document.getElementById('smtpPassword').value.trim(),
                 from_email: document.getElementById('fromEmail').value.trim(),
                 from_name: document.getElementById('fromName').value.trim(),
-                notify_on_allocation: document.getElementById('notifyOnAllocation').checked ? 'true' : 'false'
+                notify_on_allocation: document.getElementById('notifyOnAllocation').checked ? 'true' : 'false',
+                global_cc: document.getElementById('globalCc').value.trim()
             };
 
             try {

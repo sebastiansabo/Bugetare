@@ -29,6 +29,7 @@ def get_smtp_config() -> dict:
         'password': settings.get('smtp_password', ''),
         'from_email': settings.get('from_email', ''),
         'from_name': settings.get('from_name', 'Bugetare System'),
+        'global_cc': settings.get('global_cc', ''),
     }
 
 
@@ -64,9 +65,19 @@ def send_email(
         msg['From'] = f"{config['from_name']} <{config['from_email']}>" if config['from_name'] else config['from_email']
         msg['To'] = to_email
 
+        # Add global CC if configured
+        global_cc = config.get('global_cc', '').strip()
+        if global_cc:
+            msg['Cc'] = global_cc
+
         if text_body:
             msg.attach(MIMEText(text_body, 'plain'))
         msg.attach(MIMEText(html_body, 'html'))
+
+        # Build recipient list (To + CC)
+        recipients = [to_email]
+        if global_cc:
+            recipients.append(global_cc)
 
         if config['use_tls']:
             context = ssl.create_default_context()
@@ -74,12 +85,12 @@ def send_email(
                 server.starttls(context=context)
                 if config['username'] and config['password']:
                     server.login(config['username'], config['password'])
-                server.sendmail(config['from_email'], to_email, msg.as_string())
+                server.sendmail(config['from_email'], recipients, msg.as_string())
         else:
             with smtplib.SMTP(config['host'], config['port']) as server:
                 if config['username'] and config['password']:
                     server.login(config['username'], config['password'])
-                server.sendmail(config['from_email'], to_email, msg.as_string())
+                server.sendmail(config['from_email'], recipients, msg.as_string())
 
         return True, ""
 
@@ -140,12 +151,40 @@ def create_allocation_email_html(
     allocation_percent = allocation.get('allocation_percent', 0)
     allocation_value = allocation.get('allocation_value', 0)
 
+    # Reinvoice details
+    reinvoice_to = allocation.get('reinvoice_to', '')
+    reinvoice_brand = allocation.get('reinvoice_brand', '')
+    reinvoice_department = allocation.get('reinvoice_department', '')
+    reinvoice_subdepartment = allocation.get('reinvoice_subdepartment', '')
+
     location = f"{company}"
     if brand:
         location += f" / {brand}"
     location += f" / {department}"
     if subdepartment:
         location += f" / {subdepartment}"
+
+    # Build reinvoice location string
+    reinvoice_location = ""
+    if reinvoice_to:
+        reinvoice_location = reinvoice_to
+        if reinvoice_brand:
+            reinvoice_location += f" / {reinvoice_brand}"
+        if reinvoice_department:
+            reinvoice_location += f" / {reinvoice_department}"
+        if reinvoice_subdepartment:
+            reinvoice_location += f" / {reinvoice_subdepartment}"
+
+    # Build reinvoice HTML section
+    reinvoice_html = ""
+    if reinvoice_to:
+        reinvoice_html = f"""
+            <tr style="background-color: #fff3cd;">
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Reinvoice To</td>
+                <td style="padding: 10px; border: 1px solid #ddd; color: #856404;">
+                    <strong>{reinvoice_location}</strong>
+                </td>
+            </tr>"""
 
     return f"""
     <html>
@@ -193,7 +232,7 @@ def create_allocation_email_html(
                 <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold; color: #4CAF50;">
                     {format_currency(allocation_value, currency)}
                 </td>
-            </tr>
+            </tr>{reinvoice_html}
         </table>
 
         <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;">
@@ -226,12 +265,30 @@ def create_allocation_email_text(
     allocation_percent = allocation.get('allocation_percent', 0)
     allocation_value = allocation.get('allocation_value', 0)
 
+    # Reinvoice details
+    reinvoice_to = allocation.get('reinvoice_to', '')
+    reinvoice_brand = allocation.get('reinvoice_brand', '')
+    reinvoice_department = allocation.get('reinvoice_department', '')
+    reinvoice_subdepartment = allocation.get('reinvoice_subdepartment', '')
+
     location = f"{company}"
     if brand:
         location += f" / {brand}"
     location += f" / {department}"
     if subdepartment:
         location += f" / {subdepartment}"
+
+    # Build reinvoice location string
+    reinvoice_line = ""
+    if reinvoice_to:
+        reinvoice_location = reinvoice_to
+        if reinvoice_brand:
+            reinvoice_location += f" / {reinvoice_brand}"
+        if reinvoice_department:
+            reinvoice_location += f" / {reinvoice_department}"
+        if reinvoice_subdepartment:
+            reinvoice_location += f" / {reinvoice_subdepartment}"
+        reinvoice_line = f"\n- Reinvoice To: {reinvoice_location}"
 
     return f"""
 New Invoice Allocation
@@ -249,7 +306,7 @@ Invoice Details:
 Your Allocation:
 - Location: {location}
 - Allocation %: {allocation_percent}%
-- Allocation Value: {format_currency(allocation_value, currency)}
+- Allocation Value: {format_currency(allocation_value, currency)}{reinvoice_line}
 
 ---
 This is an automated notification from the Bugetare system.
@@ -262,19 +319,33 @@ def find_responsables_for_allocation(allocation: dict) -> list[dict]:
     Find all responsables that should be notified for a given allocation.
 
     Matches responsables based on their department assignments.
+    If reinvoice_to is set, also notifies the reinvoice department's responsables.
     """
+    all_responsables = []
+    seen_ids = set()
+
+    # Get responsables for the main department
     department = allocation.get('department', '')
-    if not department:
-        return []
+    if department:
+        responsables = get_responsables_by_department(department)
+        for r in responsables:
+            if r.get('is_active', True) and r.get('notify_on_allocation', True):
+                if r.get('id') not in seen_ids:
+                    all_responsables.append(r)
+                    seen_ids.add(r.get('id'))
 
-    # Get responsables assigned to this department
-    responsables = get_responsables_by_department(department)
+    # If reinvoice_to is set, also get responsables for the reinvoice department
+    reinvoice_to = allocation.get('reinvoice_to', '')
+    reinvoice_department = allocation.get('reinvoice_department', '')
+    if reinvoice_to and reinvoice_department:
+        reinvoice_responsables = get_responsables_by_department(reinvoice_department)
+        for r in reinvoice_responsables:
+            if r.get('is_active', True) and r.get('notify_on_allocation', True):
+                if r.get('id') not in seen_ids:
+                    all_responsables.append(r)
+                    seen_ids.add(r.get('id'))
 
-    # Filter to only active responsables with notifications enabled
-    return [
-        r for r in responsables
-        if r.get('is_active', True) and r.get('notify_on_allocation', True)
-    ]
+    return all_responsables
 
 
 def notify_allocation(invoice_data: dict, allocation: dict) -> list[dict]:

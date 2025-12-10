@@ -660,11 +660,19 @@
                         </button>
                     </form>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="saveInvoiceBtn">
-                        <i class="bi bi-check"></i> Save Changes
-                    </button>
+                <div class="modal-footer d-flex justify-content-between">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="sendNotificationToggle">
+                        <label class="form-check-label" for="sendNotificationToggle">
+                            <i class="bi bi-envelope"></i> Send notification to responsables
+                        </label>
+                    </div>
+                    <div>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="saveInvoiceBtn">
+                            <i class="bi bi-check"></i> Save Changes
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2005,11 +2013,12 @@
                     return;
                 }
 
-                // Save allocations
+                // Save allocations (include send_notification flag)
+                const sendNotification = document.getElementById('sendNotificationToggle').checked;
                 const allocRes = await fetch(`/api/db/invoices/${invoiceId}/allocations`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ allocations: allocationsWithValues })
+                    body: JSON.stringify({ allocations: allocationsWithValues, send_notification: sendNotification })
                 });
                 const allocResult = await allocRes.json();
 

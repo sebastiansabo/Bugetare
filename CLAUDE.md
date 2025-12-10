@@ -276,3 +276,7 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Fixed allocation value calculation in notification emails (was showing 0.00)
 - Added flask-login to requirements.txt for production deployment
 - Synced local database to DigitalOcean production
+- Added Global CC Address field to Settings → Notifications (all emails copied to this address)
+- Added notification toggle to Edit Invoice modal (default OFF, only sends if validation passes)
+- Reinvoice department managers now receive allocation notifications
+- Email templates now include reinvoice details (company/department/subdepartment)

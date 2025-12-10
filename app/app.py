@@ -913,6 +913,7 @@ def api_db_update_allocations(invoice_id):
     """Update all allocations for an invoice."""
     data = request.json
     allocations = data.get('allocations', [])
+    send_notification = data.get('send_notification', False)
 
     if not allocations:
         return jsonify({'success': False, 'error': 'At least one allocation is required'}), 400
@@ -925,9 +926,9 @@ def api_db_update_allocations(invoice_id):
     try:
         update_invoice_allocations(invoice_id, allocations)
 
-        # Send email notifications to responsables
+        # Send email notifications to responsables only if explicitly requested
         notifications_sent = 0
-        if NOTIFICATIONS_ENABLED and is_smtp_configured():
+        if send_notification and NOTIFICATIONS_ENABLED and is_smtp_configured():
             invoice = get_invoice_with_allocations(invoice_id)
             if invoice:
                 invoice_data = {
