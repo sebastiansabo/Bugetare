@@ -1,6 +1,7 @@
 import os
 import io
 import json
+import base64
 from datetime import datetime
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload
@@ -38,7 +39,13 @@ def get_drive_service():
             from google.auth.transport.requests import Request
 
             if GOOGLE_OAUTH_TOKEN:
-                token_info = json.loads(GOOGLE_OAUTH_TOKEN)
+                # Try to decode as base64 first, fall back to raw JSON
+                try:
+                    decoded = base64.b64decode(GOOGLE_OAUTH_TOKEN).decode('utf-8')
+                    token_info = json.loads(decoded)
+                except Exception:
+                    # Not base64, try parsing as raw JSON
+                    token_info = json.loads(GOOGLE_OAUTH_TOKEN)
             else:
                 with open(OAUTH_TOKEN_FILE, 'r') as f:
                     token_info = json.load(f)
