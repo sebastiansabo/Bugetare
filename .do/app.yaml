@@ -20,6 +20,9 @@ services:
       - key: GOOGLE_CREDENTIALS_JSON
         type: SECRET
         scope: RUN_AND_BUILD_TIME
+      - key: GOOGLE_OAUTH_TOKEN
+        type: SECRET
+        scope: RUN_TIME
       - key: DATABASE_URL
         type: SECRET
         scope: RUN_TIME
