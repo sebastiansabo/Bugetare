@@ -2,8 +2,10 @@ import os
 import json
 from datetime import datetime
 from typing import Optional
+from contextlib import contextmanager
 
 import psycopg2
+from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -13,10 +15,43 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required. Set it to your PostgreSQL connection string.")
 
+# Connection pool configuration
+# minconn: minimum connections kept open
+# maxconn: maximum connections allowed (DigitalOcean managed DB allows ~25)
+_connection_pool = None
+
+
+def _get_pool():
+    """Get or create the connection pool (lazy initialization)."""
+    global _connection_pool
+    if _connection_pool is None:
+        _connection_pool = pool.ThreadedConnectionPool(
+            minconn=2,
+            maxconn=50,
+            dsn=DATABASE_URL
+        )
+    return _connection_pool
+
 
 def get_db():
-    """Get PostgreSQL database connection."""
-    return psycopg2.connect(DATABASE_URL)
+    """Get PostgreSQL database connection from pool."""
+    return _get_pool().getconn()
+
+
+def release_db(conn):
+    """Return connection to pool."""
+    if conn and _connection_pool:
+        _connection_pool.putconn(conn)
+
+
+@contextmanager
+def get_db_connection():
+    """Context manager for database connections - auto-releases to pool."""
+    conn = get_db()
+    try:
+        yield conn
+    finally:
+        release_db(conn)
 
 
 def get_cursor(conn):
@@ -420,7 +455,7 @@ def init_db():
         _seed_companies(cursor)
 
     conn.commit()
-    conn.close()
+    release_db(conn)
 
 
 def _seed_department_structure(cursor):
@@ -557,7 +592,7 @@ def save_invoice(
             raise ValueError(f"Invoice {invoice_number} already exists in database")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] = None,
@@ -622,7 +657,7 @@ def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] =
 
     cursor.execute(query, params)
     invoices = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return invoices
 
 
@@ -635,7 +670,7 @@ def get_invoice_with_allocations(invoice_id: int) -> Optional[dict]:
     invoice = cursor.fetchone()
 
     if not invoice:
-        conn.close()
+        release_db(conn)
         return None
 
     invoice = dict_from_row(invoice)
@@ -643,7 +678,7 @@ def get_invoice_with_allocations(invoice_id: int) -> Optional[dict]:
     cursor.execute('SELECT * FROM allocations WHERE invoice_id = %s', (invoice_id,))
     invoice['allocations'] = [dict_from_row(row) for row in cursor.fetchall()]
 
-    conn.close()
+    release_db(conn)
     return invoice
 
 
@@ -661,7 +696,7 @@ def get_allocations_by_company(company: str) -> list[dict]:
     ''', (company,))
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -679,7 +714,7 @@ def get_allocations_by_department(company: str, department: str) -> list[dict]:
     ''', (company, department))
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -721,7 +756,7 @@ def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[
 
     cursor.execute(query, params)
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -766,7 +801,7 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
 
     cursor.execute(query, params)
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -825,7 +860,7 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
 
     cursor.execute(query, params)
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -838,7 +873,7 @@ def delete_invoice(invoice_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -851,7 +886,7 @@ def restore_invoice(invoice_id: int) -> bool:
     restored = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return restored
 
 
@@ -861,7 +896,7 @@ def get_invoice_drive_link(invoice_id: int) -> str | None:
     cursor = get_cursor(conn)
     cursor.execute('SELECT drive_link FROM invoices WHERE id = %s', (invoice_id,))
     result = cursor.fetchone()
-    conn.close()
+    release_db(conn)
     return result['drive_link'] if result else None
 
 
@@ -875,7 +910,7 @@ def get_invoice_drive_links(invoice_ids: list[int]) -> list[str]:
     placeholders = ','.join(['%s'] * len(invoice_ids))
     cursor.execute(f'SELECT drive_link FROM invoices WHERE id IN ({placeholders}) AND drive_link IS NOT NULL', invoice_ids)
     results = cursor.fetchall()
-    conn.close()
+    release_db(conn)
     return [r['drive_link'] for r in results if r['drive_link']]
 
 
@@ -888,7 +923,7 @@ def permanently_delete_invoice(invoice_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -905,7 +940,7 @@ def bulk_soft_delete_invoices(invoice_ids: list[int]) -> int:
     deleted_count = cursor.rowcount
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted_count
 
 
@@ -922,7 +957,7 @@ def bulk_restore_invoices(invoice_ids: list[int]) -> int:
     restored_count = cursor.rowcount
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return restored_count
 
 
@@ -939,7 +974,7 @@ def bulk_permanently_delete_invoices(invoice_ids: list[int]) -> int:
     deleted_count = cursor.rowcount
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted_count
 
 
@@ -956,7 +991,7 @@ def cleanup_old_deleted_invoices(days: int = 30) -> int:
     deleted_count = cursor.rowcount
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted_count
 
 
@@ -1001,7 +1036,7 @@ def update_invoice(
         params.append(comment)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     updates.append('updated_at = CURRENT_TIMESTAMP')
@@ -1020,7 +1055,7 @@ def update_invoice(
             raise ValueError(f"Invoice number already exists in database")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def check_invoice_number_exists(invoice_number: str, exclude_id: int = None) -> dict:
@@ -1048,7 +1083,7 @@ def check_invoice_number_exists(invoice_number: str, exclude_id: int = None) -> 
         ''', (invoice_number,))
 
     row = cursor.fetchone()
-    conn.close()
+    release_db(conn)
 
     if row:
         return {
@@ -1072,7 +1107,7 @@ def search_invoices(query: str) -> list[dict]:
     ''', (search_term, search_term))
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -1134,7 +1169,7 @@ def update_allocation(
         params.append(reinvoice_subdepartment)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     params.append(allocation_id)
@@ -1143,7 +1178,7 @@ def update_allocation(
     updated = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -1156,7 +1191,7 @@ def delete_allocation(allocation_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -1194,7 +1229,7 @@ def add_allocation(
         conn.rollback()
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool:
@@ -1248,7 +1283,7 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
         conn.rollback()
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 # ============== INVOICE TEMPLATE FUNCTIONS ==============
@@ -1301,7 +1336,7 @@ def save_invoice_template(
             raise ValueError(f"Template '{name}' already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def update_invoice_template(
@@ -1381,7 +1416,7 @@ def update_invoice_template(
         params.append(currency_regex)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     updates.append('updated_at = CURRENT_TIMESTAMP')
@@ -1392,7 +1427,7 @@ def update_invoice_template(
     updated = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -1405,7 +1440,7 @@ def delete_invoice_template(template_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -1417,7 +1452,7 @@ def get_all_invoice_templates() -> list[dict]:
     cursor.execute('SELECT * FROM invoice_templates ORDER BY name')
     templates = [dict_from_row(row) for row in cursor.fetchall()]
 
-    conn.close()
+    release_db(conn)
     return templates
 
 
@@ -1429,7 +1464,7 @@ def get_invoice_template(template_id: int) -> Optional[dict]:
     cursor.execute('SELECT * FROM invoice_templates WHERE id = %s', (template_id,))
     template = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(template) if template else None
 
 
@@ -1441,7 +1476,7 @@ def get_invoice_template_by_name(name: str) -> Optional[dict]:
     cursor.execute('SELECT * FROM invoice_templates WHERE name = %s', (name,))
     template = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(template) if template else None
 
 
@@ -1455,7 +1490,7 @@ def get_all_connectors() -> list[dict]:
     cursor.execute('SELECT * FROM connectors ORDER BY name')
     connectors = [dict_from_row(row) for row in cursor.fetchall()]
 
-    conn.close()
+    release_db(conn)
     return connectors
 
 
@@ -1467,7 +1502,7 @@ def get_connector(connector_id: int) -> Optional[dict]:
     cursor.execute('SELECT * FROM connectors WHERE id = %s', (connector_id,))
     connector = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(connector) if connector else None
 
 
@@ -1479,7 +1514,7 @@ def get_connector_by_type(connector_type: str) -> Optional[dict]:
     cursor.execute('SELECT * FROM connectors WHERE connector_type = %s', (connector_type,))
     connector = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(connector) if connector else None
 
 
@@ -1509,7 +1544,7 @@ def save_connector(
 
     connector_id = cursor.fetchone()['id']
     conn.commit()
-    conn.close()
+    release_db(conn)
     return connector_id
 
 
@@ -1550,7 +1585,7 @@ def update_connector(
         params.append(last_error)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     updates.append('updated_at = CURRENT_TIMESTAMP')
@@ -1561,7 +1596,7 @@ def update_connector(
     updated = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -1574,7 +1609,7 @@ def delete_connector(connector_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -1609,7 +1644,7 @@ def add_connector_sync_log(
 
     log_id = cursor.fetchone()['id']
     conn.commit()
-    conn.close()
+    release_db(conn)
     return log_id
 
 
@@ -1626,7 +1661,7 @@ def get_connector_sync_logs(connector_id: int, limit: int = 20) -> list[dict]:
     ''', (connector_id, limit))
 
     logs = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return logs
 
 
@@ -1640,7 +1675,7 @@ def get_all_roles() -> list[dict]:
     cursor.execute('SELECT * FROM roles ORDER BY name')
     roles = [dict_from_row(row) for row in cursor.fetchall()]
 
-    conn.close()
+    release_db(conn)
     return roles
 
 
@@ -1652,7 +1687,7 @@ def get_role(role_id: int) -> Optional[dict]:
     cursor.execute('SELECT * FROM roles WHERE id = %s', (role_id,))
     role = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(role) if role else None
 
 
@@ -1694,7 +1729,7 @@ def save_role(
             raise ValueError(f"Role '{name}' already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def update_role(
@@ -1745,7 +1780,7 @@ def update_role(
         params.append(can_access_templates)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     params.append(role_id)
@@ -1762,7 +1797,7 @@ def update_role(
             raise ValueError(f"Role with that name already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def delete_role(role_id: int) -> bool:
@@ -1773,14 +1808,14 @@ def delete_role(role_id: int) -> bool:
     # Check if role is in use
     cursor.execute('SELECT COUNT(*) as count FROM users WHERE role_id = %s', (role_id,))
     if cursor.fetchone()['count'] > 0:
-        conn.close()
+        release_db(conn)
         raise ValueError("Cannot delete role that is assigned to users")
 
     cursor.execute('DELETE FROM roles WHERE id = %s', (role_id,))
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -1799,7 +1834,7 @@ def get_all_users() -> list[dict]:
     ''')
     users = [dict_from_row(row) for row in cursor.fetchall()]
 
-    conn.close()
+    release_db(conn)
     return users
 
 
@@ -1819,7 +1854,7 @@ def get_user(user_id: int) -> Optional[dict]:
     ''', (user_id,))
     user = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(user) if user else None
 
 
@@ -1839,7 +1874,7 @@ def get_user_by_email(email: str) -> Optional[dict]:
     ''', (email,))
     user = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(user) if user else None
 
 
@@ -1871,7 +1906,7 @@ def save_user(
             raise ValueError(f"User with email '{email}' already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def update_user(
@@ -1906,7 +1941,7 @@ def update_user(
         params.append(is_active)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     updates.append('updated_at = CURRENT_TIMESTAMP')
@@ -1925,7 +1960,7 @@ def update_user(
             raise ValueError(f"User with that email already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def delete_user(user_id: int) -> bool:
@@ -1937,7 +1972,7 @@ def delete_user(user_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -1954,7 +1989,7 @@ def get_all_responsables() -> list[dict]:
     ''')
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -1966,7 +2001,7 @@ def get_responsable(responsable_id: int) -> Optional[dict]:
     cursor.execute('SELECT * FROM responsables WHERE id = %s', (responsable_id,))
     row = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(row) if row else None
 
 
@@ -1981,7 +2016,7 @@ def get_responsables_by_department(department: str) -> list[dict]:
     ''', (f'%{department}%',))
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -2007,7 +2042,7 @@ def save_responsable(name: str, email: str, phone: str = None, departments: str 
             raise ValueError(f"Responsable with email '{email}' already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def update_responsable(responsable_id: int, name: str = None, email: str = None, phone: str = None,
@@ -2039,7 +2074,7 @@ def update_responsable(responsable_id: int, name: str = None, email: str = None,
         params.append(is_active)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     updates.append('updated_at = CURRENT_TIMESTAMP')
@@ -2058,7 +2093,7 @@ def update_responsable(responsable_id: int, name: str = None, email: str = None,
             raise ValueError(f"Responsable with that email already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def delete_responsable(responsable_id: int) -> bool:
@@ -2070,7 +2105,7 @@ def delete_responsable(responsable_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -2088,7 +2123,7 @@ def get_notification_settings() -> dict:
     for row in rows:
         settings[row['setting_key']] = row['setting_value']
 
-    conn.close()
+    release_db(conn)
     return settings
 
 
@@ -2105,7 +2140,7 @@ def save_notification_setting(key: str, value: str) -> bool:
     ''', (key, value, value))
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return True
 
 
@@ -2123,7 +2158,7 @@ def save_notification_settings_bulk(settings: dict) -> bool:
         ''', (key, value, value))
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return True
 
 
@@ -2143,7 +2178,7 @@ def log_notification(responsable_id: int, invoice_id: int, notification_type: st
 
     log_id = cursor.fetchone()['id']
     conn.commit()
-    conn.close()
+    release_db(conn)
     return log_id
 
 
@@ -2167,7 +2202,7 @@ def update_notification_status(log_id: int, status: str, error_message: str = No
 
     updated = cursor.rowcount > 0
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -2187,7 +2222,7 @@ def get_notification_logs(limit: int = 100) -> list[dict]:
     ''', (limit,))
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -2204,7 +2239,7 @@ def get_all_companies() -> list[dict]:
     ''')
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -2216,7 +2251,7 @@ def get_company(company_id: int) -> Optional[dict]:
     cursor.execute('SELECT * FROM companies WHERE id = %s', (company_id,))
     row = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(row) if row else None
 
 
@@ -2241,7 +2276,7 @@ def save_company(company: str, brands: str = None, vat: str = None) -> int:
             raise ValueError(f"Company '{company}' already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def update_company(company_id: int, company: str = None, brands: str = None, vat: str = None) -> bool:
@@ -2263,7 +2298,7 @@ def update_company(company_id: int, company: str = None, brands: str = None, vat
         params.append(vat)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     params.append(company_id)
@@ -2284,7 +2319,7 @@ def update_company(company_id: int, company: str = None, brands: str = None, vat
             raise ValueError(f"Company name '{company}' already exists")
         raise
     finally:
-        conn.close()
+        release_db(conn)
 
 
 def delete_company(company_id: int) -> bool:
@@ -2296,7 +2331,7 @@ def delete_company(company_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -2315,7 +2350,7 @@ def get_all_department_structures() -> list[dict]:
     ''')
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -2332,7 +2367,7 @@ def get_department_structure(structure_id: int) -> Optional[dict]:
     ''', (structure_id,))
     row = cursor.fetchone()
 
-    conn.close()
+    release_db(conn)
     return dict_from_row(row) if row else None
 
 
@@ -2352,7 +2387,7 @@ def save_department_structure(company: str, department: str, brand: str = None,
 
     structure_id = cursor.fetchone()['id']
     conn.commit()
-    conn.close()
+    release_db(conn)
     return structure_id
 
 
@@ -2396,7 +2431,7 @@ def update_department_structure(structure_id: int, company: str = None, departme
         params.append(marketing_ids if marketing_ids else None)
 
     if not updates:
-        conn.close()
+        release_db(conn)
         return False
 
     params.append(structure_id)
@@ -2409,7 +2444,7 @@ def update_department_structure(structure_id: int, company: str = None, departme
 
     updated = cursor.rowcount > 0
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -2422,7 +2457,7 @@ def delete_department_structure(structure_id: int) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted
 
 
@@ -2438,7 +2473,7 @@ def get_unique_departments() -> list[str]:
     ''')
 
     results = [row['department'] for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -2454,7 +2489,7 @@ def get_unique_brands() -> list[str]:
     ''')
 
     results = [row['brand'] for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -2496,7 +2531,7 @@ def set_user_password(user_id: int, password: str) -> bool:
 
     updated = cursor.rowcount > 0
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -2512,7 +2547,7 @@ def update_user_last_login(user_id: int) -> bool:
 
     updated = cursor.rowcount > 0
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -2530,7 +2565,7 @@ def set_default_password_for_users(default_password: str = 'changeme123') -> int
 
     updated_count = cursor.rowcount
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated_count
 
 
@@ -2571,7 +2606,7 @@ def log_user_event(
 
     event_id = cursor.fetchone()['id']
     conn.commit()
-    conn.close()
+    release_db(conn)
     return event_id
 
 
@@ -2620,7 +2655,7 @@ def get_user_events(
 
     cursor.execute(query, params)
     results = [dict_from_row(row) for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 
@@ -2635,7 +2670,7 @@ def get_event_types() -> list[str]:
     ''')
 
     results = [row['event_type'] for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return results
 
 

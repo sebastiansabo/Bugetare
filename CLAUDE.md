@@ -164,6 +164,14 @@ The `dict_from_row()` function converts Python date objects to ISO format string
 - `reinvoice_department` - Optional department within the reinvoice target company
 - `reinvoice_subdepartment` - Optional subdepartment within the reinvoice target department
 
+### Lock Allocation Feature
+When working with multiple allocations (3+), percentages automatically redistribute when adding or modifying rows. To prevent specific allocations from being affected:
+1. Click the lock icon (🔓) next to the allocation row
+2. Icon changes to locked state (🔒) with yellow background
+3. Locked allocations maintain their percentage during redistribution
+4. Unlocked rows receive the remaining percentage (100% - locked total)
+5. Lock state is preserved in form cache across page reloads
+
 ### Complex Reinvoice Feature
 Allocations can be marked for reinvoicing to a specific company/department/subdepartment:
 1. Check the "Reinvoice to:" checkbox on an allocation
@@ -282,3 +290,4 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Email templates now include reinvoice details (company/department/subdepartment)
 - Changed Google Drive folder structure to Year/Month/Company/InvoiceNo
 - Email templates translated to Romanian with separate Alocare and Refacturare sections
+- Added lock button to allocation rows (prevents locked allocations from being redistributed when adding/modifying other allocations)
