@@ -105,6 +105,7 @@ def init_db():
             reinvoice_brand TEXT,
             reinvoice_department TEXT,
             reinvoice_subdepartment TEXT,
+            locked BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -443,6 +444,15 @@ def init_db():
     except Exception:
         conn.rollback()
 
+    # Add locked column to allocations if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE allocations ADD COLUMN locked BOOLEAN DEFAULT FALSE')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
     # Seed initial data if tables are empty
     cursor.execute('SELECT COUNT(*) FROM department_structure')
     result = cursor.fetchone()
@@ -566,8 +576,8 @@ def save_invoice(
         for dist in distributions:
             allocation_value = invoice_value * dist['allocation']
             cursor.execute('''
-                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment, allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment, allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 invoice_id,
                 dist['company'],
@@ -580,7 +590,8 @@ def save_invoice(
                 dist.get('reinvoice_to'),
                 dist.get('reinvoice_brand'),
                 dist.get('reinvoice_department'),
-                dist.get('reinvoice_subdepartment')
+                dist.get('reinvoice_subdepartment'),
+                dist.get('locked', False)
             ))
 
         conn.commit()
@@ -1260,8 +1271,8 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
 
             cursor.execute('''
                 INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
-                    allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 invoice_id,
                 alloc['company'],
@@ -1274,7 +1285,8 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
                 alloc.get('reinvoice_to'),
                 alloc.get('reinvoice_brand'),
                 alloc.get('reinvoice_department'),
-                alloc.get('reinvoice_subdepartment')
+                alloc.get('reinvoice_subdepartment'),
+                alloc.get('locked', False)
             ))
 
         conn.commit()

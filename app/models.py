@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional
-from database import get_db, get_cursor, get_placeholder
+from database import get_db, get_cursor, get_placeholder, release_db
 
 
 @dataclass
@@ -72,7 +72,7 @@ def load_structure() -> list[DepartmentUnit]:
         )
         units.append(unit)
 
-    conn.close()
+    release_db(conn)
     return units
 
 
@@ -88,7 +88,7 @@ def get_companies() -> list[str]:
     ''')
 
     companies = [row['company'] for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return companies
 
 
@@ -105,7 +105,7 @@ def get_brands_for_company(company: str) -> list[str]:
     ''', (company,))
 
     brands = [row['brand'] for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return brands
 
 
@@ -122,7 +122,7 @@ def get_departments_for_company(company: str) -> list[str]:
     ''', (company,))
 
     departments = [row['department'] for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return departments
 
 
@@ -139,7 +139,7 @@ def get_subdepartments(company: str, department: str) -> list[str]:
     ''', (company, department))
 
     subdepts = [row['subdepartment'] for row in cursor.fetchall()]
-    conn.close()
+    release_db(conn)
     return subdepts
 
 
@@ -163,5 +163,5 @@ def get_manager(company: str, department: str, subdepartment: Optional[str] = No
         ''', (company, department))
 
     row = cursor.fetchone()
-    conn.close()
+    release_db(conn)
     return row['manager'] if row else ''

@@ -979,7 +979,7 @@
             const display = document.getElementById('totalAllocation');
             display.textContent = `${totalPercent.toFixed(2)}% | ${formatCurrency(totalValue)} ${currency}`;
             display.classList.remove('valid', 'invalid');
-            display.classList.add(Math.abs(totalPercent - 100) < 0.01 ? 'valid' : 'invalid');
+            display.classList.add(totalPercent >= 100 && totalPercent <= 100.1 ? 'valid' : 'invalid');
 
             // Update currency labels in allocation rows
             document.querySelectorAll('.currency-label').forEach(label => {
@@ -1242,14 +1242,15 @@
                     reinvoice_to: reinvoiceCheck ? reinvoiceCompanyVal : null,
                     reinvoice_brand: reinvoiceCheck ? (reinvoiceBrandVal || null) : null,
                     reinvoice_department: reinvoiceCheck ? (reinvoiceDepartmentVal || null) : null,
-                    reinvoice_subdepartment: reinvoiceCheck ? (reinvoiceSubdepartmentVal || null) : null
+                    reinvoice_subdepartment: reinvoiceCheck ? (reinvoiceSubdepartmentVal || null) : null,
+                    locked: isRowLocked(row)
                 });
             }
 
-            // Validate total
+            // Validate total (must be 100%, allow up to 0.1% overdraft for rounding)
             const total = distributions.reduce((sum, d) => sum + d.allocation, 0);
-            if (Math.abs(total - 1) > 0.001) {
-                alert('Allocations must sum to 100%');
+            if (total < 1.0 || total > 1.001) {
+                alert('Allocations must sum to 100% (max 0.1% overdraft allowed)');
                 return;
             }
 
@@ -1306,8 +1307,6 @@
                     }
 
                     alert('Successfully saved ' + result.allocations + ' allocation(s)!' + (driveLink ? '\nUploaded to Drive!' : ''));
-                    // Clear form cache after successful submission
-                    clearFormCache();
                     // Reset form
                     document.getElementById('invoiceForm').reset();
                     document.getElementById('matchedCompany').value = '';

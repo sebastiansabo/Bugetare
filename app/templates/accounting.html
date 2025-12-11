@@ -1844,8 +1844,8 @@
             // Add change event listener for dedicated company
             dedicatedCompanySelect.onchange = onDedicatedCompanyChange;
 
-            // Load allocations (initialize locked property to false)
-            editAllocations = (invoice.allocations || []).map(a => ({...a, locked: false}));
+            // Load allocations (preserve locked state from database, default to false if not set)
+            editAllocations = (invoice.allocations || []).map(a => ({...a, locked: a.locked || false}));
             renderEditAllocations();
 
             // Close the detail modal and open the edit modal
@@ -1932,10 +1932,10 @@
                 }
             }
 
-            // Validate allocations
+            // Validate allocations (must be 100%, allow up to 0.1% overdraft for rounding)
             const totalPercent = editAllocations.reduce((sum, a) => sum + (parseFloat(a.allocation_percent) || 0), 0);
-            if (Math.abs(totalPercent - 100) > 0.01) {
-                alert(`Allocations must sum to 100%. Current total: ${totalPercent.toFixed(2)}%`);
+            if (totalPercent < 100 || totalPercent > 100.1) {
+                alert(`Allocations must sum to 100% (max 0.1% overdraft allowed). Current total: ${totalPercent.toFixed(2)}%`);
                 return;
             }
 
@@ -2240,7 +2240,8 @@
             const currency = document.getElementById('editCurrency').value || 'RON';
             const badge = document.getElementById('allocationTotalBadge');
             badge.textContent = `${totalPercent.toFixed(2)}% | ${formatCurrency(totalValue)} ${currency}`;
-            badge.className = Math.abs(totalPercent - 100) < 0.01 ? 'badge bg-success ms-2' : 'badge bg-danger ms-2';
+            // Valid if 100% to 100.1% (allow small overdraft for rounding)
+            badge.className = (totalPercent >= 100 && totalPercent <= 100.1) ? 'badge bg-success ms-2' : 'badge bg-danger ms-2';
         }
 
         function onDedicatedCompanyChange() {
