@@ -300,461 +300,14 @@
         let invoiceTemplates = []; // Invoice parsing templates
         let uploadedFile = null; // Store uploaded file reference
 
-        // Form cache key
-        const FORM_CACHE_KEY = 'invoiceFormCache';
-        let isInitializing = true; // Flag to prevent caching during initialization
-
         // Initialize
         document.addEventListener('DOMContentLoaded', async () => {
             await loadStructure();
             await loadCompaniesWithVat();
             await loadInvoiceTemplates();
-
-            // Try to restore from cache first
-            const restored = await restoreFormFromCache();
-
-            // Only add default allocation row if nothing was restored
-            if (!restored) {
-                addAllocationRow();
-            }
-
+            addAllocationRow();
             setupEventListeners();
-            setupFormCaching();
-
-            // Enable caching after initialization is complete
-            isInitializing = false;
         });
-
-        // Save form data to localStorage
-        function saveFormToCache() {
-            // Don't save during initialization to prevent overwriting cached data
-            if (isInitializing) return;
-            const formData = {
-                supplier: document.getElementById('supplier').value,
-                customerVat: document.getElementById('customerVat').value,
-                matchedCompany: document.getElementById('matchedCompany').value,
-                invoiceNumber: document.getElementById('invoiceNumber').value,
-                invoiceDate: document.getElementById('invoiceDate').value,
-                invoiceValue: document.getElementById('invoiceValue').value,
-                currency: document.getElementById('currency').value,
-                dedicatedCompany: document.getElementById('dedicatedCompany').value,
-                driveLink: document.getElementById('driveLink').value,
-                valueRon: document.getElementById('valueRon').value,
-                valueEur: document.getElementById('valueEur').value,
-                exchangeRate: document.getElementById('exchangeRate').value,
-                timestamp: Date.now()
-            };
-
-            // Save allocations
-            const allocations = [];
-            document.querySelectorAll('.allocation-row').forEach(row => {
-                const lockBtn = row.querySelector('.lock-allocation');
-                const lockIcon = lockBtn ? lockBtn.querySelector('i') : null;
-                const isLocked = lockIcon && lockIcon.classList.contains('bi-lock-fill');
-                allocations.push({
-                    brand: row.querySelector('.brand-select').value,
-                    department: row.querySelector('.department-select').value,
-                    subdepartment: row.querySelector('.subdepartment-select').value,
-                    allocation: row.querySelector('.allocation-input').value,
-                    allocationValue: row.querySelector('.allocation-value-input').value,
-                    locked: isLocked,
-                    reinvoiceCheck: row.querySelector('.reinvoice-check').checked,
-                    reinvoiceCompany: row.querySelector('.reinvoice-company').value,
-                    reinvoiceBrand: row.querySelector('.reinvoice-brand').value,
-                    reinvoiceDepartment: row.querySelector('.reinvoice-department').value,
-                    reinvoiceSubdepartment: row.querySelector('.reinvoice-subdepartment').value
-                });
-            });
-            formData.allocations = allocations;
-
-            localStorage.setItem(FORM_CACHE_KEY, JSON.stringify(formData));
-        }
-
-        // Restore form data from localStorage
-        // Returns true if meaningful data was restored, false otherwise
-        async function restoreFormFromCache() {
-            const cached = localStorage.getItem(FORM_CACHE_KEY);
-            if (!cached) return false;
-
-            try {
-                const formData = JSON.parse(cached);
-
-                // Check if cache is older than 24 hours
-                const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-                if (Date.now() - formData.timestamp > maxAge) {
-                    localStorage.removeItem(FORM_CACHE_KEY);
-                    return false;
-                }
-
-                // Check if there's any meaningful data to restore
-                if (!formData.supplier && !formData.invoiceNumber && !formData.invoiceValue) {
-                    return false;
-                }
-
-                // Restore basic fields
-                if (formData.supplier) document.getElementById('supplier').value = formData.supplier;
-                if (formData.customerVat) document.getElementById('customerVat').value = formData.customerVat;
-                if (formData.matchedCompany) document.getElementById('matchedCompany').value = formData.matchedCompany;
-                if (formData.invoiceNumber) document.getElementById('invoiceNumber').value = formData.invoiceNumber;
-                if (formData.invoiceDate) document.getElementById('invoiceDate').value = formData.invoiceDate;
-                if (formData.invoiceValue) document.getElementById('invoiceValue').value = formData.invoiceValue;
-                if (formData.currency) document.getElementById('currency').value = formData.currency;
-                if (formData.driveLink) document.getElementById('driveLink').value = formData.driveLink;
-                if (formData.valueRon) document.getElementById('valueRon').value = formData.valueRon;
-                if (formData.valueEur) document.getElementById('valueEur').value = formData.valueEur;
-                if (formData.exchangeRate) document.getElementById('exchangeRate').value = formData.exchangeRate;
-
-                // Show conversion display if values exist
-                if (formData.valueRon && formData.valueEur) {
-                    document.getElementById('displayValueRon').textContent = formatCurrency(parseFloat(formData.valueRon));
-                    document.getElementById('displayValueEur').textContent = formatCurrency(parseFloat(formData.valueEur));
-                    document.getElementById('displayExchangeRate').textContent = formData.exchangeRate ? parseFloat(formData.exchangeRate).toFixed(4) : '-';
-                    document.getElementById('conversionDisplay').style.display = 'block';
-                }
-
-                // Restore dedicated company and wait for dropdowns to populate
-                if (formData.dedicatedCompany) {
-                    document.getElementById('dedicatedCompany').value = formData.dedicatedCompany;
-                    await onDedicatedCompanyChange();
-
-                    // Restore allocations after company change completes
-                    if (formData.allocations && formData.allocations.length > 0) {
-                        // Clear existing allocation rows and add the right number
-                        const container = document.getElementById('allocationsContainer');
-                        container.innerHTML = '';
-
-                        for (let i = 0; i < formData.allocations.length; i++) {
-                            await addAllocationRowWithoutRedistribute();
-                        }
-
-                        // Now restore allocation values
-                        const rows = document.querySelectorAll('.allocation-row');
-                        for (let i = 0; i < rows.length && i < formData.allocations.length; i++) {
-                            const row = rows[i];
-                            const alloc = formData.allocations[i];
-
-                            if (alloc.brand) row.querySelector('.brand-select').value = alloc.brand;
-                            if (alloc.department) {
-                                row.querySelector('.department-select').value = alloc.department;
-                                // Trigger subdepartment load
-                                const company = formData.dedicatedCompany;
-                                const dept = alloc.department;
-                                if (company && dept) {
-                                    const subdepts = await fetch(`/api/subdepartments/${encodeURIComponent(company)}/${encodeURIComponent(dept)}`).then(r => r.json());
-                                    const subdeptSelect = row.querySelector('.subdepartment-select');
-                                    subdeptSelect.innerHTML = '<option value="">N/A</option>';
-                                    subdepts.forEach(s => {
-                                        const opt = document.createElement('option');
-                                        opt.value = s;
-                                        opt.textContent = s;
-                                        subdeptSelect.appendChild(opt);
-                                    });
-                                }
-                            }
-                            if (alloc.subdepartment) row.querySelector('.subdepartment-select').value = alloc.subdepartment;
-                            if (alloc.allocation) row.querySelector('.allocation-input').value = alloc.allocation;
-                            if (alloc.allocationValue) row.querySelector('.allocation-value-input').value = alloc.allocationValue;
-
-                            // Restore locked state
-                            if (alloc.locked) {
-                                const lockBtn = row.querySelector('.lock-allocation');
-                                const icon = lockBtn ? lockBtn.querySelector('i') : null;
-                                if (icon) {
-                                    icon.classList.remove('bi-unlock');
-                                    icon.classList.add('bi-lock-fill');
-                                    lockBtn.classList.remove('btn-outline-secondary');
-                                    lockBtn.classList.add('btn-warning');
-                                    lockBtn.title = 'Unlock this allocation';
-                                }
-                            }
-
-                            // Restore reinvoice fields
-                            if (alloc.reinvoiceCheck) {
-                                row.querySelector('.reinvoice-check').checked = true;
-                                row.querySelector('.reinvoice-fields').style.display = 'flex';
-                                if (alloc.reinvoiceCompany) {
-                                    row.querySelector('.reinvoice-company').value = alloc.reinvoiceCompany;
-                                    // Load reinvoice brands and departments
-                                    const [brands, depts] = await Promise.all([
-                                        fetch(`/api/brands/${encodeURIComponent(alloc.reinvoiceCompany)}`).then(r => r.json()),
-                                        fetch(`/api/departments/${encodeURIComponent(alloc.reinvoiceCompany)}`).then(r => r.json())
-                                    ]);
-                                    const reinvoiceBrandSelect = row.querySelector('.reinvoice-brand');
-                                    const reinvoiceDeptSelect = row.querySelector('.reinvoice-department');
-                                    reinvoiceBrandSelect.innerHTML = '<option value="">N/A</option>';
-                                    reinvoiceDeptSelect.innerHTML = '<option value="">Select department...</option>';
-                                    brands.forEach(b => {
-                                        const opt = document.createElement('option');
-                                        opt.value = b;
-                                        opt.textContent = b;
-                                        reinvoiceBrandSelect.appendChild(opt);
-                                    });
-                                    depts.forEach(d => {
-                                        const opt = document.createElement('option');
-                                        opt.value = d;
-                                        opt.textContent = d;
-                                        reinvoiceDeptSelect.appendChild(opt);
-                                    });
-                                    if (alloc.reinvoiceBrand) reinvoiceBrandSelect.value = alloc.reinvoiceBrand;
-                                    if (alloc.reinvoiceDepartment) {
-                                        reinvoiceDeptSelect.value = alloc.reinvoiceDepartment;
-                                        // Load reinvoice subdepartments
-                                        const subdepts = await fetch(`/api/subdepartments/${encodeURIComponent(alloc.reinvoiceCompany)}/${encodeURIComponent(alloc.reinvoiceDepartment)}`).then(r => r.json());
-                                        const reinvoiceSubdeptSelect = row.querySelector('.reinvoice-subdepartment');
-                                        reinvoiceSubdeptSelect.innerHTML = '<option value="">N/A</option>';
-                                        subdepts.forEach(s => {
-                                            const opt = document.createElement('option');
-                                            opt.value = s;
-                                            opt.textContent = s;
-                                            reinvoiceSubdeptSelect.appendChild(opt);
-                                        });
-                                        if (alloc.reinvoiceSubdepartment) reinvoiceSubdeptSelect.value = alloc.reinvoiceSubdepartment;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                updateTotalAllocation();
-
-                // Show restore notification
-                const alertEl = document.getElementById('entryModeAlert');
-                const alertText = document.getElementById('entryModeText');
-                alertEl.style.display = 'block';
-                alertEl.className = 'alert alert-warning small py-2 mb-3';
-                alertText.textContent = 'Form restored from previous session. Clear if starting fresh.';
-
-                return true; // Successfully restored
-
-            } catch (e) {
-                console.error('Error restoring form cache:', e);
-                localStorage.removeItem(FORM_CACHE_KEY);
-                return false;
-            }
-        }
-
-        // Add allocation row without redistributing (for restore)
-        async function addAllocationRowWithoutRedistribute() {
-            const container = document.getElementById('allocationsContainer');
-            const template = document.getElementById('allocationTemplate');
-            const row = template.content.cloneNode(true);
-
-            const brandSelect = row.querySelector('.brand-select');
-            const deptSelect = row.querySelector('.department-select');
-            const subdeptSelect = row.querySelector('.subdepartment-select');
-            const allocationInput = row.querySelector('.allocation-input');
-            const allocationValueInput = row.querySelector('.allocation-value-input');
-            const currencyLabel = row.querySelector('.currency-label');
-            const managerDisplay = row.querySelector('.manager-display');
-            const removeBtn = row.querySelector('.remove-allocation');
-            const reinvoiceCheck = row.querySelector('.reinvoice-check');
-            const reinvoiceFields = row.querySelector('.reinvoice-fields');
-            const reinvoiceCompany = row.querySelector('.reinvoice-company');
-            const reinvoiceBrand = row.querySelector('.reinvoice-brand');
-            const reinvoiceDepartment = row.querySelector('.reinvoice-department');
-            const reinvoiceSubdepartment = row.querySelector('.reinvoice-subdepartment');
-
-            // Populate reinvoice company dropdown with all companies
-            companies.forEach(c => {
-                const opt = document.createElement('option');
-                opt.value = c;
-                opt.textContent = c;
-                reinvoiceCompany.appendChild(opt);
-            });
-
-            // Toggle reinvoice fields visibility
-            reinvoiceCheck.addEventListener('change', () => {
-                if (reinvoiceCheck.checked) {
-                    reinvoiceFields.style.display = 'flex';
-                } else {
-                    reinvoiceFields.style.display = 'none';
-                    reinvoiceCompany.value = '';
-                    reinvoiceBrand.innerHTML = '<option value="">N/A</option>';
-                    reinvoiceDepartment.innerHTML = '<option value="">Select department...</option>';
-                    reinvoiceSubdepartment.innerHTML = '<option value="">N/A</option>';
-                }
-                saveFormToCache();
-            });
-
-            // Update reinvoice brand and department when company changes
-            reinvoiceCompany.addEventListener('change', async () => {
-                const company = reinvoiceCompany.value;
-                reinvoiceBrand.innerHTML = '<option value="">N/A</option>';
-                reinvoiceDepartment.innerHTML = '<option value="">Select department...</option>';
-                reinvoiceSubdepartment.innerHTML = '<option value="">N/A</option>';
-
-                if (company) {
-                    const [brands, depts] = await Promise.all([
-                        fetch(`/api/brands/${encodeURIComponent(company)}`).then(r => r.json()),
-                        fetch(`/api/departments/${encodeURIComponent(company)}`).then(r => r.json())
-                    ]);
-                    brands.forEach(b => {
-                        const opt = document.createElement('option');
-                        opt.value = b;
-                        opt.textContent = b;
-                        reinvoiceBrand.appendChild(opt);
-                    });
-                    depts.forEach(d => {
-                        const opt = document.createElement('option');
-                        opt.value = d;
-                        opt.textContent = d;
-                        reinvoiceDepartment.appendChild(opt);
-                    });
-                }
-                saveFormToCache();
-            });
-
-            // Update reinvoice subdepartment when department changes
-            reinvoiceDepartment.addEventListener('change', async () => {
-                const company = reinvoiceCompany.value;
-                const dept = reinvoiceDepartment.value;
-                reinvoiceSubdepartment.innerHTML = '<option value="">N/A</option>';
-
-                if (company && dept) {
-                    const subdepts = await fetch(`/api/subdepartments/${encodeURIComponent(company)}/${encodeURIComponent(dept)}`).then(r => r.json());
-                    subdepts.forEach(s => {
-                        const opt = document.createElement('option');
-                        opt.value = s;
-                        opt.textContent = s;
-                        reinvoiceSubdepartment.appendChild(opt);
-                    });
-                }
-                saveFormToCache();
-            });
-
-            // Populate brands and departments based on dedicated company
-            const company = document.getElementById('dedicatedCompany').value;
-            if (company) {
-                const [brands, depts] = await Promise.all([
-                    fetch(`/api/brands/${encodeURIComponent(company)}`).then(r => r.json()),
-                    fetch(`/api/departments/${encodeURIComponent(company)}`).then(r => r.json())
-                ]);
-                brands.forEach(b => {
-                    const opt = document.createElement('option');
-                    opt.value = b;
-                    opt.textContent = b;
-                    brandSelect.appendChild(opt);
-                });
-                depts.forEach(d => {
-                    const opt = document.createElement('option');
-                    opt.value = d;
-                    opt.textContent = d;
-                    deptSelect.appendChild(opt);
-                });
-            }
-
-            deptSelect.addEventListener('change', async () => {
-                const company = document.getElementById('dedicatedCompany').value;
-                const dept = deptSelect.value;
-                const subdeptCol = subdeptSelect.closest('[class*="col-"]');
-                subdeptSelect.innerHTML = '<option value="">N/A</option>';
-
-                if (company && dept) {
-                    const subdepts = await fetch(`/api/subdepartments/${encodeURIComponent(company)}/${encodeURIComponent(dept)}`).then(r => r.json());
-                    if (subdepts.length > 0) {
-                        subdeptCol.style.display = '';
-                        subdepts.forEach(s => {
-                            const opt = document.createElement('option');
-                            opt.value = s;
-                            opt.textContent = s;
-                            subdeptSelect.appendChild(opt);
-                        });
-                    } else {
-                        subdeptCol.style.display = 'none';
-                    }
-                } else {
-                    subdeptCol.style.display = 'none';
-                }
-                updateManager();
-                saveFormToCache();
-            });
-
-            subdeptSelect.addEventListener('change', () => {
-                updateManager();
-                saveFormToCache();
-            });
-
-            async function updateManager() {
-                const company = document.getElementById('dedicatedCompany').value;
-                const dept = deptSelect.value;
-                const subdept = subdeptSelect.value;
-
-                if (company && dept) {
-                    const params = new URLSearchParams({ company, department: dept });
-                    if (subdept) params.append('subdepartment', subdept);
-                    const res = await fetch(`/api/manager?${params}`);
-                    const data = await res.json();
-                    managerDisplay.textContent = `Manager: ${data.manager || '--'}`;
-                } else {
-                    managerDisplay.textContent = 'Manager: --';
-                }
-            }
-
-            // Sync percentage and value inputs with smart redistribution
-            allocationInput.addEventListener('input', () => {
-                const rowElement = allocationInput.closest('.allocation-row');
-                onAllocationChange(rowElement, 'percent');
-                saveFormToCache();
-            });
-
-            allocationValueInput.addEventListener('input', () => {
-                const rowElement = allocationValueInput.closest('.allocation-row');
-                onAllocationChange(rowElement, 'value');
-                saveFormToCache();
-            });
-
-            // Add cache saving for brand select
-            brandSelect.addEventListener('change', () => saveFormToCache());
-
-            removeBtn.addEventListener('click', () => {
-                removeBtn.closest('.allocation-row').remove();
-                redistributeAllocations();
-                saveFormToCache();
-            });
-
-            // Lock button toggle
-            const lockBtn = row.querySelector('.lock-allocation');
-            lockBtn.addEventListener('click', () => {
-                const icon = lockBtn.querySelector('i');
-                const isLocked = icon.classList.contains('bi-lock-fill');
-                if (isLocked) {
-                    icon.classList.remove('bi-lock-fill');
-                    icon.classList.add('bi-unlock');
-                    lockBtn.classList.remove('btn-warning');
-                    lockBtn.classList.add('btn-outline-secondary');
-                    lockBtn.title = 'Lock this allocation';
-                } else {
-                    icon.classList.remove('bi-unlock');
-                    icon.classList.add('bi-lock-fill');
-                    lockBtn.classList.remove('btn-outline-secondary');
-                    lockBtn.classList.add('btn-warning');
-                    lockBtn.title = 'Unlock this allocation';
-                }
-                saveFormToCache();
-            });
-
-            container.appendChild(row);
-            // Don't redistribute - this is for restore
-        }
-
-        // Setup form caching event listeners
-        function setupFormCaching() {
-            // Cache on input changes for main form fields
-            const fieldsToCache = ['supplier', 'customerVat', 'invoiceNumber', 'invoiceDate', 'invoiceValue', 'currency', 'dedicatedCompany'];
-            fieldsToCache.forEach(fieldId => {
-                const field = document.getElementById(fieldId);
-                if (field) {
-                    field.addEventListener('input', saveFormToCache);
-                    field.addEventListener('change', saveFormToCache);
-                }
-            });
-        }
-
-        // Clear form cache
-        function clearFormCache() {
-            localStorage.removeItem(FORM_CACHE_KEY);
-        }
 
         async function loadStructure() {
             const [companiesRes, structureRes] = await Promise.all([
@@ -1244,7 +797,6 @@
                     reinvoiceDepartment.innerHTML = '<option value="">Select department...</option>';
                     reinvoiceSubdepartment.innerHTML = '<option value="">N/A</option>';
                 }
-                saveFormToCache();
             });
 
             // Update reinvoice brand and department when company changes
@@ -1272,7 +824,6 @@
                         reinvoiceDepartment.appendChild(opt);
                     });
                 }
-                saveFormToCache();
             });
 
             // Update reinvoice subdepartment when department changes
@@ -1290,7 +841,6 @@
                         reinvoiceSubdepartment.appendChild(opt);
                     });
                 }
-                saveFormToCache();
             });
 
             // Populate brands and departments based on dedicated company
@@ -1351,13 +901,9 @@
                     subdeptCol.style.display = 'none';
                 }
                 updateManager();
-                saveFormToCache();
             });
 
-            subdeptSelect.addEventListener('change', () => {
-                updateManager();
-                saveFormToCache();
-            });
+            subdeptSelect.addEventListener('change', updateManager);
 
             async function updateManager() {
                 const company = document.getElementById('dedicatedCompany').value;
@@ -1379,22 +925,16 @@
             allocationInput.addEventListener('input', () => {
                 const rowElement = allocationInput.closest('.allocation-row');
                 onAllocationChange(rowElement, 'percent');
-                saveFormToCache();
             });
 
             allocationValueInput.addEventListener('input', () => {
                 const rowElement = allocationValueInput.closest('.allocation-row');
                 onAllocationChange(rowElement, 'value');
-                saveFormToCache();
             });
-
-            // Add cache saving for brand select
-            brandSelect.addEventListener('change', () => saveFormToCache());
 
             removeBtn.addEventListener('click', () => {
                 removeBtn.closest('.allocation-row').remove();
                 redistributeAllocations(); // Redistribute after removing
-                saveFormToCache();
             });
 
             // Lock button toggle
@@ -1415,12 +955,10 @@
                     lockBtn.classList.add('btn-warning');
                     lockBtn.title = 'Unlock this allocation';
                 }
-                saveFormToCache();
             });
 
             container.appendChild(row);
             redistributeAllocations(); // Smart redistribute when adding
-            saveFormToCache();
         }
 
         function updateTotalAllocation() {
