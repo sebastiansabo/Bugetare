@@ -293,3 +293,4 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Added lock button to allocation rows (prevents locked allocations from being redistributed when adding/modifying other allocations)
 - Hidden empty Brand/Subdepartment columns in allocation forms (only shows when options exist)
 - Moved currency label into Value field label (e.g., "Value (RON)") for wider input field
+- Fixed single-row allocation value editing (percentage now updates when editing value field on single allocation row)

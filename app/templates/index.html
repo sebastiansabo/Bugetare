@@ -1070,15 +1070,12 @@
         function onAllocationChange(changedRow, changeType) {
             const rows = Array.from(document.querySelectorAll('.allocation-row'));
             const count = rows.length;
-            if (count <= 1) {
-                updateTotalAllocation();
-                return;
-            }
 
             const invoiceValue = parseFloat(document.getElementById('invoiceValue').value) || 0;
             const changedPercentInput = changedRow.querySelector('.allocation-input');
             const changedValueInput = changedRow.querySelector('.allocation-value-input');
 
+            // Always sync percentage <-> value regardless of row count
             let changedPercent;
             if (changeType === 'percent') {
                 changedPercent = parseFloat(changedPercentInput.value) || 0;
@@ -1087,6 +1084,12 @@
                 const changedValue = parseFloat(changedValueInput.value) || 0;
                 changedPercent = invoiceValue > 0 ? (changedValue / invoiceValue) * 100 : 0;
                 changedPercentInput.value = changedPercent.toFixed(2);
+            }
+
+            // For single row, just update totals (no redistribution needed)
+            if (count <= 1) {
+                updateTotalAllocation();
+                return;
             }
 
             // Calculate total from changed row and all locked rows (excluding changed row if it's locked)
