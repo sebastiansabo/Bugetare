@@ -36,6 +36,10 @@
         .select-checkbox { cursor: pointer; width: 18px; height: 18px; }
         .bin-badge { background: #dc3545; color: white; font-size: 0.7em; padding: 2px 6px; border-radius: 10px; margin-left: 5px; }
         .deleted-row { opacity: 0.7; background: #fff3cd; }
+        /* Status-based row coloring - 10% opacity */
+        .status-row-new > td { background-color: rgba(13, 110, 253, 0.1) !important; }  /* Blue 10% */
+        .status-row-processed > td { background-color: rgba(25, 135, 84, 0.1) !important; }  /* Green 10% */
+        .status-row-incomplete > td { background-color: rgba(220, 53, 69, 0.1) !important; }  /* Red 10% */
     </style>
 </head>
 <body>
@@ -621,9 +625,17 @@
                                 <label class="form-label">Drive Link</label>
                                 <input type="url" class="form-control" id="editDriveLink" placeholder="https://drive.google.com/...">
                             </div>
-                            <div class="col-md-6 mb-3">
-                                <label class="form-label">Comment</label>
-                                <input type="text" class="form-control" id="editComment" placeholder="Add a comment...">
+                            <div class="col-md-4 mb-3">
+                                <label class="form-label">Notes</label>
+                                <input type="text" class="form-control" id="editComment" placeholder="Add notes...">
+                            </div>
+                            <div class="col-md-2 mb-3">
+                                <label class="form-label">Status</label>
+                                <select class="form-select" id="editStatus">
+                                    <option value="new">New</option>
+                                    <option value="processed">Processed</option>
+                                    <option value="incomplete">Incomplete</option>
+                                </select>
                             </div>
                         </div>
                         <div class="row">
@@ -678,6 +690,35 @@
         </div>
     </div>
 
+    <!-- Allocation Comment Modal -->
+    <div class="modal fade" id="allocationCommentModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-chat-text"></i> Allocation Comment</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="allocationCommentId">
+                    <div class="mb-3">
+                        <label class="form-label">Allocation Details</label>
+                        <div id="allocationCommentDetails" class="small text-muted border rounded p-2 bg-light"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="allocationCommentText" class="form-label">Comment</label>
+                        <textarea class="form-control" id="allocationCommentText" rows="3" placeholder="Add a comment for this allocation..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveAllocationCommentBtn">
+                        <i class="bi bi-check"></i> Save Comment
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         let allInvoices = [];
@@ -700,19 +741,20 @@
         const DEFAULT_COLUMNS = [
             { id: 'select', name: '', source: 'special.select', format: 'special', visible: true, custom: false },
             { id: 'id', name: 'ID', source: 'invoice.id', format: 'text', visible: true, custom: false },
+            { id: 'status', name: 'Status', source: 'invoice.status', format: 'status', visible: true, custom: false },
             { id: 'date', name: 'Date', source: 'invoice.invoice_date', format: 'date', visible: true, custom: false },
             { id: 'supplier', name: 'Supplier', source: 'invoice.supplier', format: 'text', visible: true, custom: false },
             { id: 'invoice_number', name: 'Invoice #', source: 'invoice.invoice_number', format: 'text', visible: true, custom: false },
             { id: 'value', name: 'Value', source: 'invoice.invoice_value', format: 'currency', visible: true, custom: false },
             { id: 'currency', name: 'Currency', source: 'invoice.currency', format: 'text', visible: false, custom: false },
-            { id: 'template', name: 'Template', source: 'invoice.invoice_template', format: 'text', visible: false, custom: false },
+            { id: 'template', name: 'Template', source: 'invoice.invoice_template', format: 'text', visible: true, custom: false },
             { id: 'company', name: 'Company', source: 'allocation.company', format: 'text', visible: false, custom: false },
             { id: 'department', name: 'Department', source: 'allocation.department', format: 'text', visible: false, custom: false },
             { id: 'brand', name: 'Brand', source: 'allocation.brand', format: 'text', visible: false, custom: false },
             { id: 'responsible', name: 'Responsible', source: 'allocation.responsible', format: 'text', visible: false, custom: false },
             { id: 'reinvoice_to', name: 'Reinvoice To', source: 'computed.reinvoice_list', format: 'reinvoice', visible: false, custom: false },
             { id: 'split_values', name: 'Split Values', source: 'computed.split_values', format: 'split', visible: false, custom: false },
-            { id: 'comment', name: 'Comment', source: 'invoice.comment', format: 'text', visible: false, custom: false },
+            { id: 'comment', name: 'Notes', source: 'invoice.comment', format: 'text', visible: false, custom: false },
             { id: 'actions', name: 'Actions', source: 'special.actions', format: 'special', visible: true, custom: false },
             { id: 'drive', name: 'Drive', source: 'special.drive', format: 'special', visible: true, custom: false }
         ];
@@ -1430,13 +1472,15 @@
                         return [...new Set(allocations.map(a => a.department))].join(', ');
                     case 'split_values':
                         return allocations.map(a => ({
+                            id: a.id,
                             company: a.company,
                             department: a.department,
                             subdepartment: a.subdepartment,
                             brand: a.brand,
                             percent: a.allocation_percent,
                             value: a.allocation_value,
-                            reinvoice_to: a.reinvoice_to
+                            reinvoice_to: a.reinvoice_to,
+                            comment: a.comment
                         }));
                     case 'reinvoice_list':
                         // Get allocations with reinvoice_to, including value/dept details
@@ -1467,6 +1511,16 @@
                     return value + '%';
                 case 'date':
                     return formatDateRomanian(value) || '-';
+                case 'status':
+                    const currentStatus = value || 'new';
+                    return `<select class="form-select form-select-sm status-dropdown"
+                                data-invoice-id="${inv.id}"
+                                onchange="updateInvoiceStatus(${inv.id}, this.value)"
+                                style="width: auto; min-width: 110px; padding: 2px 24px 2px 8px; font-size: 0.8em;">
+                        <option value="new" ${currentStatus === 'new' ? 'selected' : ''}>New</option>
+                        <option value="processed" ${currentStatus === 'processed' ? 'selected' : ''}>Processed</option>
+                        <option value="incomplete" ${currentStatus === 'incomplete' ? 'selected' : ''}>Incomplete</option>
+                    </select>`;
                 case 'link':
                     return value ? `<a href="${value}" target="_blank">${value}</a>` : '-';
                 case 'split':
@@ -1480,8 +1534,9 @@
                             const reinvoiceLine = s.reinvoice_to
                                 ? `<br><span class="text-warning"><i class="bi bi-arrow-right"></i> ${s.reinvoice_to}</span>`
                                 : '';
+                            const commentIcon = s.id ? `<a href="#" class="allocation-comment-btn ms-1 ${s.comment ? 'text-info' : 'text-muted'}" data-allocation-id="${s.id}" data-department="${location}" data-brand="${s.brand || ''}" data-value="${s.value}" data-percent="${s.percent}" data-comment="${(s.comment || '').replace(/"/g, '&quot;')}" title="${s.comment ? 'View/Edit comment' : 'Add comment'}"><i class="bi bi-chat-text${s.comment ? '-fill' : ''}"></i></a>` : '';
                             return `<div class="small border-start ${borderColor} ps-2">
-                                <span class="text-muted">${location}${brandPart}</span><br>
+                                <span class="text-muted">${location}${brandPart}</span>${commentIcon}<br>
                                 <strong>${formatCurrency(s.value)} ${inv.currency || 'RON'}</strong>
                                 <span class="badge bg-secondary">${s.percent}%</span>${reinvoiceLine}
                             </div>`;
@@ -1493,12 +1548,16 @@
                         // Calculate summary
                         const totalValue = value.reduce((sum, s) => sum + s.value, 0);
                         const reinvoicedAllocs = value.filter(s => s.reinvoice_to);
+                        const allocsWithComments = value.filter(s => s.comment);
 
                         // Build summary text
                         const currency = inv.currency || 'RON';
                         let summaryText = `${value.length} allocations • ${formatCurrency(totalValue)} ${currency}`;
                         if (reinvoicedAllocs.length > 0) {
                             summaryText += ` <span class="text-warning">(→)</span>`;
+                        }
+                        if (allocsWithComments.length > 0) {
+                            summaryText += ` <span class="text-info"><i class="bi bi-chat-text-fill"></i></span>`;
                         }
 
                         // Build allocation details
@@ -1509,8 +1568,9 @@
                             const reinvoiceLine = s.reinvoice_to
                                 ? `<br><span class="text-warning"><i class="bi bi-arrow-right"></i> ${s.reinvoice_to}</span>`
                                 : '';
+                            const commentIcon = s.id ? `<a href="#" class="allocation-comment-btn ms-1 ${s.comment ? 'text-info' : 'text-muted'}" data-allocation-id="${s.id}" data-department="${location}" data-brand="${s.brand || ''}" data-value="${s.value}" data-percent="${s.percent}" data-comment="${(s.comment || '').replace(/"/g, '&quot;')}" title="${s.comment ? 'View/Edit comment' : 'Add comment'}"><i class="bi bi-chat-text${s.comment ? '-fill' : ''}"></i></a>` : '';
                             return `<div class="small border-start ${borderColor} ps-2 mb-1">
-                                <span class="text-muted">${location}${brandPart}</span><br>
+                                <span class="text-muted">${location}${brandPart}</span>${commentIcon}<br>
                                 <strong>${formatCurrency(s.value)} ${currency}</strong>
                                 <span class="badge bg-secondary">${s.percent}%</span>${reinvoiceLine}
                             </div>`;
@@ -1579,22 +1639,21 @@
                     return '-';
                 case 'special':
                     if (col.source === 'special.actions') {
-                        let folderIcon = '';
-                        if (inv.drive_link) {
-                            folderIcon = `<button class="btn btn-sm btn-outline-secondary ms-1" onclick="openDriveFolder('${inv.drive_link.replace(/'/g, "\\'")}')" title="Open folder in Drive">
-                                <i class="bi bi-folder"></i>
-                            </button>`;
-                        }
                         return `<div class="d-flex">
-                            <button class="btn btn-sm btn-outline-primary" onclick="showInvoiceDetail(${inv.id})">
-                                <i class="bi bi-eye"></i> View
-                            </button>${folderIcon}
+                            <button class="btn btn-sm btn-outline-primary" onclick="showInvoiceDetail(${inv.id})" title="View Details">
+                                <i class="bi bi-eye"></i>
+                            </button>
                         </div>`;
                     } else if (col.source === 'special.drive') {
                         if (inv.drive_link) {
-                            return `<a href="${inv.drive_link}" target="_blank" class="btn btn-sm btn-outline-success" title="Open in Google Drive">
-                                <i class="bi bi-cloud-arrow-down"></i>
-                            </a>`;
+                            return `<div class="d-flex">
+                                <a href="${inv.drive_link}" target="_blank" class="btn btn-sm btn-outline-success" title="Open in Google Drive">
+                                    <i class="bi bi-cloud-arrow-down"></i>
+                                </a>
+                                <button class="btn btn-sm btn-outline-secondary ms-1" onclick="openDriveFolder('${inv.drive_link.replace(/'/g, "\\'")}')" title="Open folder in Drive">
+                                    <i class="bi bi-folder"></i>
+                                </button>
+                            </div>`;
                         } else {
                             return `<span class="btn btn-sm btn-outline-secondary disabled" title="No file uploaded">
                                 <i class="bi bi-cloud"></i>
@@ -1638,7 +1697,9 @@
                     const formatted = formatColumnValue(value, col, inv);
                     return `<td>${formatted}</td>`;
                 }).join('');
-                return `<tr>${cells}</tr>`;
+                // Add status-based row class (lowercase for CSS matching)
+                const statusClass = inv.status ? `status-row-${inv.status.toLowerCase()}` : 'status-row-new';
+                return `<tr class="${statusClass}">${cells}</tr>`;
             }).join('');
 
             // Update selection UI
@@ -1753,6 +1814,45 @@
             }
         }
 
+        async function updateInvoiceStatus(invoiceId, newStatus) {
+            try {
+                const res = await fetch(`/api/db/invoices/${invoiceId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                const result = await res.json();
+                if (!result.success && result.error) {
+                    console.error('Failed to update status:', result.error);
+                    alert('Error updating status: ' + result.error);
+                    return;
+                }
+                // Update local cache
+                if (invoicesWithAllocations[invoiceId]) {
+                    invoicesWithAllocations[invoiceId].status = newStatus;
+                }
+                // Update allInvoices array as well
+                const invInList = allInvoices.find(i => i.id === invoiceId);
+                if (invInList) {
+                    invInList.status = newStatus;
+                }
+                // Update row class for status coloring
+                const dropdown = document.querySelector(`select.status-dropdown[data-invoice-id="${invoiceId}"]`);
+                if (dropdown) {
+                    const row = dropdown.closest('tr');
+                    if (row) {
+                        // Remove existing status classes
+                        row.classList.remove('status-row-new', 'status-row-processed', 'status-row-incomplete');
+                        // Add new status class (lowercase for CSS matching)
+                        row.classList.add(`status-row-${newStatus.toLowerCase()}`);
+                    }
+                }
+            } catch (e) {
+                console.error('Error updating status:', e);
+                alert('Error updating status');
+            }
+        }
+
         async function showInvoiceDetail(id) {
             currentInvoiceId = id;
             const modal = new bootstrap.Modal(document.getElementById('invoiceModal'));
@@ -1767,19 +1867,34 @@
                 // Cache full invoice data
                 invoicesWithAllocations[id] = invoice;
 
+                const currentStatus = invoice.status || 'new';
+                const statusDropdown = `
+                    <select class="form-select form-select-sm" id="modalStatusDropdown"
+                            onchange="updateInvoiceStatus(${invoice.id}, this.value)"
+                            style="width: auto; min-width: 120px;">
+                        <option value="new" ${currentStatus === 'new' ? 'selected' : ''}>New</option>
+                        <option value="processed" ${currentStatus === 'processed' ? 'selected' : ''}>Processed</option>
+                        <option value="incomplete" ${currentStatus === 'incomplete' ? 'selected' : ''}>Incomplete</option>
+                    </select>`;
+
+                const driveButtons = invoice.drive_link
+                    ? `<a href="${invoice.drive_link}" target="_blank" class="btn btn-sm btn-outline-success me-1"><i class="bi bi-cloud"></i> View on Drive</a><button type="button" class="btn btn-sm btn-outline-secondary" onclick="openDriveFolder('${invoice.drive_link}')" title="Open Folder"><i class="bi bi-folder2-open"></i></button>`
+                    : '<span class="text-muted">Not uploaded</span>';
+
                 body.innerHTML = `
                     <div class="row">
                         <div class="col-md-6">
                             <h6>Invoice Information</h6>
                             <table class="table table-sm">
+                                <tr><th>Status</th><td>${statusDropdown}</td></tr>
                                 <tr><th>Supplier</th><td>${invoice.supplier}</td></tr>
                                 <tr><th>Invoice #</th><td><code>${invoice.invoice_number}</code></td></tr>
                                 <tr><th>Date</th><td>${formatDateRomanian(invoice.invoice_date)}</td></tr>
                                 <tr><th>Total Value</th><td><strong>${formatCurrency(invoice.invoice_value)} ${invoice.currency || 'RON'}</strong></td></tr>
                                 <tr><th>Template</th><td>${invoice.invoice_template || '-'}</td></tr>
                                 <tr><th>Created</th><td>${invoice.created_at}</td></tr>
-                                ${invoice.comment ? `<tr><th>Comment</th><td><em>${invoice.comment}</em></td></tr>` : ''}
-                                <tr><th>Invoice File</th><td>${invoice.drive_link ? `<a href="${invoice.drive_link}" target="_blank" class="btn btn-sm btn-outline-success"><i class="bi bi-cloud"></i> View on Drive</a>` : '<span class="text-muted">Not uploaded</span>'}</td></tr>
+                                ${invoice.comment ? `<tr><th>Notes</th><td><em>${invoice.comment}</em></td></tr>` : ''}
+                                <tr><th>Invoice File</th><td>${driveButtons}</td></tr>
                             </table>
                         </div>
                         <div class="col-md-6">
@@ -1851,6 +1966,7 @@
             document.getElementById('editCurrency').value = invoice.currency || 'RON';
             document.getElementById('editDriveLink').value = invoice.drive_link || '';
             document.getElementById('editComment').value = invoice.comment || '';
+            document.getElementById('editStatus').value = invoice.status || 'new';
 
             // Populate dedicated company dropdown
             const companies = getUniqueCompanies();
@@ -2021,7 +2137,8 @@
                 invoice_value: invoiceValue,
                 currency: document.getElementById('editCurrency').value,
                 drive_link: document.getElementById('editDriveLink').value,
-                comment: document.getElementById('editComment').value
+                comment: document.getElementById('editComment').value,
+                status: document.getElementById('editStatus').value
             };
 
             try {
@@ -2116,7 +2233,10 @@
 
                 return `
                     <div class="allocation-edit-row position-relative" data-idx="${idx}">
-                        <div class="position-absolute" style="top: 5px; right: 40px;">
+                        <div class="position-absolute d-flex gap-1" style="top: 5px; right: 40px;">
+                            <button type="button" class="btn btn-sm ${alloc.comment ? 'btn-info' : 'btn-outline-info'} comment-allocation-btn" onclick="openEditAllocationCommentModal(${idx})" title="${alloc.comment ? 'Edit comment' : 'Add comment'}">
+                                <i class="bi ${alloc.comment ? 'bi-chat-text-fill' : 'bi-chat-text'}"></i>
+                            </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary lock-allocation-btn" onclick="toggleAllocationLock(${idx})" title="${alloc.locked ? 'Unlock this allocation' : 'Lock this allocation'}">
                                 <i class="bi ${alloc.locked ? 'bi-lock-fill' : 'bi-unlock'}"></i>
                             </button>
@@ -2473,6 +2593,38 @@
             renderEditAllocations();
         }
 
+        // Edit allocation comment variables
+        let currentEditCommentIdx = null;
+
+        // Open comment modal for allocation
+        function openEditAllocationCommentModal(idx) {
+            currentEditCommentIdx = idx;
+            const alloc = editAllocations[idx];
+            const currency = document.getElementById('editCurrency').value || 'RON';
+            const allocValue = (parseFloat(document.getElementById('editInvoiceValue').value) || 0) * (parseFloat(alloc.allocation_percent) || 0) / 100;
+
+            const deptPart = alloc.department || '-';
+            const brandPart = alloc.brand ? ` (${alloc.brand})` : '';
+            document.getElementById('editAllocationCommentInfo').textContent = `${deptPart}${brandPart} - ${formatCurrency(allocValue)} ${currency} (${alloc.allocation_percent || 0}%)`;
+            document.getElementById('editAllocationCommentText').value = alloc.comment || '';
+
+            const modal = new bootstrap.Modal(document.getElementById('editAllocationCommentModal'));
+            modal.show();
+        }
+
+        // Save allocation comment
+        function saveEditAllocationComment() {
+            if (currentEditCommentIdx === null) return;
+
+            const comment = document.getElementById('editAllocationCommentText').value;
+            editAllocations[currentEditCommentIdx].comment = comment || null;
+
+            bootstrap.Modal.getInstance(document.getElementById('editAllocationCommentModal')).hide();
+            currentEditCommentIdx = null;
+
+            renderEditAllocations();
+        }
+
         // Apply smart split to all allocations (respecting locked allocations)
         function applySmartSplit() {
             const count = editAllocations.length;
@@ -2532,7 +2684,8 @@
                 reinvoice_brand: null,
                 reinvoice_department: null,
                 reinvoice_subdepartment: null,
-                locked: false
+                locked: false,
+                comment: null
             });
             applySmartSplit(); // Redistribute with smart split when adding
         }
@@ -2988,6 +3141,95 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadBinCount();
         });
+
+        // ========== ALLOCATION COMMENT MODAL ==========
+        // Open allocation comment modal when clicking comment icon
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.allocation-comment-btn');
+            if (btn) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const allocationId = btn.dataset.allocationId;
+                const department = btn.dataset.department;
+                const brand = btn.dataset.brand;
+                const value = btn.dataset.value;
+                const percent = btn.dataset.percent;
+                const comment = btn.dataset.comment || '';
+
+                // Set modal values
+                document.getElementById('allocationCommentId').value = allocationId;
+                document.getElementById('allocationCommentText').value = comment;
+
+                // Show allocation details
+                let detailsHtml = `<strong>${department}</strong>`;
+                if (brand) detailsHtml += ` (${brand})`;
+                detailsHtml += `<br>${formatCurrency(parseFloat(value))} • ${percent}%`;
+                document.getElementById('allocationCommentDetails').innerHTML = detailsHtml;
+
+                // Open modal
+                const modal = new bootstrap.Modal(document.getElementById('allocationCommentModal'));
+                modal.show();
+            }
+        });
+
+        // Save allocation comment
+        document.getElementById('saveAllocationCommentBtn').addEventListener('click', async () => {
+            const allocationId = document.getElementById('allocationCommentId').value;
+            const comment = document.getElementById('allocationCommentText').value;
+
+            try {
+                const response = await fetch(`/api/allocations/${allocationId}/comment`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ comment })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Close modal
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('allocationCommentModal'));
+                    modal.hide();
+
+                    // Reload the current view to show updated comment
+                    loadInvoices();
+
+                    // Clear cache for this invoice
+                    invoicesWithAllocations = {};
+                } else {
+                    alert('Error saving comment: ' + (data.error || 'Unknown error'));
+                }
+            } catch (error) {
+                console.error('Error saving comment:', error);
+                alert('Error saving comment');
+            }
+        });
     </script>
+
+    <!-- Edit Allocation Comment Modal -->
+    <div class="modal fade" id="editAllocationCommentModal" tabindex="-1" aria-labelledby="editAllocationCommentModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editAllocationCommentModalLabel"><i class="bi bi-chat-text"></i> Allocation Comment</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <small class="text-muted" id="editAllocationCommentInfo"></small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editAllocationCommentText" class="form-label">Comment</label>
+                        <textarea class="form-control" id="editAllocationCommentText" rows="3" placeholder="Add a comment for this allocation..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveEditAllocationComment()">Save Comment</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

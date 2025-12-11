@@ -30,6 +30,7 @@ An allocation splits an invoice cost to a specific department:
 - **Allocation Percent**: The percentage of the invoice assigned (e.g., 50%)
 - **Allocation Value**: The monetary amount (calculated from invoice value × percent)
 - **Locked**: Locked allocations don't change during redistribution
+- **Comment**: Optional text comment for notes about the allocation
 
 ### Reinvoicing
 Internal billing between entities:
@@ -142,6 +143,7 @@ DATABASE_URL='postgresql://user@localhost:5432/defaultdb' PORT=5001 python app/a
 - `GET /api/invoices` - List all invoices with allocations
 - `PUT /api/invoices/<id>` - Update invoice details
 - `PUT /api/invoices/<id>/allocations` - Update allocations
+- `PUT /api/allocations/<id>/comment` - Update allocation comment
 - `DELETE /api/invoices/<id>` - Soft delete invoice
 
 ### Parsing

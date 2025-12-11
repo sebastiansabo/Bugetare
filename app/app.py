@@ -29,7 +29,8 @@ from database import (
     get_all_department_structures, get_department_structure, save_department_structure,
     update_department_structure, delete_department_structure, get_unique_departments, get_unique_brands,
     authenticate_user, set_user_password, update_user_last_login, set_default_password_for_users,
-    log_user_event, get_user_events, get_event_types
+    log_user_event, get_user_events, get_event_types,
+    update_allocation_comment
 )
 
 # Google Drive integration (optional)
@@ -389,7 +390,8 @@ def submit_invoice():
             distributions=data['distributions'],
             value_ron=data.get('value_ron'),
             value_eur=data.get('value_eur'),
-            exchange_rate=data.get('exchange_rate')
+            exchange_rate=data.get('exchange_rate'),
+            comment=data.get('comment', '')
         )
 
         # Send email notifications to responsables
@@ -1006,7 +1008,8 @@ def api_db_update_invoice(invoice_id):
             invoice_value=float(data['invoice_value']) if data.get('invoice_value') else None,
             currency=data.get('currency'),
             drive_link=data.get('drive_link'),
-            comment=data.get('comment')
+            comment=data.get('comment'),
+            status=data.get('status')
         )
         if updated:
             log_event('invoice_updated', f'Updated invoice ID {invoice_id}',
@@ -1055,6 +1058,22 @@ def api_db_update_allocations(invoice_id):
         log_event('allocations_updated', f'Updated allocations for invoice ID {invoice_id}',
                   entity_type='invoice', entity_id=invoice_id)
         return jsonify({'success': True, 'notifications_sent': notifications_sent})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/allocations/<int:allocation_id>/comment', methods=['PUT'])
+@login_required
+def api_update_allocation_comment(allocation_id):
+    """Update the comment for a specific allocation."""
+    data = request.json
+    comment = data.get('comment', '')
+
+    try:
+        updated = update_allocation_comment(allocation_id, comment)
+        if updated:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Allocation not found'}), 404
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 

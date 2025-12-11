@@ -212,6 +212,10 @@
                                     </div>
                                 </div>
                             </div>
+                            <div class="mb-3">
+                                <label class="form-label">Notes</label>
+                                <textarea class="form-control" id="invoiceNotes" rows="2" placeholder="Optional notes about this invoice"></textarea>
+                            </div>
                             <input type="hidden" id="driveLink">
                             <input type="hidden" id="valueRon">
                             <input type="hidden" id="valueEur">
@@ -289,12 +293,16 @@
                     <input type="number" class="form-control form-control-sm allocation-value-input" min="0" step="0.01" value="0">
                 </div>
                 <div class="col-2 col-md-2 mb-2 d-flex gap-1 align-items-end justify-content-end">
+                    <button type="button" class="btn btn-outline-info btn-sm comment-allocation" title="Add comment">
+                        <i class="bi bi-chat-text"></i>
+                    </button>
                     <button type="button" class="btn btn-outline-secondary btn-sm lock-allocation" title="Lock this allocation">
                         <i class="bi bi-unlock"></i>
                     </button>
                     <button type="button" class="btn btn-outline-danger btn-sm remove-allocation">
                         <i class="bi bi-trash"></i>
                     </button>
+                    <input type="hidden" class="allocation-comment" value="">
                 </div>
             </div>
             <div class="row mt-1 align-items-center">
@@ -1044,6 +1052,13 @@
                 }
             });
 
+            // Comment button
+            const commentBtn = row.querySelector('.comment-allocation');
+            commentBtn.addEventListener('click', (e) => {
+                const allocRow = e.target.closest('.allocation-row');
+                openAllocationCommentModal(allocRow);
+            });
+
             container.appendChild(row);
             redistributeAllocations(); // Smart redistribute when adding
         }
@@ -1275,6 +1290,7 @@
                 const reinvoiceBrandVal = row.querySelector('.reinvoice-brand').value;
                 const reinvoiceDepartmentVal = row.querySelector('.reinvoice-department').value;
                 const reinvoiceSubdepartmentVal = row.querySelector('.reinvoice-subdepartment').value;
+                const allocationComment = row.querySelector('.allocation-comment').value;
 
                 // Check if brand is mandatory (brands exist for this company)
                 const hasBrands = brandSelect.options.length > 1; // More than just "N/A"
@@ -1340,7 +1356,8 @@
                     reinvoice_brand: reinvoiceCheck ? (reinvoiceBrandVal || null) : null,
                     reinvoice_department: reinvoiceCheck ? (reinvoiceDepartmentVal || null) : null,
                     reinvoice_subdepartment: reinvoiceCheck ? (reinvoiceSubdepartmentVal || null) : null,
-                    locked: isRowLocked(row)
+                    locked: isRowLocked(row),
+                    comment: allocationComment || null
                 });
             }
 
@@ -1364,6 +1381,9 @@
                 const valueEur = document.getElementById('valueEur').value;
                 const exchangeRate = document.getElementById('exchangeRate').value;
 
+                // Get notes
+                const invoiceNotes = document.getElementById('invoiceNotes').value || '';
+
                 // First save to database (without drive link if not yet uploaded)
                 const res = await fetch('/api/submit', {
                     method: 'POST',
@@ -1378,7 +1398,8 @@
                         distributions,
                         value_ron: valueRon ? parseFloat(valueRon) : null,
                         value_eur: valueEur ? parseFloat(valueEur) : null,
-                        exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null
+                        exchange_rate: exchangeRate ? parseFloat(exchangeRate) : null,
+                        comment: invoiceNotes
                     })
                 });
 
@@ -1472,6 +1493,58 @@
             });
         }
 
+        // Allocation Comment Modal
+        let currentCommentRow = null;
+
+        function openAllocationCommentModal(row) {
+            currentCommentRow = row;
+            const dept = row.querySelector('.department-select').value || '-';
+            const brand = row.querySelector('.brand-select').value || '';
+            const percent = row.querySelector('.allocation-input').value || 0;
+            const value = row.querySelector('.allocation-value-input').value || 0;
+            const comment = row.querySelector('.allocation-comment').value || '';
+            const currency = document.getElementById('currency').value || 'RON';
+
+            const brandPart = brand ? ` (${brand})` : '';
+            document.getElementById('allocationCommentInfo').textContent = `${dept}${brandPart} - ${formatCurrency(parseFloat(value))} ${currency} (${percent}%)`;
+            document.getElementById('allocationCommentText').value = comment;
+
+            const modal = new bootstrap.Modal(document.getElementById('allocationCommentModal'));
+            modal.show();
+        }
+
+        function saveAllocationComment() {
+            if (!currentCommentRow) return;
+
+            const comment = document.getElementById('allocationCommentText').value;
+            currentCommentRow.querySelector('.allocation-comment').value = comment;
+
+            // Update button appearance based on whether comment exists
+            const commentBtn = currentCommentRow.querySelector('.comment-allocation');
+            const icon = commentBtn.querySelector('i');
+            if (comment.trim()) {
+                icon.classList.remove('bi-chat-text');
+                icon.classList.add('bi-chat-text-fill');
+                commentBtn.classList.remove('btn-outline-info');
+                commentBtn.classList.add('btn-info');
+                commentBtn.title = 'Edit comment';
+            } else {
+                icon.classList.remove('bi-chat-text-fill');
+                icon.classList.add('bi-chat-text');
+                commentBtn.classList.remove('btn-info');
+                commentBtn.classList.add('btn-outline-info');
+                commentBtn.title = 'Add comment';
+            }
+
+            bootstrap.Modal.getInstance(document.getElementById('allocationCommentModal')).hide();
+            currentCommentRow = null;
+        }
+
+        // Add event listener for save button
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('saveAllocationCommentBtn').addEventListener('click', saveAllocationComment);
+        });
+
         // Change Password
         async function changePassword() {
             const currentPassword = document.getElementById('currentPassword').value;
@@ -1510,6 +1583,31 @@
             }
         }
     </script>
+
+    <!-- Allocation Comment Modal -->
+    <div class="modal fade" id="allocationCommentModal" tabindex="-1" aria-labelledby="allocationCommentModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="allocationCommentModalLabel"><i class="bi bi-chat-text"></i> Allocation Comment</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <small class="text-muted" id="allocationCommentInfo"></small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="allocationCommentText" class="form-label">Comment</label>
+                        <textarea class="form-control" id="allocationCommentText" rows="3" placeholder="Add a comment for this allocation..."></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveAllocationCommentBtn">Save Comment</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Change Password Modal -->
     <div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="changePasswordModalLabel" aria-hidden="true">

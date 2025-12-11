@@ -1,6 +1,42 @@
 from dataclasses import dataclass
 from typing import Optional
+import time
 from database import get_db, get_cursor, get_placeholder, release_db
+
+# In-memory cache for organizational structure
+# This data rarely changes, so caching significantly improves performance
+_structure_cache = {
+    'data': None,
+    'timestamp': 0,
+    'ttl': 300  # 5 minutes TTL
+}
+
+_companies_cache = {
+    'data': None,
+    'timestamp': 0,
+    'ttl': 300
+}
+
+_brands_cache = {}  # keyed by company
+_departments_cache = {}  # keyed by company
+_subdepartments_cache = {}  # keyed by (company, department)
+
+
+def _is_cache_valid(cache_entry: dict) -> bool:
+    """Check if a cache entry is still valid."""
+    if cache_entry.get('data') is None:
+        return False
+    return (time.time() - cache_entry.get('timestamp', 0)) < cache_entry.get('ttl', 300)
+
+
+def clear_structure_cache():
+    """Clear all structure-related caches. Call this after structure updates."""
+    global _structure_cache, _companies_cache, _brands_cache, _departments_cache, _subdepartments_cache
+    _structure_cache = {'data': None, 'timestamp': 0, 'ttl': 300}
+    _companies_cache = {'data': None, 'timestamp': 0, 'ttl': 300}
+    _brands_cache = {}
+    _departments_cache = {}
+    _subdepartments_cache = {}
 
 
 @dataclass
@@ -50,7 +86,13 @@ class InvoiceAllocation:
 
 
 def load_structure() -> list[DepartmentUnit]:
-    """Load the organizational structure from database."""
+    """Load the organizational structure from database (with caching)."""
+    global _structure_cache
+
+    # Return cached data if valid
+    if _is_cache_valid(_structure_cache):
+        return _structure_cache['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
 
@@ -73,11 +115,22 @@ def load_structure() -> list[DepartmentUnit]:
         units.append(unit)
 
     release_db(conn)
+
+    # Cache the result
+    _structure_cache['data'] = units
+    _structure_cache['timestamp'] = time.time()
+
     return units
 
 
 def get_companies() -> list[str]:
-    """Get unique list of companies."""
+    """Get unique list of companies (with caching)."""
+    global _companies_cache
+
+    # Return cached data if valid
+    if _is_cache_valid(_companies_cache):
+        return _companies_cache['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
 
@@ -89,11 +142,25 @@ def get_companies() -> list[str]:
 
     companies = [row['company'] for row in cursor.fetchall()]
     release_db(conn)
+
+    # Cache the result
+    _companies_cache['data'] = companies
+    _companies_cache['timestamp'] = time.time()
+
     return companies
 
 
 def get_brands_for_company(company: str) -> list[str]:
-    """Get brands available for a specific company."""
+    """Get brands available for a specific company (with caching)."""
+    global _brands_cache
+
+    # Check cache
+    cache_key = company
+    if cache_key in _brands_cache:
+        entry = _brands_cache[cache_key]
+        if _is_cache_valid(entry):
+            return entry['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
     ph = get_placeholder()
@@ -106,11 +173,24 @@ def get_brands_for_company(company: str) -> list[str]:
 
     brands = [row['brand'] for row in cursor.fetchall()]
     release_db(conn)
+
+    # Cache the result
+    _brands_cache[cache_key] = {'data': brands, 'timestamp': time.time(), 'ttl': 300}
+
     return brands
 
 
 def get_departments_for_company(company: str) -> list[str]:
-    """Get departments available for a specific company."""
+    """Get departments available for a specific company (with caching)."""
+    global _departments_cache
+
+    # Check cache
+    cache_key = company
+    if cache_key in _departments_cache:
+        entry = _departments_cache[cache_key]
+        if _is_cache_valid(entry):
+            return entry['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
     ph = get_placeholder()
@@ -123,11 +203,24 @@ def get_departments_for_company(company: str) -> list[str]:
 
     departments = [row['department'] for row in cursor.fetchall()]
     release_db(conn)
+
+    # Cache the result
+    _departments_cache[cache_key] = {'data': departments, 'timestamp': time.time(), 'ttl': 300}
+
     return departments
 
 
 def get_subdepartments(company: str, department: str) -> list[str]:
-    """Get subdepartments for a specific company and department."""
+    """Get subdepartments for a specific company and department (with caching)."""
+    global _subdepartments_cache
+
+    # Check cache
+    cache_key = (company, department)
+    if cache_key in _subdepartments_cache:
+        entry = _subdepartments_cache[cache_key]
+        if _is_cache_valid(entry):
+            return entry['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
     ph = get_placeholder()
@@ -140,6 +233,10 @@ def get_subdepartments(company: str, department: str) -> list[str]:
 
     subdepts = [row['subdepartment'] for row in cursor.fetchall()]
     release_db(conn)
+
+    # Cache the result
+    _subdepartments_cache[cache_key] = {'data': subdepts, 'timestamp': time.time(), 'ttl': 300}
+
     return subdepts
 
 

@@ -75,7 +75,8 @@ def save_invoice_to_db(
     distributions: list[dict],
     value_ron: float = None,
     value_eur: float = None,
-    exchange_rate: float = None
+    exchange_rate: float = None,
+    comment: str = None
 ) -> int:
     """Save invoice and allocations to database. Returns invoice ID."""
     # Validate allocations sum to 1 (100%)
@@ -104,7 +105,8 @@ def save_invoice_to_db(
         distributions=distributions,
         value_ron=value_ron,
         value_eur=value_eur,
-        exchange_rate=exchange_rate
+        exchange_rate=exchange_rate,
+        comment=comment
     )
 
 

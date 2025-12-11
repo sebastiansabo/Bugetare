@@ -323,3 +323,6 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Added folder icon in Accounting list to open invoice's Google Drive folder
 - Added upload progress indicator showing "Uploading attachment X/Y..."
 - Added `/api/drive/upload-attachment` and `/api/drive/folder-link` API endpoints
+- Added allocation comment feature: comment button on each allocation row in Add Invoice and Edit Invoice
+- Added `PUT /api/allocations/<id>/comment` endpoint for updating allocation comments directly
+- Fixed DocumentFragment closure bug in index.html allocation comment button click handler

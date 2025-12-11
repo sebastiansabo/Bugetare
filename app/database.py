@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from datetime import datetime
 from typing import Optional
 from contextlib import contextmanager
@@ -11,6 +12,52 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 # PostgreSQL connection - DATABASE_URL is required
 DATABASE_URL = os.environ.get('DATABASE_URL')
+
+# In-memory cache for invoice templates (rarely change)
+_templates_cache = {
+    'data': None,
+    'timestamp': 0,
+    'ttl': 300  # 5 minutes TTL
+}
+
+# In-memory cache for companies with VAT
+_companies_vat_cache = {
+    'data': None,
+    'timestamp': 0,
+    'ttl': 300
+}
+
+# In-memory cache for responsables
+_responsables_cache = {
+    'data': None,
+    'timestamp': 0,
+    'ttl': 300
+}
+
+
+def _is_cache_valid(cache_entry: dict) -> bool:
+    """Check if a cache entry is still valid."""
+    if cache_entry.get('data') is None:
+        return False
+    return (time.time() - cache_entry.get('timestamp', 0)) < cache_entry.get('ttl', 300)
+
+
+def clear_templates_cache():
+    """Clear the templates cache. Call this after template updates."""
+    global _templates_cache
+    _templates_cache = {'data': None, 'timestamp': 0, 'ttl': 300}
+
+
+def clear_companies_vat_cache():
+    """Clear the companies VAT cache. Call this after company updates."""
+    global _companies_vat_cache
+    _companies_vat_cache = {'data': None, 'timestamp': 0, 'ttl': 300}
+
+
+def clear_responsables_cache():
+    """Clear the responsables cache. Call this after responsable updates."""
+    global _responsables_cache
+    _responsables_cache = {'data': None, 'timestamp': 0, 'ttl': 300}
 
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required. Set it to your PostgreSQL connection string.")
@@ -108,10 +155,21 @@ def init_db():
             exchange_rate REAL,
             drive_link TEXT,
             comment TEXT,
+            status TEXT DEFAULT 'new',
             deleted_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    ''')
+
+    # Add status column if it doesn't exist (migration)
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invoices' AND column_name = 'status') THEN
+                ALTER TABLE invoices ADD COLUMN status TEXT DEFAULT 'new';
+            END IF;
+        END $$;
     ''')
 
     cursor.execute('''
@@ -345,13 +403,29 @@ def init_db():
         )
     ''')
 
-    # Create indexes
+    # Create indexes for invoice queries (most frequently accessed)
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_date_desc ON invoices(invoice_date DESC)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_supplier ON invoices(supplier)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_created_at ON invoices(created_at DESC)')
+    # Composite index for common filtered queries (non-deleted, date ordered)
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_deleted_date ON invoices(deleted_at, invoice_date DESC)')
+
+    # Allocation indexes
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_invoice_id ON allocations(invoice_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_company ON allocations(company)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_department ON allocations(department)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_brand ON allocations(brand)')
+
+    # User events indexes
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_events_user_id ON user_events(user_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_events_event_type ON user_events(event_type)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_events_created_at ON user_events(created_at DESC)')
+
+    # Department structure indexes
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_dept_structure_company ON department_structure(company)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_dept_structure_dept ON department_structure(department)')
 
     # Commit table creation before attempting migrations
     conn.commit()
@@ -386,6 +460,15 @@ def init_db():
     # Add reinvoice_subdepartment column if it doesn't exist
     try:
         cursor.execute('ALTER TABLE allocations ADD COLUMN reinvoice_subdepartment TEXT')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Add comment column to allocations if it doesn't exist
+    try:
+        cursor.execute('ALTER TABLE allocations ADD COLUMN comment TEXT')
         conn.commit()
     except psycopg2.errors.DuplicateColumn:
         conn.rollback()
@@ -579,7 +662,8 @@ def save_invoice(
     distributions: list[dict],
     value_ron: float = None,
     value_eur: float = None,
-    exchange_rate: float = None
+    exchange_rate: float = None,
+    comment: str = None
 ) -> int:
     """
     Save invoice and its allocations to database.
@@ -590,10 +674,10 @@ def save_invoice(
 
     try:
         cursor.execute('''
-            INSERT INTO invoices (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO invoices (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate, comment)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        ''', (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate))
+        ''', (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate, comment))
         invoice_id = cursor.fetchone()['id']
 
         # Insert allocations
@@ -1038,7 +1122,8 @@ def update_invoice(
     invoice_value: float = None,
     currency: str = None,
     drive_link: str = None,
-    comment: str = None
+    comment: str = None,
+    status: str = None
 ) -> bool:
     """Update an existing invoice."""
     conn = get_db()
@@ -1069,6 +1154,9 @@ def update_invoice(
     if comment is not None:
         updates.append('comment = %s')
         params.append(comment)
+    if status is not None:
+        updates.append('status = %s')
+        params.append(status)
 
     if not updates:
         release_db(conn)
@@ -1160,7 +1248,8 @@ def update_allocation(
     reinvoice_to: str = None,
     reinvoice_brand: str = None,
     reinvoice_department: str = None,
-    reinvoice_subdepartment: str = None
+    reinvoice_subdepartment: str = None,
+    comment: str = None
 ) -> bool:
     """Update an existing allocation."""
     conn = get_db()
@@ -1202,6 +1291,9 @@ def update_allocation(
     if reinvoice_subdepartment is not None:
         updates.append('reinvoice_subdepartment = %s')
         params.append(reinvoice_subdepartment)
+    if comment is not None:
+        updates.append('comment = %s')
+        params.append(comment)
 
     if not updates:
         release_db(conn)
@@ -1228,6 +1320,19 @@ def delete_allocation(allocation_id: int) -> bool:
     conn.commit()
     release_db(conn)
     return deleted
+
+
+def update_allocation_comment(allocation_id: int, comment: str) -> bool:
+    """Update just the comment for an allocation."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('UPDATE allocations SET comment = %s WHERE id = %s', (comment, allocation_id))
+    updated = cursor.rowcount > 0
+
+    conn.commit()
+    release_db(conn)
+    return updated
 
 
 def add_allocation(
@@ -1295,8 +1400,8 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
 
             cursor.execute('''
                 INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
-                    allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked, comment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 invoice_id,
                 alloc['company'],
@@ -1310,7 +1415,8 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
                 alloc.get('reinvoice_brand'),
                 alloc.get('reinvoice_department'),
                 alloc.get('reinvoice_subdepartment'),
-                alloc.get('locked', False)
+                alloc.get('locked', False),
+                alloc.get('comment')
             ))
 
         conn.commit()
@@ -1364,6 +1470,10 @@ def save_invoice_template(
         template_id = cursor.fetchone()['id']
 
         conn.commit()
+
+        # Clear cache after successful insert
+        clear_templates_cache()
+
         return template_id
 
     except Exception as e:
@@ -1464,6 +1574,11 @@ def update_invoice_template(
 
     conn.commit()
     release_db(conn)
+
+    # Clear cache after update
+    if updated:
+        clear_templates_cache()
+
     return updated
 
 
@@ -1477,11 +1592,22 @@ def delete_invoice_template(template_id: int) -> bool:
 
     conn.commit()
     release_db(conn)
+
+    # Clear cache after delete
+    if deleted:
+        clear_templates_cache()
+
     return deleted
 
 
 def get_all_invoice_templates() -> list[dict]:
-    """Get all invoice templates."""
+    """Get all invoice templates (with caching)."""
+    global _templates_cache
+
+    # Return cached data if valid
+    if _is_cache_valid(_templates_cache):
+        return _templates_cache['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
 
@@ -1489,6 +1615,11 @@ def get_all_invoice_templates() -> list[dict]:
     templates = [dict_from_row(row) for row in cursor.fetchall()]
 
     release_db(conn)
+
+    # Cache the result
+    _templates_cache['data'] = templates
+    _templates_cache['timestamp'] = time.time()
+
     return templates
 
 
@@ -2015,7 +2146,13 @@ def delete_user(user_id: int) -> bool:
 # ============== Responsables CRUD ==============
 
 def get_all_responsables() -> list[dict]:
-    """Get all responsables."""
+    """Get all responsables (with caching)."""
+    global _responsables_cache
+
+    # Return cached data if valid
+    if _is_cache_valid(_responsables_cache):
+        return _responsables_cache['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
 
@@ -2026,6 +2163,11 @@ def get_all_responsables() -> list[dict]:
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
     release_db(conn)
+
+    # Cache the result
+    _responsables_cache['data'] = results
+    _responsables_cache['timestamp'] = time.time()
+
     return results
 
 
@@ -2071,6 +2213,7 @@ def save_responsable(name: str, email: str, phone: str = None, departments: str 
 
         responsable_id = cursor.fetchone()['id']
         conn.commit()
+        clear_responsables_cache()
         return responsable_id
     except Exception as e:
         conn.rollback()
@@ -2122,6 +2265,8 @@ def update_responsable(responsable_id: int, name: str = None, email: str = None,
         cursor.execute(query, params)
         updated = cursor.rowcount > 0
         conn.commit()
+        if updated:
+            clear_responsables_cache()
         return updated
     except Exception as e:
         conn.rollback()
@@ -2142,6 +2287,8 @@ def delete_responsable(responsable_id: int) -> bool:
 
     conn.commit()
     release_db(conn)
+    if deleted:
+        clear_responsables_cache()
     return deleted
 
 
@@ -2265,7 +2412,13 @@ def get_notification_logs(limit: int = 100) -> list[dict]:
 # ============== Companies CRUD ==============
 
 def get_all_companies() -> list[dict]:
-    """Get all companies."""
+    """Get all companies (with caching)."""
+    global _companies_vat_cache
+
+    # Return cached data if valid
+    if _is_cache_valid(_companies_vat_cache):
+        return _companies_vat_cache['data']
+
     conn = get_db()
     cursor = get_cursor(conn)
 
@@ -2276,6 +2429,11 @@ def get_all_companies() -> list[dict]:
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
     release_db(conn)
+
+    # Cache the result
+    _companies_vat_cache['data'] = results
+    _companies_vat_cache['timestamp'] = time.time()
+
     return results
 
 
@@ -2305,6 +2463,7 @@ def save_company(company: str, brands: str = None, vat: str = None) -> int:
 
         company_id = cursor.fetchone()['id']
         conn.commit()
+        clear_companies_vat_cache()
         return company_id
     except Exception as e:
         conn.rollback()
@@ -2348,6 +2507,8 @@ def update_company(company_id: int, company: str = None, brands: str = None, vat
 
         updated = cursor.rowcount > 0
         conn.commit()
+        if updated:
+            clear_companies_vat_cache()
         return updated
     except Exception as e:
         conn.rollback()
@@ -2368,6 +2529,8 @@ def delete_company(company_id: int) -> bool:
 
     conn.commit()
     release_db(conn)
+    if deleted:
+        clear_companies_vat_cache()
     return deleted
 
 
