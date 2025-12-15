@@ -11,7 +11,7 @@ from services import (
 )
 from invoice_parser import parse_invoice, parse_invoice_with_template_from_bytes, auto_detect_and_parse, generate_template_from_invoice
 from database import (
-    get_all_invoices, get_invoice_with_allocations, search_invoices,
+    get_all_invoices, get_invoice_with_allocations, get_invoices_with_allocations, search_invoices,
     get_summary_by_company, get_summary_by_department, get_summary_by_brand, delete_invoice, update_invoice, save_invoice,
     update_invoice_allocations,
     get_all_invoice_templates, get_invoice_template, save_invoice_template,
@@ -872,7 +872,15 @@ def api_sync_connector(connector_id):
 @app.route('/api/db/invoices')
 @login_required
 def api_db_invoices():
-    """Get all invoices from database with pagination and optional filters."""
+    """Get all invoices from database with pagination and optional filters.
+
+    Query parameters:
+    - limit: Max invoices to return (default 100)
+    - offset: Pagination offset
+    - company, department, subdepartment, brand: Filter by allocation fields
+    - start_date, end_date: Filter by invoice date range
+    - include_allocations: If "true", returns invoices with allocations embedded (optimized single query)
+    """
     limit = request.args.get('limit', 100, type=int)
     offset = request.args.get('offset', 0, type=int)
     company = request.args.get('company')
@@ -881,11 +889,22 @@ def api_db_invoices():
     brand = request.args.get('brand')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    invoices = get_all_invoices(
-        limit=limit, offset=offset, company=company,
-        start_date=start_date, end_date=end_date,
-        department=department, subdepartment=subdepartment, brand=brand
-    )
+    include_allocations = request.args.get('include_allocations', 'false').lower() == 'true'
+
+    if include_allocations:
+        # Use optimized query that fetches invoices with allocations in single query
+        invoices = get_invoices_with_allocations(
+            limit=limit, offset=offset, company=company,
+            start_date=start_date, end_date=end_date,
+            department=department, subdepartment=subdepartment, brand=brand
+        )
+    else:
+        # Original behavior - invoices only, allocations fetched separately
+        invoices = get_all_invoices(
+            limit=limit, offset=offset, company=company,
+            start_date=start_date, end_date=end_date,
+            department=department, subdepartment=subdepartment, brand=brand
+        )
     return jsonify(invoices)
 
 

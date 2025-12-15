@@ -63,9 +63,13 @@ if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required. Set it to your PostgreSQL connection string.")
 
 # Connection pool configuration
-# minconn: minimum connections kept open
+# minconn: minimum connections kept open (higher for faster warmup)
 # maxconn: maximum connections allowed (DigitalOcean managed DB allows ~25)
 _connection_pool = None
+
+# Pool size configuration - can be tuned via environment variables
+POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '5'))
+POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '20'))
 
 
 def _get_pool():
@@ -75,8 +79,8 @@ def _get_pool():
         # Add keepalive options to prevent connections from being dropped
         # by the server after idle timeout
         _connection_pool = pool.ThreadedConnectionPool(
-            minconn=2,
-            maxconn=50,
+            minconn=POOL_MIN_CONN,
+            maxconn=POOL_MAX_CONN,
             dsn=DATABASE_URL,
             keepalives=1,           # Enable keepalives
             keepalives_idle=30,     # Seconds before sending keepalive
@@ -810,6 +814,154 @@ def get_invoice_with_allocations(invoice_id: int) -> Optional[dict]:
 
     release_db(conn)
     return invoice
+
+
+def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Optional[str] = None,
+                                   start_date: Optional[str] = None, end_date: Optional[str] = None,
+                                   department: Optional[str] = None, subdepartment: Optional[str] = None,
+                                   brand: Optional[str] = None, include_deleted: bool = False) -> list[dict]:
+    """Get all invoices with their allocations in a single optimized query.
+
+    Uses PostgreSQL JSON aggregation to fetch invoices and allocations together,
+    avoiding N+1 query problems. This is much faster than fetching invoices
+    then making separate queries for each invoice's allocations.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Build the query with optional filters
+    params = []
+    conditions = []
+
+    # Soft delete filter
+    if include_deleted:
+        conditions.append('i.deleted_at IS NOT NULL')
+    else:
+        conditions.append('i.deleted_at IS NULL')
+
+    # Date filters
+    if start_date:
+        conditions.append('i.invoice_date >= %s')
+        params.append(start_date)
+    if end_date:
+        conditions.append('i.invoice_date <= %s')
+        params.append(end_date)
+
+    # Allocation filters - if any are set, filter invoices that have matching allocations
+    allocation_filters = []
+    if company:
+        allocation_filters.append('a.company = %s')
+        params.append(company)
+    if department:
+        allocation_filters.append('a.department = %s')
+        params.append(department)
+    if subdepartment:
+        allocation_filters.append('a.subdepartment = %s')
+        params.append(subdepartment)
+    if brand:
+        allocation_filters.append('a.brand = %s')
+        params.append(brand)
+
+    where_clause = ' AND '.join(conditions) if conditions else '1=1'
+
+    if allocation_filters:
+        # If we have allocation filters, use a subquery to filter invoices
+        allocation_filter_clause = ' AND '.join(allocation_filters)
+        query = f'''
+            WITH filtered_invoices AS (
+                SELECT DISTINCT i.id
+                FROM invoices i
+                JOIN allocations a ON a.invoice_id = i.id
+                WHERE {where_clause} AND {allocation_filter_clause}
+                ORDER BY i.id DESC
+                LIMIT %s OFFSET %s
+            )
+            SELECT
+                i.*,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', a.id,
+                            'invoice_id', a.invoice_id,
+                            'company', a.company,
+                            'brand', a.brand,
+                            'department', a.department,
+                            'subdepartment', a.subdepartment,
+                            'allocation_percent', a.allocation_percent,
+                            'allocation_value', a.allocation_value,
+                            'responsible', a.responsible,
+                            'reinvoice_to', a.reinvoice_to,
+                            'reinvoice_brand', a.reinvoice_brand,
+                            'reinvoice_department', a.reinvoice_department,
+                            'reinvoice_subdepartment', a.reinvoice_subdepartment,
+                            'locked', a.locked,
+                            'comment', a.comment
+                        )
+                    ) FILTER (WHERE a.id IS NOT NULL),
+                    '[]'::json
+                ) as allocations
+            FROM filtered_invoices fi
+            JOIN invoices i ON i.id = fi.id
+            LEFT JOIN allocations a ON a.invoice_id = i.id
+            GROUP BY i.id
+            ORDER BY i.created_at DESC
+        '''
+    else:
+        # No allocation filters - simpler query
+        query = f'''
+            WITH paginated_invoices AS (
+                SELECT i.*
+                FROM invoices i
+                WHERE {where_clause}
+                ORDER BY i.created_at DESC
+                LIMIT %s OFFSET %s
+            )
+            SELECT
+                pi.*,
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'id', a.id,
+                            'invoice_id', a.invoice_id,
+                            'company', a.company,
+                            'brand', a.brand,
+                            'department', a.department,
+                            'subdepartment', a.subdepartment,
+                            'allocation_percent', a.allocation_percent,
+                            'allocation_value', a.allocation_value,
+                            'responsible', a.responsible,
+                            'reinvoice_to', a.reinvoice_to,
+                            'reinvoice_brand', a.reinvoice_brand,
+                            'reinvoice_department', a.reinvoice_department,
+                            'reinvoice_subdepartment', a.reinvoice_subdepartment,
+                            'locked', a.locked,
+                            'comment', a.comment
+                        )
+                    ) FILTER (WHERE a.id IS NOT NULL),
+                    '[]'::json
+                ) as allocations
+            FROM paginated_invoices pi
+            LEFT JOIN allocations a ON a.invoice_id = pi.id
+            GROUP BY pi.id, pi.supplier, pi.invoice_template, pi.invoice_number, pi.invoice_date,
+                     pi.invoice_value, pi.currency, pi.value_ron, pi.value_eur, pi.exchange_rate,
+                     pi.drive_link, pi.comment, pi.status, pi.payment_status, pi.deleted_at,
+                     pi.created_at, pi.updated_at
+            ORDER BY pi.created_at DESC
+        '''
+
+    params.extend([limit, offset])
+    cursor.execute(query, params)
+
+    invoices = []
+    for row in cursor.fetchall():
+        invoice = dict_from_row(row)
+        # The allocations field is already JSON from the query
+        if isinstance(invoice.get('allocations'), str):
+            invoice['allocations'] = json.loads(invoice['allocations'])
+        invoices.append(invoice)
+
+    release_db(conn)
+    return invoices
 
 
 def get_allocations_by_company(company: str) -> list[dict]:

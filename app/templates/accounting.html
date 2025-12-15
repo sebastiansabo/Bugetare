@@ -1268,23 +1268,25 @@
                 if (startDate) params.append('start_date', startDate);
                 if (endDate) params.append('end_date', endDate);
 
-                const url = '/api/db/invoices' + (params.toString() ? '?' + params.toString() : '');
-                const res = await fetch(url);
-                allInvoices = await res.json();
-
                 // Check if we need allocation data for any visible column
                 const needsAllocations = columnConfig.some(col =>
                     col.visible && (col.source.startsWith('allocation.') || col.source.startsWith('computed.'))
                 );
 
+                // Use optimized endpoint that fetches allocations in single query if needed
                 if (needsAllocations) {
-                    // Load full invoice data with allocations
-                    await Promise.all(allInvoices.map(async (inv) => {
-                        if (!invoicesWithAllocations[inv.id]) {
-                            const fullRes = await fetch(`/api/db/invoices/${inv.id}`);
-                            invoicesWithAllocations[inv.id] = await fullRes.json();
-                        }
-                    }));
+                    params.append('include_allocations', 'true');
+                }
+
+                const url = '/api/db/invoices' + (params.toString() ? '?' + params.toString() : '');
+                const res = await fetch(url);
+                allInvoices = await res.json();
+
+                // If allocations were included, populate the cache
+                if (needsAllocations) {
+                    allInvoices.forEach(inv => {
+                        invoicesWithAllocations[inv.id] = inv;
+                    });
                 }
 
                 renderInvoicesTable(allInvoices);
