@@ -104,18 +104,26 @@
                 <i class="bi bi-gear"></i> Settings
             </span>
             <div class="d-flex align-items-center">
+                {% if current_user.can_access_accounting %}
                 <a href="/accounting" class="btn btn-outline-light btn-sm me-2">
                     <i class="bi bi-calculator"></i> Accounting
                 </a>
+                {% endif %}
+                {% if current_user.can_access_connectors %}
                 <a href="/connectors" class="btn btn-outline-light btn-sm me-2">
                     <i class="bi bi-plug"></i> Connectors
                 </a>
+                {% endif %}
+                {% if current_user.can_access_templates %}
                 <a href="/templates" class="btn btn-outline-light btn-sm me-2">
                     <i class="bi bi-file-earmark-text"></i> Templates
                 </a>
+                {% endif %}
+                {% if current_user.can_add_invoices %}
                 <a href="/add-invoice" class="btn btn-outline-light btn-sm me-2">
                     <i class="bi bi-plus-circle"></i> New Invoice
                 </a>
+                {% endif %}
                 <div class="dropdown">
                     <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="bi bi-person-circle"></i> {{ current_user.name }}
@@ -259,6 +267,7 @@
                                         <th>Role Name</th>
                                         <th>Description</th>
                                         <th class="text-center" title="Add Invoices"><i class="bi bi-plus-circle"></i></th>
+                                        <th class="text-center" title="Edit Invoices"><i class="bi bi-pencil"></i></th>
                                         <th class="text-center" title="View Invoices"><i class="bi bi-eye"></i></th>
                                         <th class="text-center" title="Delete Invoices"><i class="bi bi-trash"></i></th>
                                         <th class="text-center" title="Accounting"><i class="bi bi-calculator"></i></th>
@@ -776,6 +785,12 @@
                                             </label>
                                         </div>
                                         <div class="form-check mb-2">
+                                            <input class="form-check-input" type="checkbox" id="rolePermEditInvoices">
+                                            <label class="form-check-label" for="rolePermEditInvoices">
+                                                <i class="bi bi-pencil text-warning"></i> Edit Invoices
+                                            </label>
+                                        </div>
+                                        <div class="form-check mb-2">
                                             <input class="form-check-input" type="checkbox" id="rolePermViewInvoices">
                                             <label class="form-check-label" for="rolePermViewInvoices">
                                                 <i class="bi bi-eye text-primary"></i> View Invoices
@@ -1117,6 +1132,7 @@
                     <td><strong>${escapeHtml(role.name)}</strong></td>
                     <td>${role.description ? escapeHtml(role.description) : '<span class="text-muted">-</span>'}</td>
                     <td class="text-center">${permIcon(role.can_add_invoices)}</td>
+                    <td class="text-center">${permIcon(role.can_edit_invoices)}</td>
                     <td class="text-center">${permIcon(role.can_view_invoices)}</td>
                     <td class="text-center">${permIcon(role.can_delete_invoices)}</td>
                     <td class="text-center">${permIcon(role.can_access_accounting)}</td>
@@ -1147,6 +1163,7 @@
             document.getElementById('roleName').value = '';
             document.getElementById('roleDescription').value = '';
             document.getElementById('rolePermAddInvoices').checked = false;
+            document.getElementById('rolePermEditInvoices').checked = false;
             document.getElementById('rolePermViewInvoices').checked = false;
             document.getElementById('rolePermDeleteInvoices').checked = false;
             document.getElementById('rolePermAccounting').checked = false;
@@ -1165,6 +1182,7 @@
             document.getElementById('roleName').value = role.name;
             document.getElementById('roleDescription').value = role.description || '';
             document.getElementById('rolePermAddInvoices').checked = role.can_add_invoices;
+            document.getElementById('rolePermEditInvoices').checked = role.can_edit_invoices;
             document.getElementById('rolePermViewInvoices').checked = role.can_view_invoices;
             document.getElementById('rolePermDeleteInvoices').checked = role.can_delete_invoices;
             document.getElementById('rolePermAccounting').checked = role.can_access_accounting;
@@ -1180,6 +1198,7 @@
                 name: document.getElementById('roleName').value.trim(),
                 description: document.getElementById('roleDescription').value.trim() || null,
                 can_add_invoices: document.getElementById('rolePermAddInvoices').checked,
+                can_edit_invoices: document.getElementById('rolePermEditInvoices').checked,
                 can_view_invoices: document.getElementById('rolePermViewInvoices').checked,
                 can_delete_invoices: document.getElementById('rolePermDeleteInvoices').checked,
                 can_access_accounting: document.getElementById('rolePermAccounting').checked,

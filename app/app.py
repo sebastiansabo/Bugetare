@@ -95,6 +95,7 @@ class User(UserMixin):
         self.is_active_user = user_data.get('is_active', True)
         # Role permissions
         self.can_add_invoices = user_data.get('can_add_invoices', False)
+        self.can_edit_invoices = user_data.get('can_edit_invoices', False)
         self.can_delete_invoices = user_data.get('can_delete_invoices', False)
         self.can_view_invoices = user_data.get('can_view_invoices', False)
         self.can_access_accounting = user_data.get('can_access_accounting', False)
@@ -190,6 +191,7 @@ def api_current_user():
             'role': current_user.role_name,
             'permissions': {
                 'can_add_invoices': current_user.can_add_invoices,
+                'can_edit_invoices': current_user.can_edit_invoices,
                 'can_delete_invoices': current_user.can_delete_invoices,
                 'can_view_invoices': current_user.can_view_invoices,
                 'can_access_accounting': current_user.can_access_accounting,
@@ -1048,6 +1050,9 @@ def api_db_get_deleted_invoices():
 @login_required
 def api_db_update_invoice(invoice_id):
     """Update an invoice."""
+    if not current_user.can_edit_invoices:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
     data = request.json
 
     try:
@@ -1096,6 +1101,9 @@ def api_db_update_invoice(invoice_id):
 @login_required
 def api_db_update_allocations(invoice_id):
     """Update all allocations for an invoice."""
+    if not current_user.can_edit_invoices:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
     data = request.json
     allocations = data.get('allocations', [])
     send_notification = data.get('send_notification', False)

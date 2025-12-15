@@ -95,22 +95,32 @@ def get_db():
 
     Validates connection health before returning. If connection is stale
     (closed by server), it's discarded and a fresh one is obtained.
+    Retries up to 3 times to handle multiple stale connections in pool.
     """
-    conn = _get_pool().getconn()
+    max_retries = 3
+    last_error = None
 
-    # Check if connection is still alive
-    try:
-        # Use a lightweight query to test connection
-        conn.cursor().execute('SELECT 1')
-    except (psycopg2.OperationalError, psycopg2.InterfaceError):
-        # Connection is dead - close it and get a fresh one
-        try:
-            _get_pool().putconn(conn, close=True)
-        except Exception:
-            pass
+    for attempt in range(max_retries):
         conn = _get_pool().getconn()
 
-    return conn
+        # Check if connection is still alive
+        try:
+            # Use a lightweight query to test connection
+            with conn.cursor() as cur:
+                cur.execute('SELECT 1')
+            # Connection is good, return it
+            return conn
+        except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError) as e:
+            last_error = e
+            # Connection is dead - close it and try again
+            try:
+                _get_pool().putconn(conn, close=True)
+            except Exception:
+                pass
+            # Continue to next attempt
+
+    # All retries failed, raise the last error
+    raise psycopg2.OperationalError(f"Failed to get valid connection after {max_retries} attempts: {last_error}")
 
 
 def release_db(conn):
@@ -307,6 +317,7 @@ def init_db():
             name TEXT NOT NULL UNIQUE,
             description TEXT,
             can_add_invoices BOOLEAN DEFAULT FALSE,
+            can_edit_invoices BOOLEAN DEFAULT FALSE,
             can_delete_invoices BOOLEAN DEFAULT FALSE,
             can_view_invoices BOOLEAN DEFAULT FALSE,
             can_access_accounting BOOLEAN DEFAULT FALSE,
@@ -346,15 +357,27 @@ def init_db():
         END $$;
     ''')
 
+    # Add can_edit_invoices column to roles table if it doesn't exist (migration)
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'roles' AND column_name = 'can_edit_invoices') THEN
+                ALTER TABLE roles ADD COLUMN can_edit_invoices BOOLEAN DEFAULT FALSE;
+                -- Set edit permission to TRUE for Admin and Manager roles by default
+                UPDATE roles SET can_edit_invoices = TRUE WHERE name IN ('Admin', 'Manager');
+            END IF;
+        END $$;
+    ''')
+
     # Insert default roles if they don't exist
     cursor.execute('''
-        INSERT INTO roles (name, description, can_add_invoices, can_delete_invoices, can_view_invoices,
+        INSERT INTO roles (name, description, can_add_invoices, can_edit_invoices, can_delete_invoices, can_view_invoices,
                           can_access_accounting, can_access_settings, can_access_connectors, can_access_templates)
         VALUES
-            ('Admin', 'Full access to all features', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
-            ('Manager', 'Can manage invoices and view reports', TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE),
-            ('User', 'Can add and view invoices', TRUE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE),
-            ('Viewer', 'Read-only access to invoices', FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE)
+            ('Admin', 'Full access to all features', TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE, TRUE),
+            ('Manager', 'Can manage invoices and view reports', TRUE, TRUE, TRUE, TRUE, TRUE, FALSE, TRUE, TRUE),
+            ('User', 'Can add and view invoices', TRUE, FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE),
+            ('Viewer', 'Read-only access to invoices', FALSE, FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, FALSE)
         ON CONFLICT (name) DO NOTHING
     ''')
 
@@ -2029,6 +2052,7 @@ def save_role(
     name: str,
     description: str = None,
     can_add_invoices: bool = False,
+    can_edit_invoices: bool = False,
     can_delete_invoices: bool = False,
     can_view_invoices: bool = False,
     can_access_accounting: bool = False,
@@ -2042,13 +2066,13 @@ def save_role(
 
     try:
         cursor.execute('''
-            INSERT INTO roles (name, description, can_add_invoices, can_delete_invoices,
+            INSERT INTO roles (name, description, can_add_invoices, can_edit_invoices, can_delete_invoices,
                 can_view_invoices, can_access_accounting, can_access_settings,
                 can_access_connectors, can_access_templates)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         ''', (
-            name, description, can_add_invoices, can_delete_invoices,
+            name, description, can_add_invoices, can_edit_invoices, can_delete_invoices,
             can_view_invoices, can_access_accounting, can_access_settings,
             can_access_connectors, can_access_templates
         ))
@@ -2071,6 +2095,7 @@ def update_role(
     name: str = None,
     description: str = None,
     can_add_invoices: bool = None,
+    can_edit_invoices: bool = None,
     can_delete_invoices: bool = None,
     can_view_invoices: bool = None,
     can_access_accounting: bool = None,
@@ -2094,6 +2119,9 @@ def update_role(
     if can_add_invoices is not None:
         updates.append('can_add_invoices = %s')
         params.append(can_add_invoices)
+    if can_edit_invoices is not None:
+        updates.append('can_edit_invoices = %s')
+        params.append(can_edit_invoices)
     if can_delete_invoices is not None:
         updates.append('can_delete_invoices = %s')
         params.append(can_delete_invoices)
