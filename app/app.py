@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask_compress import Compress
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from models import load_structure, get_companies, get_brands_for_company, get_departments_for_company, get_subdepartments, get_manager
 from services import (
@@ -77,11 +78,35 @@ except ImportError:
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# Flask-Compress for gzip/brotli compression (60-70% size reduction)
+compress = Compress()
+compress.init_app(app)
+
 # Flask-Login setup
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
+
+# Cache-Control headers for static-ish API responses
+CACHEABLE_API_ENDPOINTS = {
+    '/api/structure': 300,           # 5 minutes - department structure rarely changes
+    '/api/companies': 300,           # 5 minutes - company list rarely changes
+    '/api/templates': 300,           # 5 minutes - invoice templates rarely change
+    '/api/roles': 300,               # 5 minutes - roles rarely change
+    '/api/vat-rates': 300,           # 5 minutes - VAT rates rarely change
+    '/api/companies-vat': 300,       # 5 minutes - company VAT info rarely changes
+    '/api/responsables': 300,        # 5 minutes - responsables rarely change
+    '/api/department-structures': 300,  # 5 minutes
+}
+
+@app.after_request
+def add_cache_headers(response):
+    """Add Cache-Control headers for cacheable API endpoints."""
+    if request.path in CACHEABLE_API_ENDPOINTS and response.status_code == 200:
+        max_age = CACHEABLE_API_ENDPOINTS[request.path]
+        response.headers['Cache-Control'] = f'private, max-age={max_age}'
+    return response
 
 
 class User(UserMixin):
