@@ -335,9 +335,14 @@
                     </div>
                 </div>
 
-                <button class="btn btn-success btn-lg w-100" id="submitBtn">
-                    <i class="bi bi-check-circle"></i> Save Distribution
-                </button>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary btn-lg" id="clearFormBtn">
+                        <i class="bi bi-x-circle"></i> Clear Form
+                    </button>
+                    <button class="btn btn-success btn-lg flex-grow-1" id="submitBtn">
+                        <i class="bi bi-check-circle"></i> Save Distribution
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -692,6 +697,9 @@
             // Submit
             document.getElementById('submitBtn').addEventListener('click', submitDistribution);
 
+            // Clear Form
+            document.getElementById('clearFormBtn').addEventListener('click', clearForm);
+
             // Manual VAT Match button
             document.getElementById('matchVatBtn').addEventListener('click', manualVatMatch);
 
@@ -884,6 +892,78 @@
 
             // Focus on supplier field
             document.getElementById('supplier').focus();
+        }
+
+        function clearForm() {
+            // Confirm before clearing
+            if (!confirm('Are you sure you want to clear the form? All entered data will be lost.')) {
+                return;
+            }
+
+            // Reset invoice form fields
+            document.getElementById('invoiceForm').reset();
+            document.getElementById('matchedCompany').value = '';
+
+            // Reset dedicated company and allocations
+            document.getElementById('dedicatedCompany').value = '';
+            document.getElementById('allocationsContainer').innerHTML = '';
+
+            // Reset file upload
+            uploadedFile = null;
+            const dropZone = document.getElementById('dropZone');
+            dropZone.innerHTML = `
+                <i class="bi bi-cloud-upload fs-1 text-muted"></i>
+                <p class="mb-0 mt-2">Drag & drop invoice here or click to upload</p>
+                <small class="text-muted">Supports PDF, JPG, PNG</small>
+                <input type="file" id="fileInput" class="d-none" accept=".pdf,.jpg,.jpeg,.png">
+            `;
+            // Re-attach file input event listeners
+            const newFileInput = document.getElementById('fileInput');
+            newFileInput.addEventListener('change', function() {
+                if (this.files.length) {
+                    uploadedFile = this.files[0];
+                    updateDropZoneText(uploadedFile.name);
+                }
+            });
+            dropZone.addEventListener('click', () => newFileInput.click());
+
+            // Clear attachments
+            attachmentFiles = [];
+            document.getElementById('attachmentsList').innerHTML = '';
+
+            // Reset VAT subtraction
+            document.getElementById('subtractVat').checked = false;
+            document.getElementById('vatRateCol').style.display = 'none';
+            document.getElementById('netValueCol').style.display = 'none';
+            document.getElementById('vatRateSelect').value = '';
+            document.getElementById('netValue').value = '';
+            document.getElementById('vatRateId').value = '';
+            document.getElementById('netValueDisplay').value = '';
+
+            // Hide currency conversion display
+            document.getElementById('conversionDisplay').style.display = 'none';
+
+            // Reset hidden fields
+            document.getElementById('driveLink').value = '';
+            document.getElementById('valueRon').value = '';
+            document.getElementById('valueEur').value = '';
+            document.getElementById('exchangeRate').value = '';
+
+            // Hide entry mode alert
+            document.getElementById('entryModeAlert').style.display = 'none';
+
+            // Reset template selector
+            document.getElementById('templateSelect').value = '';
+
+            // Reset total allocation display
+            document.getElementById('totalAllocation').textContent = '0%';
+            document.getElementById('totalAllocation').className = 'total-allocation invalid';
+
+            // Add initial allocation row
+            addAllocationRow();
+
+            // Focus on drop zone
+            dropZone.focus();
         }
 
         function updateDropZoneText(filename) {

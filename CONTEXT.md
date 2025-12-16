@@ -188,3 +188,38 @@ Future: Additional roles like viewer, department manager.
 - Emails: Romanian
 - Dates: ISO storage, DD.MM.YYYY display
 - Currency: RON primary, EUR secondary
+
+## Performance Optimizations
+
+### Compression
+- Flask-Compress enabled for gzip/brotli compression
+- 84% size reduction on HTML pages (188KB → 29KB)
+
+### Caching
+- ETag headers on JSON API responses (304 Not Modified support)
+- Cache-Control headers:
+  - API endpoints: 5 minutes (`private, max-age=300`)
+  - Login/Guide pages: 1 hour (`private, max-age=3600`)
+  - Health endpoint: `no-cache` (always validate)
+
+### Session Management
+- Remember Me cookie: 30 days duration
+- Secure cookie settings (HttpOnly, SameSite=Lax)
+
+### Cold Start Prevention
+- Health check endpoint (`/health`) for uptime monitoring
+- DigitalOcean health check configured (10s period)
+- Loading overlay on login page during cold starts
+
+## User Guide
+
+Built-in documentation available at `/guide` covering:
+- Adding invoices and AI parsing
+- Cost allocation and locking
+- VAT subtraction feature
+- Multi-destination reinvoicing
+- Dashboard navigation and filters
+- Settings management (admin)
+- Keyboard shortcuts and tips
+
+Access via user dropdown menu → "User Guide" on any page.

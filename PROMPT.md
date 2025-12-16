@@ -42,6 +42,15 @@ Always read these files before making changes:
 - Lock feature prevents allocation redistribution
 - VAT subtraction calculates net value for allocation
 - Multi-destination reinvoicing with per-line locks and comments
+- Clear Form button resets all invoice input fields and state
+- Pagination on accounting dashboard (25/50/100/All rows)
+
+### Performance Features
+- Flask-Compress for gzip/brotli (84% size reduction)
+- ETag headers for 304 Not Modified responses
+- Cache-Control headers on API and static pages
+- Health check endpoint for uptime monitoring
+- Remember Me cookie with 30-day expiration
 
 ---
 
@@ -109,3 +118,9 @@ When asked to work in a specific mode, follow the corresponding agent instructio
 
 ### Deployment
 > "Deploy the latest changes and verify the health endpoint"
+
+### Cache/Session Testing
+> "Test the Remember Me cookie and ETag headers are working correctly"
+
+### Documentation
+> "Update CLAUDE.md, CONTEXT.md, AGENTS.md, and PROMPT.md with recent changes"

@@ -376,3 +376,13 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
   - Allocation values use net value when VAT subtraction is enabled
   - VAT rates managed in Settings → VAT Rates tab (seeded with 19%, 9%, 5%, 0%)
 - Fixed Edit Invoice modal allocation values not updating when VAT is toggled
+- Added User Guide page (`/guide`) with comprehensive documentation for all features
+- Added User Guide link to all navigation dropdowns across all pages
+- Added loading overlay on login page for cold start delays (spinner with "Signing in..." message)
+- Added list pagination to Accounting dashboard (25/50/100/All rows per page)
+- Added Flask-Compress for gzip/brotli compression (84% size reduction)
+- Added health check endpoint (`/health`) for uptime monitoring and cold start prevention
+- Fixed "Remember Me" cookie - now persists for 30 days with proper secure settings
+- Added ETag headers for JSON API responses (304 Not Modified support)
+- Added Cache-Control headers for static pages and API endpoints
+- Added "Clear Form" button on New Invoice page to reset all form fields and state

@@ -242,6 +242,23 @@ curl -s -H "Accept-Encoding: gzip" -o /tmp/compressed.html \
 4. Navigate pages
 5. Apply filters - verify pagination resets
 
+#### Clear Form
+1. Fill in invoice form with data
+2. Add attachments
+3. Configure allocations
+4. Click "Clear Form" button
+5. Verify confirmation dialog appears
+6. Verify all fields reset to defaults
+7. Verify file upload zone reset
+8. Verify attachments cleared
+
+#### Cache & Session
+1. Login with "Remember Me" checked
+2. Verify cookie expires in 30 days (not session)
+3. Test API with If-None-Match header
+4. Verify 304 Not Modified returned for unchanged data
+5. Check Cache-Control headers on various endpoints
+
 ---
 
 ## Using Agents

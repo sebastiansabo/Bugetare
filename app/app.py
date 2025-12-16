@@ -88,6 +88,13 @@ login_manager.init_app(app)
 login_manager.login_view = 'login'
 login_manager.login_message = 'Please log in to access this page.'
 
+# Remember Me cookie configuration (30 days)
+from datetime import timedelta
+app.config['REMEMBER_COOKIE_DURATION'] = timedelta(days=30)
+app.config['REMEMBER_COOKIE_SECURE'] = True  # Only send over HTTPS
+app.config['REMEMBER_COOKIE_HTTPONLY'] = True  # Not accessible via JavaScript
+app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
+
 # Cache-Control headers for static-ish API responses
 CACHEABLE_API_ENDPOINTS = {
     '/api/structure': 300,           # 5 minutes - department structure rarely changes
@@ -102,10 +109,40 @@ CACHEABLE_API_ENDPOINTS = {
 
 @app.after_request
 def add_cache_headers(response):
-    """Add Cache-Control headers for cacheable API endpoints."""
-    if request.path in CACHEABLE_API_ENDPOINTS and response.status_code == 200:
+    """Add Cache-Control and ETag headers for better caching."""
+    import hashlib
+
+    # Add ETag for JSON responses to enable conditional requests
+    if response.content_type and 'application/json' in response.content_type:
+        if response.status_code == 200 and response.data:
+            # Generate ETag from response content
+            etag = hashlib.md5(response.data).hexdigest()
+            response.headers['ETag'] = f'"{etag}"'
+
+            # Check if client sent If-None-Match header
+            if_none_match = request.headers.get('If-None-Match')
+            if if_none_match and if_none_match == f'"{etag}"':
+                # Content hasn't changed, return 304 Not Modified
+                response.status_code = 304
+                response.data = b''
+
+    # Add Cache-Control for cacheable API endpoints
+    if request.path in CACHEABLE_API_ENDPOINTS and response.status_code in (200, 304):
         max_age = CACHEABLE_API_ENDPOINTS[request.path]
         response.headers['Cache-Control'] = f'private, max-age={max_age}'
+
+    # Add cache headers for static-like HTML pages (login page)
+    if request.path == '/login' and response.status_code == 200:
+        response.headers['Cache-Control'] = 'private, max-age=3600'  # 1 hour
+
+    # Add long cache for health endpoint (used by uptime monitors)
+    if request.path == '/health' and response.status_code == 200:
+        response.headers['Cache-Control'] = 'no-cache'  # Always check, but allow conditional
+
+    # Add cache headers for user guide (static content)
+    if request.path == '/guide' and response.status_code == 200:
+        response.headers['Cache-Control'] = 'private, max-age=3600'  # 1 hour
+
     return response
 
 
@@ -182,7 +219,8 @@ def login():
         user_data = authenticate_user(email, password)
         if user_data:
             user = User(user_data)
-            login_user(user)
+            remember = request.form.get('remember') == 'on'
+            login_user(user, remember=remember)
             update_user_last_login(user.id)
             log_event('login', f'User {email} logged in')
 
