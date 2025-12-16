@@ -63,13 +63,15 @@ if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is required. Set it to your PostgreSQL connection string.")
 
 # Connection pool configuration
-# minconn: minimum connections kept open (higher for faster warmup)
-# maxconn: maximum connections allowed (DigitalOcean managed DB allows ~25)
+# minconn: minimum connections kept open
+# maxconn: maximum connections allowed
+# Note: DigitalOcean managed DB has ~25 max connections total
+# With multiple workers, keep pool small: 2 workers × 3 min = 6 connections
 _connection_pool = None
 
 # Pool size configuration - can be tuned via environment variables
-POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '5'))
-POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '20'))
+POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '2'))
+POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '5'))
 
 
 def _get_pool():
