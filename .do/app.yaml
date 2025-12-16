@@ -9,6 +9,13 @@ services:
     dockerfile_path: /Dockerfile
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-0.5gb
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 10
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
     github:
       repo: sebastiansabo/Bugetare
       branch: main

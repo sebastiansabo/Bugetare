@@ -334,6 +334,18 @@ def api_get_event_types():
     return jsonify(get_event_types())
 
 
+# ============== Health Check ==============
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for uptime monitoring and cold start prevention.
+
+    This endpoint is lightweight and doesn't require authentication.
+    Use an external service (UptimeRobot, Pingdom) to ping every 5 minutes.
+    """
+    return jsonify({'status': 'ok', 'service': 'bugetare'})
+
+
 # ============== Main Routes ==============
 
 @app.route('/')
