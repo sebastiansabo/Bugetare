@@ -2897,9 +2897,9 @@
 
         function onAllocationPercentChange(idx) {
             const percent = parseFloat(document.querySelector(`.alloc-percent[data-idx="${idx}"]`).value) || 0;
-            const invoiceValue = parseFloat(document.getElementById('editInvoiceValue').value) || 0;
+            const baseValue = getEditBaseValue();
             editAllocations[idx].allocation_percent = percent;
-            editAllocations[idx].allocation_value = (invoiceValue * percent) / 100;
+            editAllocations[idx].allocation_value = (baseValue * percent) / 100;
 
             // Update value field without re-rendering (to avoid losing focus)
             const valueInput = document.querySelector(`.alloc-value[data-idx="${idx}"]`);
@@ -2913,10 +2913,10 @@
 
         function onAllocationValueChange(idx) {
             const value = parseFloat(document.querySelector(`.alloc-value[data-idx="${idx}"]`).value) || 0;
-            const invoiceValue = parseFloat(document.getElementById('editInvoiceValue').value) || 0;
+            const baseValue = getEditBaseValue();
 
             editAllocations[idx].allocation_value = value;
-            editAllocations[idx].allocation_percent = invoiceValue > 0 ? (value / invoiceValue) * 100 : 0;
+            editAllocations[idx].allocation_percent = baseValue > 0 ? (value / baseValue) * 100 : 0;
 
             // Update percent field without re-rendering (to avoid losing focus)
             const percentInput = document.querySelector(`.alloc-percent[data-idx="${idx}"]`);
@@ -2939,12 +2939,12 @@
             const changedPercent = editAllocations[changedIdx].allocation_percent || 0;
             const remaining = 100 - changedPercent;
             const perOther = remaining / (count - 1);
-            const invoiceValue = parseFloat(document.getElementById('editInvoiceValue').value) || 0;
+            const baseValue = getEditBaseValue();
 
             editAllocations.forEach((alloc, idx) => {
                 if (idx !== changedIdx) {
                     alloc.allocation_percent = perOther;
-                    alloc.allocation_value = (invoiceValue * perOther) / 100;
+                    alloc.allocation_value = (baseValue * perOther) / 100;
 
                     // Update UI without re-rendering
                     const pInput = document.querySelector(`.alloc-percent[data-idx="${idx}"]`);
