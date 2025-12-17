@@ -17,6 +17,14 @@ from typing import Optional
 from io import BytesIO
 
 import PyPDF2
+import json
+
+# AI parsing support
+try:
+    import anthropic
+    AI_ENABLED = True
+except ImportError:
+    AI_ENABLED = False
 
 try:
     from openpyxl import Workbook
@@ -120,12 +128,12 @@ def parse_meta_invoice(text: str) -> dict:
         - currency
         - customer_vat
         - customer_name
-        - campaigns: dict of campaign_name -> cost
+        - items: dict of item_name -> cost (campaigns, line items, products, etc.)
     """
     result = {
         'supplier': 'Meta Platforms Ireland Limited',
         'supplier_vat': 'IE9692928F',
-        'campaigns': {}
+        'items': {}
     }
 
     # Extract invoice number
@@ -164,30 +172,64 @@ def parse_meta_invoice(text: str) -> dict:
     if customer_match:
         result['customer_name'] = customer_match.group(1).strip()
 
-    # Extract campaigns with costs
-    campaign_list = [
-        ('[CA] Leads - Modele Volvo 0 km', 'Leads - Modele Volvo 0 km'),
-        ('[CA] Leads - Modele mix', 'Leads - Modele mix'),
-        ('[CA] Traffic - Interese - Modele masini', 'Traffic - Interese - Modele masini'),
-        ('GENERARE COMENZI Q4', 'GENERARE COMENZI Q4'),
-        ('[CA] Leads - Mazda CX80', 'Leads - Mazda CX80'),
-        ('[CA] Leads - Modele MG HS', 'Leads - Modele MG HS'),
-        ('[CA] Traffic - Mazda CX60', 'Traffic - Mazda CX60'),
-    ]
+    # Dynamically extract ALL campaigns with their costs
+    # Meta invoices structure:
+    # Campaign Name (can start with [CA], Postare:, Stoc_, GENERARE, or other prefixes)
+    # DATE_RANGE + VALUE RON (concatenated, e.g., "15 nov. 2025, 00:00 - 18 nov. 2025, 23:59306,23 RON")
+    # Date range can end with any time (23:59, 16:33, etc.)
 
-    for campaign_name, search_term in campaign_list:
-        if search_term in text:
-            pos = text.find(search_term)
-            section = text[pos:pos+200]
+    # Generic pattern: Any campaign header followed by date range ending in HH:MM + VALUE RON
+    # Campaigns typically start after "Campanii" section and before the footer
+    # Campaign names are on their own line, followed by date range + value on the next line
 
-            # Pattern: 23:59VALUE RON (time directly followed by value)
-            match = re.search(r'\d{2}:\d{2}([\d.,]+)\s*RON', section)
-            if match:
+    # Pattern to match campaign header + date range + value
+    # Campaign header: any line that doesn't look like a sub-item (no "de Afişări" or similar)
+    # The key insight is that campaign totals have format: "HH:MMVALUE RON" (time directly followed by value)
+
+    # First, preprocess text to split concatenated campaign headers
+    # Pattern: "...RON[CA] Campaign Name" becomes "...RON\n[CA] Campaign Name"
+    # Also handle other common prefixes that might be concatenated
+    text = re.sub(r'RON(\[CA\])', r'RON\n\1', text)
+    text = re.sub(r'RON(Postare:)', r'RON\n\1', text)
+    text = re.sub(r'RON(Stoc_)', r'RON\n\1', text)
+    text = re.sub(r'RON(GENERARE)', r'RON\n\1', text)
+
+    # Split text into lines and find item patterns
+    lines = text.split('\n')
+    i = 0
+    while i < len(lines) - 1:
+        line = lines[i].strip()
+        next_line = lines[i + 1].strip() if i + 1 < len(lines) else ''
+
+        # Check if next line looks like a date range + value pattern
+        # Pattern: contains date range (XX xxx. 2025, HH:MM) ending with VALUE RON
+        date_value_match = re.search(r'\d{1,2}\s+\w+\.?\s+202\d.*\d{2}:\d{2}([\d.,]+)\s*RON', next_line)
+
+        if date_value_match:
+            # This line might be an item name
+            item_name = line
+
+            # Skip if it looks like a sub-item or metadata
+            skip_keywords = ['de Afişări', 'Afişări', 'Meta Platforms', 'Merrion Road',
+                           'Dublin', 'Ireland', 'VAT Reg', 'S.C.', 'CALEA', 'România',
+                           'Factura nr', 'Customer to account', 'Powered by',
+                           'ID cont', 'Data facturii', 'Modalitate', 'Număr de referinţă',
+                           'ID tranzacţie', 'Tip de produs', 'Ţi s-a emis', 'Campanii']
+
+            should_skip = any(kw in item_name for kw in skip_keywords)
+
+            # Also skip if item name is too short or empty
+            if not should_skip and len(item_name) > 3:
                 try:
-                    value = parse_value(match.group(1))
-                    result['campaigns'][campaign_name] = value
+                    value = parse_value(date_value_match.group(1))
+                    if value > 0:
+                        result['items'][item_name] = value
                 except:
                     pass
+
+            i += 2  # Skip both lines
+        else:
+            i += 1
 
     return result
 
@@ -197,7 +239,7 @@ def parse_google_ads_invoice(text: str) -> dict:
     result = {
         'supplier': 'Google Ireland Limited',
         'supplier_vat': 'IE6388047V',
-        'campaigns': {}
+        'items': {}
     }
 
     # Extract invoice number
@@ -242,6 +284,7 @@ def detect_invoice_type(text: str) -> str:
 def parse_invoice_auto(text: str, filename: str = '') -> dict:
     """
     Automatically detect invoice type and parse accordingly.
+    Uses AI as fallback when regex parsing doesn't extract key data.
     """
     invoice_type = detect_invoice_type(text)
 
@@ -256,6 +299,31 @@ def parse_invoice_auto(text: str, filename: str = '') -> dict:
     result['invoice_type'] = invoice_type
     result['filename'] = filename
 
+    # Check if regex parsing was successful - use AI fallback if not
+    needs_ai = (
+        not result.get('invoice_number') or
+        not result.get('invoice_value') or
+        (not result.get('items') and invoice_type not in ['meta', 'google_ads'])
+    )
+
+    if needs_ai and AI_ENABLED:
+        print(f"Using AI fallback for {filename}")
+        ai_result = parse_invoice_with_ai(text)
+
+        # Merge AI results with regex results (AI fills in gaps)
+        if ai_result:
+            # Fill in missing fields from AI
+            for field in ['invoice_number', 'invoice_date', 'invoice_value', 'currency',
+                          'supplier', 'supplier_vat', 'customer_name', 'customer_vat']:
+                if not result.get(field) and ai_result.get(field):
+                    result[field] = ai_result[field]
+
+            # Add items from AI if regex didn't find any
+            if not result.get('items') and ai_result.get('items'):
+                result['items'] = ai_result['items']
+
+            result['ai_assisted'] = True
+
     return result
 
 
@@ -264,7 +332,7 @@ def parse_generic_invoice(text: str) -> dict:
     result = {
         'supplier': None,
         'supplier_vat': None,
-        'campaigns': {}
+        'items': {}
     }
 
     # Try to extract invoice number
@@ -314,6 +382,78 @@ def parse_generic_invoice(text: str) -> dict:
     return result
 
 
+def parse_invoice_with_ai(text: str, api_key: str = None) -> dict:
+    """
+    Use AI to parse invoice text and extract structured data including line items.
+    This is used as a fallback when regex parsing fails or for unknown invoice formats.
+
+    Returns dict with:
+        - invoice_number, invoice_date, invoice_value, currency
+        - supplier, supplier_vat, customer_vat, customer_name
+        - items: dict of item_name -> value (line items from the invoice)
+    """
+    if not AI_ENABLED:
+        return {'items': {}}
+
+    if not api_key:
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        return {'items': {}}
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+
+        prompt = f"""Extract invoice data from this text. Return a JSON object with:
+- invoice_number: string (invoice/factura number)
+- invoice_date: string (date in format YYYY-MM-DD)
+- invoice_value: number (total amount)
+- currency: string (RON, EUR, USD)
+- supplier: string (supplier/vendor name)
+- supplier_vat: string (supplier VAT/CUI number)
+- customer_name: string (customer/client name)
+- customer_vat: string (customer VAT/CUI number)
+- items: object mapping item/product/service name to its value (number)
+
+For items, extract ALL line items from the invoice - these could be:
+- Products or services with their prices
+- Campaign names with costs (for advertising invoices)
+- Any other billable line items
+
+If a field cannot be found, use null. For items, include ALL items found on the invoice.
+
+IMPORTANT: Return ONLY valid JSON, no explanations.
+
+Invoice text:
+{text[:8000]}"""  # Limit text to avoid token limits
+
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        response_text = response.content[0].text.strip()
+
+        # Clean up markdown if present
+        if response_text.startswith('```'):
+            response_text = response_text.split('```')[1]
+            if response_text.startswith('json'):
+                response_text = response_text[4:]
+            response_text = response_text.strip()
+
+        result = json.loads(response_text)
+
+        # Ensure items dict exists
+        if 'items' not in result or not isinstance(result['items'], dict):
+            result['items'] = {}
+
+        return result
+
+    except Exception as e:
+        print(f"AI invoice parsing error: {e}")
+        return {'items': {}}
+
+
 def process_bulk_invoices(files: list[tuple[bytes, str]]) -> dict:
     """
     Process multiple invoice files and generate a summary report.
@@ -325,7 +465,7 @@ def process_bulk_invoices(files: list[tuple[bytes, str]]) -> dict:
         dict with:
             - invoices: list of parsed invoices
             - summary: aggregated statistics
-            - by_campaign: campaign-level breakdown
+            - by_item: item-level breakdown (campaigns, products, services, etc.)
             - by_month: monthly breakdown
             - total: grand total
     """
@@ -351,11 +491,11 @@ def process_bulk_invoices(files: list[tuple[bytes, str]]) -> dict:
             by_month[month_key]['count'] += 1
             by_month[month_key]['total'] += inv.get('invoice_value', 0) or 0
 
-    # Group by campaign (aggregate across all invoices)
-    by_campaign = defaultdict(float)
+    # Group by item (aggregate across all invoices)
+    by_item = defaultdict(float)
     for inv in invoices:
-        for campaign, value in inv.get('campaigns', {}).items():
-            by_campaign[campaign] += value
+        for item, value in inv.get('items', {}).items():
+            by_item[item] += value
 
     # Group by supplier
     by_supplier = defaultdict(lambda: {'count': 0, 'total': 0})
@@ -364,12 +504,17 @@ def process_bulk_invoices(files: list[tuple[bytes, str]]) -> dict:
         by_supplier[supplier]['count'] += 1
         by_supplier[supplier]['total'] += inv.get('invoice_value', 0) or 0
 
+    # Add 'campaigns' alias to each invoice for frontend compatibility
+    for inv in invoices:
+        inv['campaigns'] = inv.get('items', {})
+
     return {
         'invoices': invoices,
         'total': total,
         'count': len(invoices),
         'by_month': dict(by_month),
-        'by_campaign': dict(by_campaign),
+        'by_item': dict(by_item),
+        'by_campaign': dict(by_item),  # Alias for frontend compatibility
         'by_supplier': dict(by_supplier),
         'currency': invoices[0].get('currency', 'RON') if invoices else 'RON'
     }
@@ -498,16 +643,16 @@ def generate_excel_report(report_data: dict) -> bytes:
     ws2.column_dimensions['B'].width = 15
     ws2.column_dimensions['C'].width = 18
 
-    # ============ Sheet 3: Campaign Summary ============
-    if report_data.get('by_campaign'):
-        ws3 = wb.create_sheet('Per Campanie')
+    # ============ Sheet 3: Item Summary ============
+    if report_data.get('by_item'):
+        ws3 = wb.create_sheet('Per Pozitie')
 
         ws3.merge_cells('A1:C1')
-        ws3['A1'] = 'TOTAL PER CAMPANIE'
+        ws3['A1'] = 'TOTAL PER POZITIE'
         ws3['A1'].font = Font(bold=True, size=14)
         ws3['A1'].alignment = Alignment(horizontal='center')
 
-        headers3 = ['Campanie', f'Total ({currency})', '% din Total']
+        headers3 = ['Pozitie', f'Total ({currency})', '% din Total']
         for col, header in enumerate(headers3, 1):
             cell = ws3.cell(row=3, column=col, value=header)
             cell.font = header_font
@@ -518,8 +663,8 @@ def generate_excel_report(report_data: dict) -> bytes:
         row = 4
         grand_total_value = report_data.get('total', 0) or 1
 
-        for campaign, value in sorted(report_data['by_campaign'].items(), key=lambda x: -x[1]):
-            ws3.cell(row=row, column=1, value=campaign).border = border
+        for item_name, value in sorted(report_data['by_item'].items(), key=lambda x: -x[1]):
+            ws3.cell(row=row, column=1, value=item_name).border = border
 
             value_cell = ws3.cell(row=row, column=2, value=value)
             value_cell.number_format = money_format
@@ -567,19 +712,19 @@ def generate_excel_report(report_data: dict) -> bytes:
         ws4.column_dimensions['B'].width = 15
         ws4.column_dimensions['C'].width = 18
 
-    # ============ Sheet 5: Campaign by Invoice ============
-    # Matrix view: campaigns as rows, invoices as columns
-    if report_data.get('by_campaign') and invoices:
-        ws5 = wb.create_sheet('Campanii per Factură')
+    # ============ Sheet 5: Item by Invoice ============
+    # Matrix view: items as rows, invoices as columns
+    if report_data.get('by_item') and invoices:
+        ws5 = wb.create_sheet('Pozitii per Factură')
 
         ws5.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(invoices)+2)
-        ws5['A1'] = 'DETALII CAMPANII PER FACTURĂ'
+        ws5['A1'] = 'DETALII POZITII PER FACTURĂ'
         ws5['A1'].font = Font(bold=True, size=14)
         ws5['A1'].alignment = Alignment(horizontal='center')
 
         # Headers
         row = 3
-        ws5.cell(row=row, column=1, value='Campanie').font = header_font
+        ws5.cell(row=row, column=1, value='Pozitie').font = header_font
         ws5.cell(row=row, column=1).fill = header_fill
         ws5.cell(row=row, column=1).border = border
 
@@ -598,16 +743,16 @@ def generate_excel_report(report_data: dict) -> bytes:
 
         # Data rows
         row = 4
-        all_campaigns = sorted(set(
-            campaign for inv in invoices for campaign in inv.get('campaigns', {}).keys()
+        all_items = sorted(set(
+            item_name for inv in invoices for item_name in inv.get('items', {}).keys()
         ))
 
-        for campaign in all_campaigns:
-            ws5.cell(row=row, column=1, value=campaign).border = border
+        for item_name in all_items:
+            ws5.cell(row=row, column=1, value=item_name).border = border
 
             row_total = 0
             for col, inv in enumerate(invoices, 2):
-                value = inv.get('campaigns', {}).get(campaign, 0)
+                value = inv.get('items', {}).get(item_name, 0)
                 cell = ws5.cell(row=row, column=col, value=value if value > 0 else '')
                 if value > 0:
                     cell.number_format = money_format
@@ -687,12 +832,12 @@ def generate_summary_text(report_data: dict) -> str:
             lines.append(f"{supplier:<30} {data['total']:>15,.2f} {currency}")
         lines.append('')
 
-    # Campaign breakdown
-    if report_data.get('by_campaign'):
-        lines.append('BY CAMPAIGN')
+    # Item breakdown
+    if report_data.get('by_item'):
+        lines.append('BY ITEM')
         lines.append('-' * 40)
-        for campaign, value in sorted(report_data['by_campaign'].items(), key=lambda x: -x[1]):
-            lines.append(f"{campaign:<40} {value:>15,.2f} {currency}")
+        for item_name, value in sorted(report_data['by_item'].items(), key=lambda x: -x[1]):
+            lines.append(f"{item_name:<40} {value:>15,.2f} {currency}")
         lines.append('')
 
     lines.append('=' * 80)

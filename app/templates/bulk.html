@@ -181,6 +181,33 @@
             border-radius: 4px;
             padding: 5px;
         }
+        /* Merge selection styles */
+        .distribute-item.selected-for-merge {
+            border-color: #fd7e14;
+            background: #fff5eb;
+            box-shadow: 0 0 0 2px rgba(253, 126, 20, 0.25);
+        }
+        .distribute-item.selected-for-merge .item-header {
+            background: linear-gradient(to right, #fff5eb, #fff);
+        }
+        /* Merged campaign styles */
+        .distribute-item.merged-campaign {
+            border-color: #198754;
+            background: linear-gradient(to right, #d1e7dd, #fff);
+        }
+        .distribute-item.merged-campaign .item-header {
+            background: #d1e7dd;
+        }
+        .merged-campaigns-list {
+            font-size: 0.75rem;
+            color: #666;
+            margin-top: 2px;
+        }
+        .campaign-merge-checkbox {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -228,14 +255,15 @@
     </nav>
 
     <div class="container-fluid px-4">
-        <!-- Upload Section -->
+        <!-- Upload Section (collapsible) -->
         <div class="row mb-4" id="uploadSection">
             <div class="col-lg-8 mx-auto">
                 <div class="card">
-                    <div class="card-header">
+                    <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleUploadSection()">
                         <h5 class="mb-0"><i class="bi bi-cloud-upload"></i> Upload Invoices</h5>
+                        <i class="bi bi-chevron-down" id="uploadToggleIcon"></i>
                     </div>
-                    <div class="card-body">
+                    <div class="card-body" id="uploadBody">
                         <div class="drag-drop-zone mb-3" id="dropZone">
                             <i class="bi bi-file-earmark-pdf fs-1 text-muted"></i>
                             <p class="mb-1 mt-2 fs-5">Drag & drop PDF invoices here</p>
@@ -270,38 +298,46 @@
 
         <!-- Results Section (hidden until processing) -->
         <div id="resultsSection" style="display: none;">
-            <!-- Summary Cards -->
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card summary-card h-100">
-                        <div class="card-body text-center">
-                            <h6 class="text-white-50">Total Invoices</h6>
-                            <div class="display-4" id="totalCount">0</div>
-                        </div>
-                    </div>
+            <!-- Summary Cards (collapsible) -->
+            <div class="card mb-4" id="summarySection">
+                <div class="card-header d-flex justify-content-between align-items-center py-2" style="cursor: pointer;" onclick="toggleSummarySection()">
+                    <h6 class="mb-0"><i class="bi bi-bar-chart"></i> Summary Statistics</h6>
+                    <i class="bi bi-chevron-down" id="summaryToggleIcon"></i>
                 </div>
-                <div class="col-md-3">
-                    <div class="card summary-card h-100">
-                        <div class="card-body text-center">
-                            <h6 class="text-white-50">Total Value</h6>
-                            <div class="display-4" id="totalValue">0</div>
-                            <small id="totalCurrency">RON</small>
+                <div class="card-body py-3" id="summaryBody">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="card summary-card h-100">
+                                <div class="card-body text-center">
+                                    <h6 class="text-white-50">Total Invoices</h6>
+                                    <div class="display-4" id="totalCount">0</div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card summary-card h-100">
-                        <div class="card-body text-center">
-                            <h6 class="text-white-50">Suppliers</h6>
-                            <div class="display-4" id="supplierCount">0</div>
+                        <div class="col-md-3">
+                            <div class="card summary-card h-100">
+                                <div class="card-body text-center">
+                                    <h6 class="text-white-50">Total Value</h6>
+                                    <div class="display-4" id="totalValue">0</div>
+                                    <small id="totalCurrency">RON</small>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card summary-card h-100">
-                        <div class="card-body text-center">
-                            <h6 class="text-white-50">Campaigns</h6>
-                            <div class="display-4" id="campaignCount">0</div>
+                        <div class="col-md-3">
+                            <div class="card summary-card h-100">
+                                <div class="card-body text-center">
+                                    <h6 class="text-white-50">Suppliers</h6>
+                                    <div class="display-4" id="supplierCount">0</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card summary-card h-100">
+                                <div class="card-body text-center">
+                                    <h6 class="text-white-50">Items</h6>
+                                    <div class="display-4" id="campaignCount">0</div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -318,7 +354,7 @@
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link" id="campaigns-tab" data-bs-toggle="tab" data-bs-target="#campaigns" type="button" role="tab">
-                                <i class="bi bi-megaphone"></i> By Campaign
+                                <i class="bi bi-list-ul"></i> By Item
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -406,9 +442,20 @@
                                                 <span class="badge bg-success ms-2" id="campaignCountBadge">0</span>
                                                 <span class="badge ms-2" id="allocationStatusBadge" style="display:none;">0%</span>
                                             </div>
-                                            <button type="button" class="btn btn-primary btn-sm" id="transferBtn" onclick="transferToNewInvoice()" disabled>
-                                                <i class="bi bi-box-arrow-up-right"></i> Transfer to New Invoice
-                                            </button>
+                                            <div class="d-flex gap-2">
+                                                <button type="button" class="btn btn-outline-info btn-sm" id="mergeSimilarBtn" onclick="mergeSimilarItems()" disabled title="Automatically merge items with same/similar names">
+                                                    <i class="bi bi-union"></i> Merge Similar
+                                                </button>
+                                                <button type="button" class="btn btn-outline-primary btn-sm" id="copyPatternBtn" onclick="copyAllocationPattern()" disabled title="Copy allocation pattern from this invoice">
+                                                    <i class="bi bi-clipboard"></i> Copy Pattern
+                                                </button>
+                                                <button type="button" class="btn btn-outline-secondary btn-sm" id="applyPatternBtn" onclick="applyAllocationPattern()" disabled title="Apply saved pattern to this invoice">
+                                                    <i class="bi bi-clipboard-check"></i> Apply Pattern
+                                                </button>
+                                                <button type="button" class="btn btn-success btn-sm" id="transferBtn" onclick="saveToAccounting()" disabled>
+                                                    <i class="bi bi-check-circle"></i> Save to Accounting
+                                                </button>
+                                            </div>
                                         </div>
                                         <div class="card-body p-2" id="campaignDetailsPanel" style="max-height: 550px; overflow-y: auto;">
                                             <div class="text-center text-muted py-5">
@@ -455,8 +502,112 @@
         </div>
     </div>
 
+    <!-- Notification Modal -->
+    <div class="modal fade" id="notificationModal" tabindex="-1" aria-labelledby="notificationModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header" id="notificationModalHeader">
+                    <h5 class="modal-title" id="notificationModalLabel">
+                        <i class="bi" id="notificationModalIcon"></i>
+                        <span id="notificationModalTitle">Notification</span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="notificationModalBody">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // ============== Notification Modal Helper ==============
+        function showModal(message, type = 'info', title = null) {
+            const modal = document.getElementById('notificationModal');
+            const modalHeader = document.getElementById('notificationModalHeader');
+            const modalIcon = document.getElementById('notificationModalIcon');
+            const modalTitle = document.getElementById('notificationModalTitle');
+            const modalBody = document.getElementById('notificationModalBody');
+
+            // Reset classes
+            modalHeader.className = 'modal-header';
+            modalIcon.className = 'bi me-2';
+
+            // Set type-specific styling
+            switch(type) {
+                case 'success':
+                    modalHeader.classList.add('bg-success', 'text-white');
+                    modalIcon.classList.add('bi-check-circle-fill');
+                    modalTitle.textContent = title || 'Success';
+                    break;
+                case 'error':
+                    modalHeader.classList.add('bg-danger', 'text-white');
+                    modalIcon.classList.add('bi-x-circle-fill');
+                    modalTitle.textContent = title || 'Error';
+                    break;
+                case 'warning':
+                    modalHeader.classList.add('bg-warning');
+                    modalIcon.classList.add('bi-exclamation-triangle-fill');
+                    modalTitle.textContent = title || 'Warning';
+                    break;
+                default: // info
+                    modalHeader.classList.add('bg-primary', 'text-white');
+                    modalIcon.classList.add('bi-info-circle-fill');
+                    modalTitle.textContent = title || 'Information';
+            }
+
+            // Handle newlines in message
+            modalBody.innerHTML = message.replace(/\n/g, '<br>');
+
+            // Show modal
+            const bsModal = new bootstrap.Modal(modal);
+            bsModal.show();
+        }
+
+        // Toggle Upload Section collapse
+        function toggleUploadSection() {
+            const body = document.getElementById('uploadBody');
+            const icon = document.getElementById('uploadToggleIcon');
+            if (body.style.display === 'none') {
+                body.style.display = 'block';
+                icon.className = 'bi bi-chevron-down';
+            } else {
+                body.style.display = 'none';
+                icon.className = 'bi bi-chevron-right';
+            }
+        }
+
+        // Toggle Summary Section collapse
+        function toggleSummarySection() {
+            const body = document.getElementById('summaryBody');
+            const icon = document.getElementById('summaryToggleIcon');
+            if (body.style.display === 'none') {
+                body.style.display = 'block';
+                icon.className = 'bi bi-chevron-down';
+            } else {
+                body.style.display = 'none';
+                icon.className = 'bi bi-chevron-right';
+            }
+        }
+
+        // Collapse Upload and Summary sections (called after processing)
+        function collapseSections() {
+            // Collapse Upload section
+            const uploadBody = document.getElementById('uploadBody');
+            const uploadIcon = document.getElementById('uploadToggleIcon');
+            uploadBody.style.display = 'none';
+            uploadIcon.className = 'bi bi-chevron-right';
+
+            // Collapse Summary section
+            const summaryBody = document.getElementById('summaryBody');
+            const summaryIcon = document.getElementById('summaryToggleIcon');
+            summaryBody.style.display = 'none';
+            summaryIcon.className = 'bi bi-chevron-right';
+        }
+
         // Store uploaded files
         let uploadedFiles = [];
         let reportData = null;
@@ -581,10 +732,10 @@
                     displayResults(data.report);
                     document.getElementById('exportBtn').disabled = false;
                 } else {
-                    alert('Error processing invoices: ' + data.error);
+                    showModal('Error processing invoices: ' + data.error, 'error');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                showModal('Error: ' + error.message, 'error');
             } finally {
                 loadingOverlay.classList.remove('show');
             }
@@ -592,6 +743,9 @@
 
         function displayResults(report) {
             document.getElementById('resultsSection').style.display = 'block';
+
+            // Collapse Upload and Summary sections after processing
+            collapseSections();
 
             // Update summary cards
             document.getElementById('totalCount').textContent = report.count;
@@ -624,7 +778,7 @@
                     </div>
                 `).join('');
             } else {
-                campaignsList.innerHTML = '<p class="text-muted">No campaign data found in invoices.</p>';
+                campaignsList.innerHTML = '<p class="text-muted">No item data found in invoices.</p>';
             }
 
             // Monthly list
@@ -663,7 +817,7 @@
 
         async function exportToExcel() {
             if (!reportData) {
-                alert('No data to export. Please process invoices first.');
+                showModal('No data to export. Please process invoices first.', 'warning');
                 return;
             }
 
@@ -692,10 +846,10 @@
                     a.remove();
                 } else {
                     const data = await response.json();
-                    alert('Error exporting: ' + data.error);
+                    showModal('Error exporting: ' + data.error, 'error');
                 }
             } catch (error) {
-                alert('Error: ' + error.message);
+                showModal('Error: ' + error.message, 'error');
             } finally {
                 loadingOverlay.querySelector('.progress-text').textContent = 'Processing invoices...';
                 loadingOverlay.classList.remove('show');
@@ -704,8 +858,1039 @@
 
         // ============== Bulk Distribute Functionality ==============
         let selectedInvoiceIndex = null;
-        let campaignAllocations = {}; // Store allocations by campaign key: {company, brand, department, subdepartment}
+        let campaignAllocations = {}; // Store allocations by campaign key: {brand, department, subdepartment}
         let structureData = null;
+        let companiesWithVat = []; // Companies with VAT numbers for matching
+        let selectedMasterCompany = ''; // The master company for the current invoice
+        let mergedCampaigns = []; // Store merged campaign groups: [{keys: [], name: '', value: 0, originalNames: []}]
+        let selectedForMerge = new Set(); // Track selected campaign keys for merging
+        let savedAllocationPattern = null; // Saved pattern for copy/apply: {company, campaignNames: [], allocations: [{brand, department, subdepartment, reinvoice, reinvoiceDestinations}]}
+
+        // ============== Copy/Apply Pattern Functions ==============
+
+        // Calculate string similarity using Dice coefficient
+        function stringSimilarity(str1, str2) {
+            if (!str1 || !str2) return 0;
+            str1 = str1.toLowerCase().trim();
+            str2 = str2.toLowerCase().trim();
+            if (str1 === str2) return 1;
+
+            // Create bigrams
+            const bigrams1 = new Set();
+            const bigrams2 = new Set();
+            for (let i = 0; i < str1.length - 1; i++) bigrams1.add(str1.substr(i, 2));
+            for (let i = 0; i < str2.length - 1; i++) bigrams2.add(str2.substr(i, 2));
+
+            // Calculate intersection
+            let intersection = 0;
+            for (const bigram of bigrams1) {
+                if (bigrams2.has(bigram)) intersection++;
+            }
+
+            return (2 * intersection) / (bigrams1.size + bigrams2.size);
+        }
+
+        // Extract key parts from campaign name for matching
+        function extractCampaignFeatures(name) {
+            if (!name) return {};
+            const lower = name.toLowerCase();
+
+            // Common campaign types
+            const types = ['leads', 'traffic', 'awareness', 'conversion', 'engagement', 'reach', 'video', 'catalog', 'app'];
+            const foundType = types.find(t => lower.includes(t));
+
+            // Extract brand/product (typically after hyphen or in brackets)
+            const brandMatch = name.match(/[-–]\s*([^-–]+)$/i) || name.match(/\[([^\]]+)\]/);
+            const brand = brandMatch ? brandMatch[1].trim() : '';
+
+            // Extract prefix (typically in [XX] format at start)
+            const prefixMatch = name.match(/^\[([^\]]+)\]/);
+            const prefix = prefixMatch ? prefixMatch[1].trim() : '';
+
+            return { type: foundType || '', brand, prefix, original: name };
+        }
+
+        // Match items using exact name matching first, then similarity as fallback
+        function matchCampaignsLocal(sourceCampaigns, targetCampaigns) {
+            const mapping = {};
+            const usedSources = new Set();
+
+            // Normalize name for comparison (lowercase, trim whitespace)
+            const normalize = (name) => name.toLowerCase().trim();
+
+            // FIRST PASS: Exact name matches (highest priority)
+            targetCampaigns.forEach((target, targetIdx) => {
+                const targetNorm = normalize(target);
+                sourceCampaigns.forEach((source, sourceIdx) => {
+                    if (usedSources.has(sourceIdx)) return;
+                    if (mapping[targetIdx] !== undefined) return;
+
+                    // Exact match (case-insensitive)
+                    if (normalize(source) === targetNorm) {
+                        mapping[targetIdx] = sourceIdx;
+                        usedSources.add(sourceIdx);
+                        console.log(`Exact match: "${target}" -> "${source}"`);
+                    }
+                });
+            });
+
+            // SECOND PASS: High similarity matches for remaining items
+            targetCampaigns.forEach((target, targetIdx) => {
+                if (mapping[targetIdx] !== undefined) return; // Already matched
+
+                const targetFeatures = extractCampaignFeatures(target);
+                let bestMatch = -1;
+                let bestScore = 0;
+
+                sourceCampaigns.forEach((source, sourceIdx) => {
+                    if (usedSources.has(sourceIdx)) return;
+
+                    const sourceFeatures = extractCampaignFeatures(source);
+
+                    // Calculate match score
+                    let score = stringSimilarity(target, source);
+
+                    // Boost score if campaign type matches
+                    if (targetFeatures.type && targetFeatures.type === sourceFeatures.type) {
+                        score += 0.3;
+                    }
+
+                    // Boost score if prefix matches (e.g., [CA], [IG])
+                    if (targetFeatures.prefix && targetFeatures.prefix === sourceFeatures.prefix) {
+                        score += 0.2;
+                    }
+
+                    // Boost score if brands are similar
+                    if (targetFeatures.brand && sourceFeatures.brand) {
+                        score += stringSimilarity(targetFeatures.brand, sourceFeatures.brand) * 0.3;
+                    }
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = sourceIdx;
+                    }
+                });
+
+                // Only use match if score is reasonable (> 0.3)
+                if (bestScore > 0.3 && bestMatch >= 0) {
+                    mapping[targetIdx] = bestMatch;
+                    usedSources.add(bestMatch);
+                    console.log(`Similarity match (${bestScore.toFixed(2)}): "${target}" -> "${sourceCampaigns[bestMatch]}"`);
+                }
+            });
+
+            // THIRD PASS: Assign remaining targets to remaining sources sequentially
+            let remainingSourceIdx = 0;
+            targetCampaigns.forEach((target, targetIdx) => {
+                if (mapping[targetIdx] === undefined) {
+                    // Find next unused source
+                    while (usedSources.has(remainingSourceIdx) && remainingSourceIdx < sourceCampaigns.length) {
+                        remainingSourceIdx++;
+                    }
+                    if (remainingSourceIdx < sourceCampaigns.length) {
+                        mapping[targetIdx] = remainingSourceIdx;
+                        usedSources.add(remainingSourceIdx);
+                        remainingSourceIdx++;
+                    } else {
+                        // Cycle through sources if we run out
+                        mapping[targetIdx] = targetIdx % sourceCampaigns.length;
+                    }
+                }
+            });
+
+            return mapping;
+        }
+
+        function copyAllocationPattern() {
+            if (selectedInvoiceIndex === null) return;
+
+            const inv = reportData?.invoices[selectedInvoiceIndex];
+            if (!inv) return;
+
+            // Get current company
+            const company = selectedMasterCompany;
+            if (!company) {
+                showModal('Please select a company first before copying the pattern.', 'warning', 'Copy Pattern');
+                return;
+            }
+
+            // Get all visible campaign keys (not hidden by merge)
+            const panel = document.getElementById('campaignDetailsPanel');
+            const visibleItems = panel.querySelectorAll('.distribute-item:not(.merged-hidden)');
+
+            if (visibleItems.length === 0) {
+                showModal('No allocations to copy.', 'warning', 'Copy Pattern');
+                return;
+            }
+
+            // Extract allocation settings and campaign names from each visible campaign
+            // Read actual dropdown values from DOM to ensure we capture all selections
+            const allocations = [];
+            const campaignNames = [];
+            visibleItems.forEach(item => {
+                const key = item.dataset.campaignKey;
+                const alloc = campaignAllocations[key] || {};
+
+                // Get campaign name from the header
+                const nameElem = item.querySelector('.campaign-name');
+                const campaignName = nameElem ? nameElem.textContent.trim() : key;
+                campaignNames.push(campaignName);
+
+                // Read actual dropdown values from DOM (more reliable than campaignAllocations)
+                const brandSelect = item.querySelector('.campaign-brand-select');
+                const deptSelect = item.querySelector('.campaign-department-select');
+                const subdeptSelect = item.querySelector('.campaign-subdept-select');
+                const reinvoiceCheck = item.querySelector('.campaign-reinvoice-check');
+
+                allocations.push({
+                    brand: brandSelect?.value || alloc.brand || '',
+                    department: deptSelect?.value || alloc.department || '',
+                    subdepartment: subdeptSelect?.value || alloc.subdepartment || '',
+                    reinvoice: reinvoiceCheck?.checked || alloc.reinvoice || false,
+                    reinvoiceDestinations: alloc.reinvoiceDestinations ? JSON.parse(JSON.stringify(alloc.reinvoiceDestinations)) : []
+                });
+            });
+
+            // Save the pattern with campaign names for AI matching
+            savedAllocationPattern = {
+                company: company,
+                campaignNames: campaignNames,
+                allocations: allocations
+            };
+
+            // Update Apply button state
+            document.getElementById('applyPatternBtn').disabled = false;
+            document.getElementById('applyPatternBtn').classList.remove('btn-outline-secondary');
+            document.getElementById('applyPatternBtn').classList.add('btn-primary');
+
+            showModal(`Pattern copied: ${company} with ${allocations.length} allocation(s). Click "Apply Pattern" on another invoice to use it.`, 'success', 'Pattern Copied');
+        }
+
+        async function applyAllocationPattern() {
+            if (!savedAllocationPattern) {
+                showModal('No pattern saved. First copy a pattern from another invoice.', 'warning', 'Apply Pattern');
+                return;
+            }
+
+            if (selectedInvoiceIndex === null) return;
+
+            const inv = reportData?.invoices[selectedInvoiceIndex];
+            if (!inv) return;
+
+            // Get campaign entries
+            const campaignEntries = Object.entries(inv.campaigns || {});
+            if (campaignEntries.length === 0) return;
+
+            const pattern = savedAllocationPattern;
+
+            // Set the company
+            const masterSelect = document.getElementById('masterCompanySelect');
+            if (masterSelect && pattern.company) {
+                masterSelect.value = pattern.company;
+                selectedMasterCompany = pattern.company;
+            }
+
+            // Get visible items (not merged-hidden)
+            const panel = document.getElementById('campaignDetailsPanel');
+            const visibleItems = Array.from(panel.querySelectorAll('.distribute-item:not(.merged-hidden)'));
+
+            // Get target campaign names for AI matching
+            const targetCampaignNames = visibleItems.map(item => {
+                const nameElem = item.querySelector('.campaign-name');
+                return nameElem ? nameElem.textContent.trim() : item.dataset.campaignKey;
+            });
+
+            // Use JavaScript matching first (fast), AI as fallback for complex cases
+            let campaignMapping = {};
+            let matchingMethod = 'sequential';
+
+            if (pattern.campaignNames && pattern.campaignNames.length > 0 && targetCampaignNames.length > 0) {
+                // First try local JavaScript matching
+                campaignMapping = matchCampaignsLocal(pattern.campaignNames, targetCampaignNames);
+                matchingMethod = 'local';
+                console.log('Local campaign mapping:', campaignMapping);
+
+                // Calculate average match confidence
+                let totalConfidence = 0;
+                let lowConfidenceCount = 0;
+                targetCampaignNames.forEach((target, idx) => {
+                    const sourceIdx = campaignMapping[idx];
+                    if (sourceIdx !== undefined) {
+                        const confidence = stringSimilarity(target, pattern.campaignNames[sourceIdx]);
+                        totalConfidence += confidence;
+                        if (confidence < 0.3) lowConfidenceCount++;
+                    }
+                });
+                const avgConfidence = totalConfidence / targetCampaignNames.length;
+
+                // If local matching has low confidence, try AI as fallback
+                if (avgConfidence < 0.4 || lowConfidenceCount > targetCampaignNames.length * 0.5) {
+                    try {
+                        // Show loading indicator
+                        const applyBtn = document.getElementById('applyPatternBtn');
+                        const originalBtnHtml = applyBtn.innerHTML;
+                        applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> AI Matching...';
+                        applyBtn.disabled = true;
+
+                        const response = await fetch('/api/bulk/match-campaigns', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                source_campaigns: pattern.campaignNames,
+                                target_campaigns: targetCampaignNames
+                            })
+                        });
+
+                        const result = await response.json();
+                        if (result.success && result.mapping) {
+                            campaignMapping = result.mapping;
+                            matchingMethod = 'AI';
+                            console.log('AI campaign mapping:', campaignMapping);
+                        }
+
+                        // Restore button
+                        applyBtn.innerHTML = originalBtnHtml;
+                        applyBtn.disabled = false;
+                    } catch (err) {
+                        console.error('AI matching failed, using local matching:', err);
+                        // Keep local matching results
+                        const applyBtn = document.getElementById('applyPatternBtn');
+                        applyBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> Apply Pattern';
+                        applyBtn.disabled = false;
+                    }
+                }
+            }
+
+            console.log('Applying pattern:', pattern);
+            console.log('Campaign mapping:', campaignMapping);
+
+            // Apply pattern to each visible campaign using AI mapping or sequential fallback
+            visibleItems.forEach((item, idx) => {
+                const key = item.dataset.campaignKey;
+                // Use AI mapping if available, otherwise fall back to sequential/cycling
+                const sourceIdx = campaignMapping[idx] !== undefined
+                    ? campaignMapping[idx]
+                    : (idx % pattern.allocations.length);
+                const patternAlloc = pattern.allocations[sourceIdx];
+
+                console.log(`Applying to ${key}: sourceIdx=${sourceIdx}, patternAlloc=`, patternAlloc);
+
+                if (!patternAlloc) return;
+
+                // Initialize allocation if needed
+                if (!campaignAllocations[key]) {
+                    campaignAllocations[key] = {};
+                }
+
+                // Apply pattern values
+                campaignAllocations[key].brand = patternAlloc.brand;
+                campaignAllocations[key].department = patternAlloc.department;
+                campaignAllocations[key].subdepartment = patternAlloc.subdepartment;
+                campaignAllocations[key].reinvoice = patternAlloc.reinvoice;
+                if (patternAlloc.reinvoiceDestinations && patternAlloc.reinvoiceDestinations.length > 0) {
+                    campaignAllocations[key].reinvoiceDestinations = JSON.parse(JSON.stringify(patternAlloc.reinvoiceDestinations));
+                }
+
+                // Update dropdowns - first set the values in the DOM directly
+                const brandSelect = item.querySelector('.campaign-brand-select');
+                const deptSelect = item.querySelector('.campaign-department-select');
+
+                // Populate dropdowns with company data
+                populateCampaignDropdowns(key, pattern.company, campaignAllocations[key]);
+
+                // Force set the values after populating (in case populateCampaignDropdowns didn't set them)
+                if (brandSelect && patternAlloc.brand) {
+                    brandSelect.value = patternAlloc.brand;
+                }
+                if (deptSelect && patternAlloc.department) {
+                    deptSelect.value = patternAlloc.department;
+                }
+
+                // Update subdepartment if department is set
+                if (patternAlloc.department) {
+                    populateCampaignSubdepts(key, pattern.company, patternAlloc.department, patternAlloc.subdepartment);
+                    updateCampaignManager(key, pattern.company, patternAlloc.department);
+                }
+
+                // Handle reinvoice section
+                const reinvoiceCheck = item.querySelector('.campaign-reinvoice-check');
+                const reinvoiceSection = item.querySelector('.reinvoice-section');
+                const reinvoiceBadge = item.querySelector('.reinvoice-total-badge');
+                const reinvoiceContainer = item.querySelector('.reinvoice-lines-container');
+
+                if (patternAlloc.reinvoice && reinvoiceCheck) {
+                    reinvoiceCheck.checked = true;
+                    if (reinvoiceSection) reinvoiceSection.style.display = 'block';
+                    if (reinvoiceBadge) reinvoiceBadge.style.display = 'inline';
+
+                    // Clear existing lines and add from pattern
+                    if (reinvoiceContainer) {
+                        reinvoiceContainer.innerHTML = '';
+
+                        // Add reinvoice lines with delay to allow dropdowns to populate
+                        if (patternAlloc.reinvoiceDestinations && patternAlloc.reinvoiceDestinations.length > 0) {
+                            patternAlloc.reinvoiceDestinations.forEach((dest, destIdx) => {
+                                setTimeout(() => {
+                                    addReinvoiceLine(key, false);
+
+                                    // Set values after dropdown populates
+                                    setTimeout(() => {
+                                        const lines = reinvoiceContainer.querySelectorAll('.reinvoice-line');
+                                        const line = lines[destIdx];
+                                        if (line) {
+                                            const companySelect = line.querySelector('.reinvoice-company');
+                                            if (companySelect && dest.company) {
+                                                companySelect.value = dest.company;
+                                                companySelect.dispatchEvent(new Event('change'));
+
+                                                // Set brand/dept/subdept after company change populates dropdowns
+                                                setTimeout(() => {
+                                                    const brandSelect = line.querySelector('.reinvoice-brand');
+                                                    const deptSelect = line.querySelector('.reinvoice-dept');
+                                                    if (brandSelect && dest.brand) brandSelect.value = dest.brand;
+                                                    if (deptSelect && dest.department) {
+                                                        deptSelect.value = dest.department;
+                                                        deptSelect.dispatchEvent(new Event('change'));
+
+                                                        setTimeout(() => {
+                                                            const subdeptSelect = line.querySelector('.reinvoice-subdept');
+                                                            if (subdeptSelect && dest.subdepartment) subdeptSelect.value = dest.subdepartment;
+                                                        }, 50);
+                                                    }
+                                                }, 50);
+                                            }
+
+                                            // Set percent/value
+                                            const percentInput = line.querySelector('.reinvoice-percent');
+                                            const valueInput = line.querySelector('.reinvoice-value');
+                                            if (percentInput && dest.percent) percentInput.value = dest.percent;
+                                            if (valueInput && dest.value) {
+                                                // Recalculate value based on current allocation value
+                                                const allocValue = parseFloat(item.querySelector('.campaign-value-input')?.value) || 0;
+                                                valueInput.value = ((allocValue * (dest.percent || 0)) / 100).toFixed(2);
+                                            }
+                                        }
+
+                                        updateReinvoiceTotalBadge(key);
+                                    }, 100);
+                                }, destIdx * 150);
+                            });
+                        }
+                    }
+                } else if (reinvoiceCheck) {
+                    reinvoiceCheck.checked = false;
+                    if (reinvoiceSection) reinvoiceSection.style.display = 'none';
+                    if (reinvoiceBadge) reinvoiceBadge.style.display = 'none';
+                }
+            });
+
+            // Update summary
+            setTimeout(() => {
+                updateAllocationSummary();
+            }, 500);
+
+            const methodDesc = matchingMethod === 'AI' ? ' (AI matched)' : matchingMethod === 'local' ? ' (auto-matched)' : '';
+            showModal(`Pattern applied${methodDesc}: ${pattern.company} with ${pattern.allocations.length} allocation template(s) to ${visibleItems.length} item(s).`, 'success', 'Pattern Applied');
+        }
+
+        // ============== Merge Functions ==============
+
+        // Merge Similar Items - uses AI to find items that should be merged
+        // AI groups items by: same campaign type (Leads, Traffic) + same brand (Mazda, Volvo)
+        async function mergeSimilarItems() {
+            if (selectedInvoiceIndex === null) {
+                showModal('Please select an invoice first.', 'warning');
+                return;
+            }
+
+            const inv = reportData?.invoices[selectedInvoiceIndex];
+            if (!inv) return;
+
+            const panel = document.getElementById('campaignDetailsPanel');
+            const visibleItems = Array.from(panel.querySelectorAll('.distribute-item:not(.merged-hidden)'));
+
+            if (visibleItems.length < 2) {
+                showModal('Need at least 2 items to merge.', 'info');
+                return;
+            }
+
+            // Collect all item names and their keys
+            const itemsData = visibleItems.map(item => ({
+                key: item.dataset.campaignKey,
+                name: item.dataset.campaignName,
+                value: parseFloat(item.dataset.campaignValue) || 0,
+                element: item
+            }));
+
+            // Normalize function for comparison
+            const normalize = (name) => name.toLowerCase().trim();
+
+            // FIRST PASS: Group items by exact name match (instant, no AI)
+            const exactGroups = {};
+            itemsData.forEach(item => {
+                const normName = normalize(item.name);
+                if (!exactGroups[normName]) {
+                    exactGroups[normName] = [];
+                }
+                exactGroups[normName].push(item);
+            });
+
+            const exactMergeGroups = Object.values(exactGroups).filter(g => g.length >= 2);
+            let mergedCount = 0;
+
+            // Perform exact merges first
+            for (const group of exactMergeGroups) {
+                selectedForMerge.clear();
+                group.forEach(item => {
+                    selectedForMerge.add(item.key);
+                    item.element.classList.add('selected-for-merge');
+                    const checkbox = item.element.querySelector('.campaign-merge-checkbox');
+                    if (checkbox) checkbox.checked = true;
+                });
+
+                const campaigns = inv.campaigns || {};
+                const campaignEntries = Object.entries(campaigns);
+                const invoiceValue = inv.invoice_value || 0;
+
+                performMergeCampaigns(selectedInvoiceIndex, campaignEntries, invoiceValue);
+                mergedCount++;
+            }
+
+            // SECOND PASS: Use AI to find similar items to merge
+            const remainingItems = Array.from(panel.querySelectorAll('.distribute-item:not(.merged-hidden)'));
+
+            if (remainingItems.length >= 2) {
+                const remainingData = remainingItems.map(item => ({
+                    key: item.dataset.campaignKey,
+                    name: item.dataset.campaignName,
+                    value: parseFloat(item.dataset.campaignValue) || 0
+                }));
+
+                // Show loading indicator
+                const btn = document.getElementById('mergeSimilarBtn');
+                const originalBtnHtml = btn.innerHTML;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> AI Analyzing...';
+                btn.disabled = true;
+
+                try {
+                    // Call AI to group similar items
+                    const response = await fetch('/api/bulk/group-similar-items', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            items: remainingData.map(i => i.name)
+                        })
+                    });
+
+                    const result = await response.json();
+
+                    if (result.success && result.groups && result.groups.length > 0) {
+                        // Filter to only groups with 2+ items
+                        const aiGroups = result.groups.filter(g => g.length >= 2);
+
+                        if (aiGroups.length > 0) {
+                            // Build group descriptions for confirmation
+                            const groupDescriptions = aiGroups.map((indices, i) => {
+                                const names = indices.map(idx => remainingData[idx]?.name || '?');
+                                return `Group ${i + 1}: ${names.join(' + ')}`;
+                            }).join('\n');
+
+                            const confirmed = confirm(
+                                `AI found ${aiGroups.length} group(s) of similar items:\n\n${groupDescriptions}\n\nMerge these items?`
+                            );
+
+                            if (confirmed) {
+                                for (const indices of aiGroups) {
+                                    selectedForMerge.clear();
+                                    indices.forEach(idx => {
+                                        const item = remainingData[idx];
+                                        if (item) {
+                                            selectedForMerge.add(item.key);
+                                            const elem = document.querySelector(`.distribute-item[data-campaign-key="${item.key}"]`);
+                                            if (elem) {
+                                                elem.classList.add('selected-for-merge');
+                                                const checkbox = elem.querySelector('.campaign-merge-checkbox');
+                                                if (checkbox) checkbox.checked = true;
+                                            }
+                                        }
+                                    });
+
+                                    const campaigns = inv.campaigns || {};
+                                    const campaignEntries = Object.entries(campaigns);
+                                    const invoiceValue = inv.invoice_value || 0;
+
+                                    performMergeCampaigns(selectedInvoiceIndex, campaignEntries, invoiceValue);
+                                    mergedCount++;
+                                }
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.error('AI grouping failed:', err);
+                } finally {
+                    btn.innerHTML = originalBtnHtml;
+                    btn.disabled = false;
+                }
+            }
+
+            // Clear selection
+            clearMergeSelection();
+
+            if (mergedCount > 0) {
+                showModal(`Merged ${mergedCount} group(s) of items.`, 'success', 'Items Merged');
+            } else {
+                showModal('No similar items found to merge.', 'info');
+            }
+        }
+
+        function updateMergeToolbar() {
+            const toolbar = document.getElementById('mergeToolbar');
+            const countSpan = document.getElementById('mergeSelectionCount');
+
+            if (selectedForMerge.size > 0) {
+                toolbar.style.display = 'block';
+                countSpan.textContent = selectedForMerge.size;
+            } else {
+                toolbar.style.display = 'none';
+            }
+        }
+
+        function clearMergeSelection() {
+            selectedForMerge.forEach(key => {
+                const checkbox = document.querySelector(`.campaign-merge-checkbox[data-key="${key}"]`);
+                const item = document.querySelector(`.distribute-item[data-campaign-key="${key}"]`);
+                if (checkbox) checkbox.checked = false;
+                if (item) item.classList.remove('selected-for-merge');
+            });
+            selectedForMerge.clear();
+            updateMergeToolbar();
+        }
+
+        function performMergeCampaigns(invoiceIdx, campaignEntries, invoiceValue) {
+            // Gather selected campaign data with their allocation settings
+            const selectedCampaigns = [];
+            let totalMergedValue = 0;
+
+            selectedForMerge.forEach(key => {
+                const item = document.querySelector(`.distribute-item[data-campaign-key="${key}"]`);
+                if (item) {
+                    const name = item.dataset.campaignName;
+                    const value = parseFloat(item.dataset.campaignValue) || 0;
+                    const alloc = campaignAllocations[key] || {};
+
+                    // Get current dropdown values
+                    const brandSelect = item.querySelector('.campaign-brand-select');
+                    const deptSelect = item.querySelector('.campaign-department-select');
+                    const subdeptSelect = item.querySelector('.campaign-subdept-select');
+                    const reinvoiceCheck = item.querySelector('.campaign-reinvoice-check');
+
+                    // Get reinvoice destinations if reinvoice is checked
+                    let reinvoiceDestinations = [];
+                    if (reinvoiceCheck?.checked) {
+                        reinvoiceDestinations = getReinvoiceDestinations(key);
+                    }
+
+                    selectedCampaigns.push({
+                        key,
+                        name,
+                        value,
+                        brand: brandSelect?.value || '',
+                        department: deptSelect?.value || '',
+                        subdepartment: subdeptSelect?.value || '',
+                        reinvoice: reinvoiceCheck?.checked || false,
+                        reinvoiceDestinations
+                    });
+                    totalMergedValue += value;
+                }
+            });
+
+            if (selectedCampaigns.length < 2) {
+                showModal('Select at least 2 items to merge.', 'warning');
+                return;
+            }
+
+            // Validate that all campaigns have the same allocation settings
+            const first = selectedCampaigns[0];
+            let differences = [];
+
+            for (let i = 1; i < selectedCampaigns.length; i++) {
+                const current = selectedCampaigns[i];
+
+                if (current.brand !== first.brand) {
+                    differences.push(`Brand differs: "${first.name}" has "${first.brand || 'N/A'}" vs "${current.name}" has "${current.brand || 'N/A'}"`);
+                }
+                if (current.department !== first.department) {
+                    differences.push(`Department differs: "${first.name}" has "${first.department || 'None'}" vs "${current.name}" has "${current.department || 'None'}"`);
+                }
+                if (current.subdepartment !== first.subdepartment) {
+                    differences.push(`Subdepartment differs: "${first.name}" has "${first.subdepartment || 'N/A'}" vs "${current.name}" has "${current.subdepartment || 'N/A'}"`);
+                }
+                if (current.reinvoice !== first.reinvoice) {
+                    differences.push(`Reinvoice setting differs: "${first.name}" is ${first.reinvoice ? 'ON' : 'OFF'} vs "${current.name}" is ${current.reinvoice ? 'ON' : 'OFF'}`);
+                }
+
+                // Check reinvoice destinations if both have reinvoice enabled
+                if (first.reinvoice && current.reinvoice) {
+                    const firstDests = JSON.stringify(first.reinvoiceDestinations.map(d => ({ company: d.company, department: d.department, subdepartment: d.subdepartment })));
+                    const currentDests = JSON.stringify(current.reinvoiceDestinations.map(d => ({ company: d.company, department: d.department, subdepartment: d.subdepartment })));
+                    if (firstDests !== currentDests) {
+                        differences.push(`Reinvoice destinations differ between "${first.name}" and "${current.name}"`);
+                    }
+                }
+            }
+
+            if (differences.length > 0) {
+                showModal('Cannot merge items with different allocation settings:\n\n• ' + differences.join('\n• ') + '\n\nPlease ensure all selected items have the same Brand, Department, Subdepartment, and Reinvoice settings before merging.', 'error', 'Merge Not Allowed');
+                return;
+            }
+
+            // Create merged campaign name
+            const mergedName = `Merged: ${selectedCampaigns.map(c => c.name).join(' + ')}`;
+            const mergedPercent = invoiceValue > 0 ? (totalMergedValue / invoiceValue) * 100 : 0;
+
+            // Create a new merged entry
+            const mergedKey = `merged_${Date.now()}`;
+            const mergedEntry = {
+                keys: selectedCampaigns.map(c => c.key),
+                name: mergedName,
+                value: totalMergedValue,
+                originalNames: selectedCampaigns.map(c => c.name)
+            };
+
+            mergedCampaigns.push(mergedEntry);
+
+            // Initialize allocation for merged campaign - preserve the allocation settings from first campaign
+            campaignAllocations[mergedKey] = {
+                allocation_percent: mergedPercent,
+                allocation_value: totalMergedValue,
+                merged: true,
+                originalKeys: selectedCampaigns.map(c => c.key),
+                originalNames: selectedCampaigns.map(c => c.name),
+                brand: first.brand,
+                department: first.department,
+                subdepartment: first.subdepartment,
+                reinvoice: first.reinvoice,
+                reinvoiceDestinations: first.reinvoiceDestinations
+            };
+
+            // Hide original campaign items and create merged item
+            const panel = document.getElementById('campaignDetailsPanel');
+            const inv = reportData?.invoices[selectedInvoiceIndex];
+            const currency = inv?.currency || 'RON';
+
+            // Hide selected campaigns
+            selectedCampaigns.forEach(c => {
+                const item = document.querySelector(`.distribute-item[data-campaign-key="${c.key}"]`);
+                if (item) {
+                    item.style.display = 'none';
+                    item.classList.add('merged-hidden');
+                }
+            });
+
+            // Create merged campaign UI element with preserved settings
+            const mergedHtml = createMergedCampaignHtml(mergedKey, mergedEntry, mergedPercent, currency, invoiceIdx, campaignEntries, invoiceValue, first);
+            const mergeToolbar = document.getElementById('mergeToolbar');
+            mergeToolbar.insertAdjacentHTML('afterend', mergedHtml);
+
+            // Attach event listeners to the new merged item
+            attachMergedCampaignListeners(mergedKey, invoiceIdx, campaignEntries, invoiceValue);
+
+            // Initialize dropdowns for merged campaign with preserved values
+            if (selectedMasterCompany) {
+                populateCampaignDropdowns(mergedKey, selectedMasterCompany, campaignAllocations[mergedKey]);
+
+                // Restore reinvoice settings if enabled
+                if (first.reinvoice && first.reinvoiceDestinations.length > 0) {
+                    const mergedItem = document.querySelector(`.distribute-item[data-campaign-key="${mergedKey}"]`);
+                    if (mergedItem) {
+                        const reinvoiceCheck = mergedItem.querySelector('.campaign-reinvoice-check');
+                        const reinvoiceSection = mergedItem.querySelector('.reinvoice-section');
+                        const reinvoiceBadge = mergedItem.querySelector('.reinvoice-total-badge');
+
+                        if (reinvoiceCheck) {
+                            reinvoiceCheck.checked = true;
+                            if (reinvoiceSection) reinvoiceSection.style.display = 'block';
+                            if (reinvoiceBadge) reinvoiceBadge.style.display = 'inline';
+
+                            // Add reinvoice lines with preserved destinations
+                            first.reinvoiceDestinations.forEach((dest, idx) => {
+                                addReinvoiceLine(mergedKey, false);
+                                const container = mergedItem.querySelector('.reinvoice-lines-container');
+                                const line = container.lastElementChild;
+                                if (line) {
+                                    // Set company and trigger change to populate departments
+                                    const companySelect = line.querySelector('.reinvoice-company');
+                                    if (companySelect && dest.company) {
+                                        companySelect.value = dest.company;
+                                        companySelect.dispatchEvent(new Event('change'));
+
+                                        // Wait a tick for departments to populate, then set values
+                                        setTimeout(() => {
+                                            const brandSelect = line.querySelector('.reinvoice-brand');
+                                            const deptSelect = line.querySelector('.reinvoice-department');
+                                            if (brandSelect && dest.brand) brandSelect.value = dest.brand;
+                                            if (deptSelect && dest.department) {
+                                                deptSelect.value = dest.department;
+                                                deptSelect.dispatchEvent(new Event('change'));
+
+                                                // Wait for subdepts to populate
+                                                setTimeout(() => {
+                                                    const subdeptSelect = line.querySelector('.reinvoice-subdepartment');
+                                                    if (subdeptSelect && dest.subdepartment) subdeptSelect.value = dest.subdepartment;
+                                                }, 50);
+                                            }
+
+                                            // Set value and percentage
+                                            const valueInput = line.querySelector('.reinvoice-value');
+                                            const percentInput = line.querySelector('.reinvoice-percent');
+                                            if (valueInput) valueInput.value = dest.value?.toFixed(2) || '0.00';
+                                            if (percentInput) percentInput.value = dest.percent?.toFixed(2) || '0.00';
+                                        }, 50);
+                                    }
+                                }
+                            });
+
+                            updateReinvoiceTotalBadge(mergedKey);
+                        }
+                    }
+                }
+            }
+
+            // Clear selection
+            clearMergeSelection();
+
+            // Update campaign count badge
+            const visibleCampaigns = panel.querySelectorAll('.distribute-item:not(.merged-hidden)').length;
+            document.getElementById('campaignCountBadge').textContent = visibleCampaigns;
+
+            // Update allocation summary
+            updateAllocationSummary();
+
+            showModal(`Merged ${selectedCampaigns.length} items into "${mergedName}" with total value ${formatNumber(totalMergedValue)} ${currency}`, 'success', 'Items Merged');
+        }
+
+        function createMergedCampaignHtml(key, mergedEntry, percent, currency, invoiceIdx, campaignEntries, invoiceValue) {
+            const companies = [...new Set(structureData.map(s => s.company))];
+
+            return `
+                <div class="distribute-item merged-campaign" data-campaign-key="${key}" data-campaign-name="${mergedEntry.name}" data-campaign-value="${mergedEntry.value}">
+                    <div class="item-header">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-collection-fill text-success me-2" title="Merged campaign"></i>
+                            <strong class="text-success">${mergedEntry.name}</strong>
+                            <span class="badge bg-success text-white ms-2">${formatNumber(mergedEntry.value)} ${currency}</span>
+                            <button type="button" class="btn btn-sm btn-outline-danger ms-2 unmerge-btn" data-key="${key}" title="Unmerge items">
+                                <i class="bi bi-x-lg"></i> Unmerge
+                            </button>
+                        </div>
+                        <div class="d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-info campaign-comment-btn" data-key="${key}" title="Add comment">
+                                <i class="bi bi-chat-text"></i>
+                            </button>
+                            <input type="hidden" class="campaign-comment-input" data-key="${key}" value="">
+                        </div>
+                    </div>
+                    <div class="merged-campaigns-list mb-2">
+                        <i class="bi bi-arrow-return-right"></i> Contains: ${mergedEntry.originalNames.join(', ')}
+                    </div>
+                    <div class="allocation-form">
+                        <div class="row g-2 align-items-end">
+                            <div class="col campaign-brand-col d-none" data-key="${key}">
+                                <label class="form-label small mb-1">Brand</label>
+                                <select class="form-select form-select-sm campaign-brand-select" data-key="${key}">
+                                    <option value="">N/A</option>
+                                </select>
+                            </div>
+                            <div class="col">
+                                <label class="form-label small mb-1">Department *</label>
+                                <select class="form-select form-select-sm campaign-department-select" data-key="${key}">
+                                    <option value="">Select...</option>
+                                </select>
+                            </div>
+                            <div class="col campaign-subdept-col d-none" data-key="${key}">
+                                <label class="form-label small mb-1">Subdepartment</label>
+                                <select class="form-select form-select-sm campaign-subdept-select" data-key="${key}">
+                                    <option value="">N/A</option>
+                                </select>
+                            </div>
+                            <div class="col">
+                                <label class="form-label small mb-1">%</label>
+                                <input type="number" class="form-control form-control-sm campaign-percent-input"
+                                       data-key="${key}" value="${percent.toFixed(2)}" step="0.01" min="0" max="100">
+                            </div>
+                            <div class="col">
+                                <label class="form-label small mb-1">Value</label>
+                                <input type="number" class="form-control form-control-sm campaign-value-input"
+                                       data-key="${key}" value="${mergedEntry.value.toFixed(2)}" step="0.01" min="0">
+                            </div>
+                        </div>
+                        <div class="row g-2 mt-1 align-items-center">
+                            <div class="col-md-4">
+                                <small class="text-muted campaign-manager-display" data-key="${key}">Manager: --</small>
+                            </div>
+                            <div class="col-md-8">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input campaign-reinvoice-check" type="checkbox" data-key="${key}">
+                                    <label class="form-check-label small">Reinvoice to:</label>
+                                    <span class="badge bg-secondary ms-1 reinvoice-total-badge" data-key="${key}" style="display: none;">0%</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="reinvoice-section" data-key="${key}" style="display: none;">
+                            <div class="reinvoice-lines-container mt-2" data-key="${key}">
+                            </div>
+                            <button type="button" class="btn btn-outline-secondary btn-sm mt-2 add-reinvoice-line-btn" data-key="${key}">
+                                <i class="bi bi-plus"></i> Add Reinvoice Line
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function attachMergedCampaignListeners(key, invoiceIdx, campaignEntries, invoiceValue) {
+            const item = document.querySelector(`.distribute-item[data-campaign-key="${key}"]`);
+            if (!item) return;
+
+            // Department change
+            const deptSelect = item.querySelector('.campaign-department-select');
+            deptSelect?.addEventListener('change', function() {
+                onCampaignDepartmentChange(key, this.value);
+            });
+
+            // Brand change
+            const brandSelect = item.querySelector('.campaign-brand-select');
+            brandSelect?.addEventListener('change', function() {
+                onCampaignFieldChange(key, 'brand', this.value);
+            });
+
+            // Subdepartment change
+            const subdeptSelect = item.querySelector('.campaign-subdept-select');
+            subdeptSelect?.addEventListener('change', function() {
+                onCampaignFieldChange(key, 'subdepartment', this.value);
+            });
+
+            // Percent input
+            const percentInput = item.querySelector('.campaign-percent-input');
+            percentInput?.addEventListener('input', function() {
+                const percent = parseFloat(this.value) || 0;
+                const inv = reportData?.invoices[selectedInvoiceIndex];
+                const newValue = (inv.invoice_value * percent) / 100;
+
+                const valueInput = item.querySelector('.campaign-value-input');
+                if (valueInput) valueInput.value = newValue.toFixed(2);
+
+                onCampaignFieldChange(key, 'allocation_percent', percent);
+                onCampaignFieldChange(key, 'allocation_value', newValue);
+                updateAllocationSummary();
+            });
+
+            // Value input
+            const valueInput = item.querySelector('.campaign-value-input');
+            valueInput?.addEventListener('input', function() {
+                const value = parseFloat(this.value) || 0;
+                const inv = reportData?.invoices[selectedInvoiceIndex];
+                const percent = inv.invoice_value > 0 ? (value / inv.invoice_value) * 100 : 0;
+
+                const percentInput = item.querySelector('.campaign-percent-input');
+                if (percentInput) percentInput.value = percent.toFixed(2);
+
+                onCampaignFieldChange(key, 'allocation_percent', percent);
+                onCampaignFieldChange(key, 'allocation_value', value);
+                updateAllocationSummary();
+            });
+
+            // Comment button
+            const commentBtn = item.querySelector('.campaign-comment-btn');
+            commentBtn?.addEventListener('click', function() {
+                const commentInput = item.querySelector('.campaign-comment-input');
+                const currentComment = commentInput?.value || '';
+                const newComment = prompt('Enter comment for this allocation:', currentComment);
+                if (newComment !== null) {
+                    if (commentInput) commentInput.value = newComment;
+                    onCampaignFieldChange(key, 'comment', newComment);
+                    if (newComment.trim()) {
+                        this.classList.remove('btn-outline-info');
+                        this.classList.add('btn-info');
+                        this.title = newComment;
+                    } else {
+                        this.classList.remove('btn-info');
+                        this.classList.add('btn-outline-info');
+                        this.title = 'Add comment';
+                    }
+                }
+            });
+
+            // Reinvoice checkbox
+            const reinvoiceCheck = item.querySelector('.campaign-reinvoice-check');
+            reinvoiceCheck?.addEventListener('change', function() {
+                const section = item.querySelector('.reinvoice-section');
+                const badge = item.querySelector('.reinvoice-total-badge');
+                const container = item.querySelector('.reinvoice-lines-container');
+
+                if (this.checked) {
+                    section.style.display = 'block';
+                    badge.style.display = 'inline';
+                    if (container.children.length === 0) {
+                        addReinvoiceLine(key, false);
+                    }
+                } else {
+                    section.style.display = 'none';
+                    badge.style.display = 'none';
+                    container.innerHTML = '';
+                }
+                onCampaignFieldChange(key, 'reinvoice', this.checked);
+                updateReinvoiceTotalBadge(key);
+            });
+
+            // Add reinvoice line button
+            const addReinvoiceBtn = item.querySelector('.add-reinvoice-line-btn');
+            addReinvoiceBtn?.addEventListener('click', function() {
+                addReinvoiceLine(key, true);
+            });
+
+            // Unmerge button
+            const unmergeBtn = item.querySelector('.unmerge-btn');
+            unmergeBtn?.addEventListener('click', function() {
+                unmergeOwnCampaigns(key);
+            });
+        }
+
+        function unmergeOwnCampaigns(mergedKey) {
+            const allocation = campaignAllocations[mergedKey];
+            if (!allocation || !allocation.merged) return;
+
+            // Show original campaigns again
+            allocation.originalKeys.forEach(origKey => {
+                const item = document.querySelector(`.distribute-item[data-campaign-key="${origKey}"]`);
+                if (item) {
+                    item.style.display = 'block';
+                    item.classList.remove('merged-hidden');
+                }
+            });
+
+            // Remove merged campaign element
+            const mergedItem = document.querySelector(`.distribute-item[data-campaign-key="${mergedKey}"]`);
+            if (mergedItem) {
+                mergedItem.remove();
+            }
+
+            // Remove from mergedCampaigns array
+            mergedCampaigns = mergedCampaigns.filter(mc => !mc.keys.includes(mergedKey));
+
+            // Remove allocation
+            delete campaignAllocations[mergedKey];
+
+            // Update campaign count badge
+            const panel = document.getElementById('campaignDetailsPanel');
+            const visibleCampaigns = panel.querySelectorAll('.distribute-item:not(.merged-hidden)').length;
+            document.getElementById('campaignCountBadge').textContent = visibleCampaigns;
+
+            // Update allocation summary
+            updateAllocationSummary();
+
+            showModal('Items have been unmerged.', 'info', 'Unmerged');
+        }
 
         // Load organizational structure
         async function loadStructure() {
@@ -720,6 +1905,31 @@
             }
         }
 
+        // Load companies with VAT numbers for auto-matching
+        async function loadCompaniesWithVat() {
+            if (companiesWithVat.length > 0) return companiesWithVat;
+            try {
+                const response = await fetch('/api/companies-vat');
+                companiesWithVat = await response.json();
+                return companiesWithVat;
+            } catch (e) {
+                console.error('Failed to load companies with VAT:', e);
+                return [];
+            }
+        }
+
+        // Find company by customer VAT number
+        function findCompanyByVat(customerVat) {
+            if (!customerVat || !companiesWithVat.length) return null;
+            // Normalize VAT: remove spaces, uppercase
+            const normalizedVat = customerVat.replace(/\s/g, '').toUpperCase();
+            const match = companiesWithVat.find(c => {
+                const companyVat = (c.vat || '').replace(/\s/g, '').toUpperCase();
+                return companyVat === normalizedVat;
+            });
+            return match ? match.company : null;
+        }
+
         function renderInvoiceList() {
             if (!reportData?.invoices) return;
 
@@ -732,21 +1942,23 @@
                 const hasCampaigns = inv.campaigns && Object.keys(inv.campaigns).length > 0;
                 const campaignCount = hasCampaigns ? Object.keys(inv.campaigns).length : 0;
                 const isSelected = selectedInvoiceIndex === idx;
+                const isSaved = inv.saved || false;
 
                 return `
-                    <a href="#" class="list-group-item list-group-item-action ${isSelected ? 'active' : ''}"
-                       onclick="selectInvoice(${idx}); return false;">
+                    <a href="#" class="list-group-item list-group-item-action ${isSelected ? 'active' : ''} ${isSaved ? 'list-group-item-success' : ''}"
+                       data-idx="${idx}" onclick="selectInvoice(${idx}); return false;">
                         <div class="d-flex justify-content-between align-items-start">
                             <div>
-                                <strong>${inv.invoice_number || 'Invoice ' + (idx + 1)}</strong>
+                                <span class="fw-bold">${inv.invoice_number || 'Invoice ' + (idx + 1)}</span>
+                                ${isSaved ? '<span class="badge bg-success ms-2"><i class="bi bi-check"></i> Saved</span>' : ''}
                                 <br><small class="${isSelected ? 'text-white-50' : 'text-muted'}">${inv.supplier || 'Unknown'}</small>
                             </div>
                             <div class="text-end">
                                 <span class="fw-bold">${formatNumber(inv.invoice_value || 0)}</span>
                                 <br>
                                 ${hasCampaigns
-                                    ? `<span class="badge ${isSelected ? 'bg-light text-primary' : 'bg-success'}">${campaignCount} campaigns</span>`
-                                    : `<span class="badge ${isSelected ? 'bg-light text-secondary' : 'bg-secondary'}">No campaigns</span>`
+                                    ? `<span class="badge ${isSelected ? 'bg-light text-primary' : 'bg-primary'}">${campaignCount} items</span>`
+                                    : `<span class="badge ${isSelected ? 'bg-light text-secondary' : 'bg-secondary'}">No items</span>`
                                 }
                             </div>
                         </div>
@@ -759,6 +1971,10 @@
             selectedInvoiceIndex = idx;
             const inv = reportData.invoices[idx];
 
+            // Clear merge state when switching invoices
+            selectedForMerge.clear();
+            mergedCampaigns = [];
+
             // Update invoice list selection
             renderInvoiceList();
 
@@ -770,8 +1986,22 @@
             document.getElementById('selectedInvoiceValue').textContent =
                 formatNumber(inv.invoice_value || 0) + ' ' + (inv.currency || 'RON');
 
+            // Load companies with VAT for auto-matching
+            await loadCompaniesWithVat();
+
+            // Auto-select company based on customer_vat
+            selectedMasterCompany = findCompanyByVat(inv.customer_vat) || '';
+
             // Render campaign details (this will update allocation summary)
             await renderCampaignDetails(inv, idx);
+
+            // Enable copy pattern and merge similar buttons
+            document.getElementById('copyPatternBtn').disabled = false;
+            document.getElementById('mergeSimilarBtn').disabled = false;
+            // Enable apply pattern button if a pattern is saved
+            if (savedAllocationPattern) {
+                document.getElementById('applyPatternBtn').disabled = false;
+            }
         }
 
         async function renderCampaignDetails(inv, invoiceIdx) {
@@ -783,22 +2013,61 @@
 
             document.getElementById('campaignCountBadge').textContent = campaignEntries.length;
 
-            if (campaignEntries.length === 0) {
-                panel.innerHTML = `
-                    <div class="text-center text-muted py-4">
-                        <i class="bi bi-info-circle fs-1"></i>
-                        <p class="mt-2">No campaigns found in this invoice.</p>
-                        <p class="small">You can still transfer this invoice to New Invoice page for allocation.</p>
-                    </div>
-                `;
-                updateAllocationSummary();
-                return;
-            }
-
             const companies = [...new Set(structureData.map(s => s.company))];
 
-            // Build allocation rows for each campaign
-            panel.innerHTML = campaignEntries.map(([name, value], campIdx) => {
+            // Build master company selector at the top
+            let masterCompanyHtml = `
+                <div class="card mb-3 border-primary">
+                    <div class="card-body py-2">
+                        <div class="row align-items-center">
+                            <div class="col-md-3">
+                                <label class="form-label small mb-1 fw-bold">Dedicated To (Company) *</label>
+                                <select class="form-select form-select-sm" id="masterCompanySelect">
+                                    <option value="">Select Company...</option>
+                                    ${companies.map(c => `<option value="${c}" ${selectedMasterCompany === c ? 'selected' : ''}>${c}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <small class="text-muted d-block mt-3">
+                                    <i class="bi bi-info-circle"></i>
+                                    Customer VAT: <code>${inv.customer_vat || 'N/A'}</code>
+                                    ${selectedMasterCompany ? `<span class="badge bg-success ms-2">Auto-matched</span>` : ''}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Merge Toolbar -->
+                <div class="card mb-3 bg-light border-warning" id="mergeToolbar" style="display: none;">
+                    <div class="card-body py-2">
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <i class="bi bi-collection text-warning me-2"></i>
+                                <span id="mergeSelectionCount">0</span> items selected
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="clearMergeSelection">
+                                    <i class="bi bi-x-circle"></i> Clear Selection
+                                </button>
+                                <button type="button" class="btn btn-sm btn-warning" id="mergeCampaignsBtn">
+                                    <i class="bi bi-union"></i> Merge Selected
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // If no campaigns found, create a single "Full Invoice" allocation
+            let effectiveCampaignEntries = campaignEntries;
+            if (campaignEntries.length === 0) {
+                effectiveCampaignEntries = [['Full Invoice', invoiceValue]];
+            }
+
+            document.getElementById('campaignCountBadge').textContent = effectiveCampaignEntries.length;
+
+            // Build allocation rows for each campaign (without Company dropdown)
+            panel.innerHTML = masterCompanyHtml + effectiveCampaignEntries.map(([name, value], campIdx) => {
                 const key = `inv_${invoiceIdx}_camp_${campIdx}`;
                 const existing = campaignAllocations[key] || {};
                 const allocPercent = existing.allocation_percent ?? ((value / invoiceValue) * 100);
@@ -809,9 +2078,12 @@
                 const hasComment = comment.trim().length > 0;
 
                 return `
-                    <div class="distribute-item ${isLocked ? 'locked' : ''}" data-campaign-key="${key}" data-campaign-name="${name}" data-campaign-value="${value}">
+                    <div class="distribute-item ${isLocked ? 'locked' : ''} ${selectedForMerge.has(key) ? 'selected-for-merge' : ''}" data-campaign-key="${key}" data-campaign-name="${name}" data-campaign-value="${value}">
                         <div class="item-header">
-                            <div>
+                            <div class="d-flex align-items-center">
+                                <input type="checkbox" class="form-check-input me-2 campaign-merge-checkbox"
+                                       data-key="${key}" ${selectedForMerge.has(key) ? 'checked' : ''}
+                                       title="Select for merging">
                                 <strong class="text-primary">${name}</strong>
                                 <span class="badge bg-light text-dark ms-2">${formatNumber(value)} ${inv.currency || 'RON'}</span>
                             </div>
@@ -829,37 +2101,30 @@
                         </div>
                         <div class="allocation-form">
                             <div class="row g-2 align-items-end">
-                                <div class="col-md-3">
-                                    <label class="form-label small mb-1">Company *</label>
-                                    <select class="form-select form-select-sm campaign-company-select" data-key="${key}">
-                                        <option value="">Select...</option>
-                                        ${companies.map(c => `<option value="${c}" ${existing.company === c ? 'selected' : ''}>${c}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div class="col-md-2">
+                                <div class="col campaign-brand-col d-none" data-key="${key}">
                                     <label class="form-label small mb-1">Brand</label>
                                     <select class="form-select form-select-sm campaign-brand-select" data-key="${key}">
                                         <option value="">N/A</option>
                                     </select>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col">
                                     <label class="form-label small mb-1">Department *</label>
                                     <select class="form-select form-select-sm campaign-department-select" data-key="${key}">
                                         <option value="">Select...</option>
                                     </select>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col campaign-subdept-col d-none" data-key="${key}">
                                     <label class="form-label small mb-1">Subdepartment</label>
                                     <select class="form-select form-select-sm campaign-subdept-select" data-key="${key}">
                                         <option value="">N/A</option>
                                     </select>
                                 </div>
-                                <div class="col-md-1">
+                                <div class="col">
                                     <label class="form-label small mb-1">%</label>
                                     <input type="number" class="form-control form-control-sm campaign-percent-input"
                                            data-key="${key}" value="${allocPercent.toFixed(2)}" step="0.01" min="0" max="100">
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col">
                                     <label class="form-label small mb-1">Value</label>
                                     <input type="number" class="form-control form-control-sm campaign-value-input"
                                            data-key="${key}" value="${allocValue.toFixed(2)}" step="0.01" min="0">
@@ -891,30 +2156,47 @@
                 `;
             }).join('');
 
+            // Add event listener for master company dropdown
+            attachMasterCompanyListener(invoiceIdx, campaignEntries, invoiceValue);
+
             // Add event listeners for all campaign allocation controls
             attachCampaignEventListeners(invoiceIdx, campaignEntries, invoiceValue);
 
-            // Initialize dropdowns for existing allocations
-            campaignEntries.forEach((_, campIdx) => {
-                const key = `inv_${invoiceIdx}_camp_${campIdx}`;
-                const existing = campaignAllocations[key];
-                if (existing?.company) {
-                    populateCampaignDropdowns(key, existing.company, existing);
-                }
-            });
+            // Initialize dropdowns if master company is already selected
+            if (selectedMasterCompany) {
+                campaignEntries.forEach((_, campIdx) => {
+                    const key = `inv_${invoiceIdx}_camp_${campIdx}`;
+                    const existing = campaignAllocations[key];
+                    populateCampaignDropdowns(key, selectedMasterCompany, existing);
+                });
+            }
 
             updateAllocationSummary();
         }
 
-        function attachCampaignEventListeners(invoiceIdx, campaignEntries, invoiceValue) {
-            // Company change
-            document.querySelectorAll('.campaign-company-select').forEach(select => {
-                select.addEventListener('change', function() {
-                    const key = this.dataset.key;
-                    onCampaignCompanyChange(key, this.value);
-                });
-            });
+        function attachMasterCompanyListener(invoiceIdx, campaignEntries, invoiceValue) {
+            const masterCompanySelect = document.getElementById('masterCompanySelect');
+            if (!masterCompanySelect) return;
 
+            masterCompanySelect.addEventListener('change', function() {
+                selectedMasterCompany = this.value;
+
+                // Update all campaign dropdowns with new company
+                campaignEntries.forEach((_, campIdx) => {
+                    const key = `inv_${invoiceIdx}_camp_${campIdx}`;
+                    // Reset department/subdepartment when company changes
+                    if (campaignAllocations[key]) {
+                        campaignAllocations[key].department = null;
+                        campaignAllocations[key].subdepartment = null;
+                    }
+                    populateCampaignDropdowns(key, selectedMasterCompany, campaignAllocations[key]);
+                });
+
+                updateAllocationSummary();
+            });
+        }
+
+        function attachCampaignEventListeners(invoiceIdx, campaignEntries, invoiceValue) {
             // Department change
             document.querySelectorAll('.campaign-department-select').forEach(select => {
                 select.addEventListener('change', function() {
@@ -1056,6 +2338,44 @@
                     addReinvoiceLine(key, true); // true = redistribute
                 });
             });
+
+            // ============== Merge Selection Event Listeners ==============
+            // Merge checkbox change
+            document.querySelectorAll('.campaign-merge-checkbox').forEach(checkbox => {
+                checkbox.addEventListener('change', function() {
+                    const key = this.dataset.key;
+                    const item = document.querySelector(`.distribute-item[data-campaign-key="${key}"]`);
+
+                    if (this.checked) {
+                        selectedForMerge.add(key);
+                        item.classList.add('selected-for-merge');
+                    } else {
+                        selectedForMerge.delete(key);
+                        item.classList.remove('selected-for-merge');
+                    }
+                    updateMergeToolbar();
+                });
+            });
+
+            // Merge toolbar buttons
+            const mergeBtn = document.getElementById('mergeCampaignsBtn');
+            const clearBtn = document.getElementById('clearMergeSelection');
+
+            if (mergeBtn) {
+                mergeBtn.addEventListener('click', function() {
+                    if (selectedForMerge.size < 2) {
+                        showModal('Please select at least 2 items to merge.', 'warning');
+                        return;
+                    }
+                    performMergeCampaigns(invoiceIdx, campaignEntries, invoiceValue);
+                });
+            }
+
+            if (clearBtn) {
+                clearBtn.addEventListener('click', function() {
+                    clearMergeSelection();
+                });
+            }
         }
 
         function onCampaignFieldChange(key, field, value) {
@@ -1076,19 +2396,6 @@
                 departments.map(d => `<option value="${d}">${d}</option>`).join('');
         }
 
-        function onCampaignCompanyChange(key, company) {
-            if (!campaignAllocations[key]) {
-                campaignAllocations[key] = {};
-            }
-            campaignAllocations[key].company = company;
-            campaignAllocations[key].department = null;
-            campaignAllocations[key].brand = null;
-            campaignAllocations[key].subdepartment = null;
-
-            populateCampaignDropdowns(key, company, null);
-            updateAllocationSummary();
-        }
-
         function populateCampaignDropdowns(key, company, existing) {
             const item = document.querySelector(`.distribute-item[data-campaign-key="${key}"]`);
             if (!item) return;
@@ -1097,9 +2404,23 @@
 
             // Brands
             const brandSelect = item.querySelector('.campaign-brand-select');
+            const brandCol = item.querySelector(`.campaign-brand-col[data-key="${key}"]`);
             const brands = [...new Set(companyUnits.map(s => s.brand).filter(b => b))];
             brandSelect.innerHTML = '<option value="">N/A</option>' +
                 brands.map(b => `<option value="${b}" ${existing?.brand === b ? 'selected' : ''}>${b}</option>`).join('');
+
+            // Show/hide brand column based on available options
+            if (brands.length > 0) {
+                brandCol?.classList.remove('d-none');
+            } else {
+                brandCol?.classList.add('d-none');
+            }
+
+            // Auto-select brand if only one option
+            if (brands.length === 1 && !existing?.brand) {
+                brandSelect.value = brands[0];
+                onCampaignFieldChange(key, 'brand', brands[0]);
+            }
 
             // Departments
             const deptSelect = item.querySelector('.campaign-department-select');
@@ -1109,10 +2430,17 @@
 
             // Subdepartments (initialize empty, will populate on dept change)
             const subdeptSelect = item.querySelector('.campaign-subdept-select');
+            const subdeptCol = item.querySelector(`.campaign-subdept-col[data-key="${key}"]`);
             subdeptSelect.innerHTML = '<option value="">N/A</option>';
+            subdeptCol?.classList.add('d-none'); // Hide until department is selected
 
+            // Auto-select department if only one option
+            if (departments.length === 1 && !existing?.department) {
+                deptSelect.value = departments[0];
+                onCampaignDepartmentChange(key, departments[0]);
+            }
             // If existing department, populate subdepartments
-            if (existing?.department) {
+            else if (existing?.department) {
                 populateCampaignSubdepts(key, company, existing.department, existing.subdepartment);
                 updateCampaignManager(key, company, existing.department);
             }
@@ -1125,7 +2453,8 @@
             campaignAllocations[key].department = department;
             campaignAllocations[key].subdepartment = null;
 
-            const company = campaignAllocations[key].company;
+            // Use master company instead of per-campaign company
+            const company = selectedMasterCompany;
             populateCampaignSubdepts(key, company, department, null);
             updateCampaignManager(key, company, department);
             updateAllocationSummary();
@@ -1136,11 +2465,25 @@
             if (!item) return;
 
             const subdeptSelect = item.querySelector('.campaign-subdept-select');
+            const subdeptCol = item.querySelector(`.campaign-subdept-col[data-key="${key}"]`);
             const deptUnits = structureData.filter(s => s.company === company && s.department === department);
             const subdepts = [...new Set(deptUnits.map(s => s.subdepartment).filter(s => s))];
 
             subdeptSelect.innerHTML = '<option value="">N/A</option>' +
                 subdepts.map(s => `<option value="${s}" ${selectedSubdept === s ? 'selected' : ''}>${s}</option>`).join('');
+
+            // Show/hide subdepartment column based on available options
+            if (subdepts.length > 0) {
+                subdeptCol?.classList.remove('d-none');
+            } else {
+                subdeptCol?.classList.add('d-none');
+            }
+
+            // Auto-select subdepartment if only one option
+            if (subdepts.length === 1 && !selectedSubdept) {
+                subdeptSelect.value = subdepts[0];
+                onCampaignFieldChange(key, 'subdepartment', subdepts[0]);
+            }
         }
 
         function updateCampaignManager(key, company, department) {
@@ -1285,6 +2628,10 @@
                             opt.textContent = b;
                             brandSelect.appendChild(opt);
                         });
+                        // Auto-select brand if only one option
+                        if (brands.length === 1) {
+                            brandSelect.value = brands[0];
+                        }
                     } else {
                         brandCol.classList.add('d-none');
                     }
@@ -1295,6 +2642,13 @@
                         opt.textContent = d;
                         deptSelect.appendChild(opt);
                     });
+
+                    // Auto-select department if only one option
+                    if (departments.length === 1) {
+                        deptSelect.value = departments[0];
+                        // Trigger department change to populate subdepartments
+                        deptSelect.dispatchEvent(new Event('change'));
+                    }
                 } else {
                     brandCol.classList.add('d-none');
                 }
@@ -1318,6 +2672,10 @@
                             opt.textContent = s;
                             subdeptSelect.appendChild(opt);
                         });
+                        // Auto-select subdepartment if only one option
+                        if (subdepts.length === 1) {
+                            subdeptSelect.value = subdepts[0];
+                        }
                     } else {
                         subdeptCol.classList.add('d-none');
                     }
@@ -1405,7 +2763,9 @@
             });
 
             badge.textContent = totalPercent.toFixed(0) + '%';
-            badge.className = `badge ms-1 ${totalPercent > 100 ? 'bg-danger' : totalPercent === 100 ? 'bg-success' : 'bg-secondary'} reinvoice-total-badge`;
+            // Allow tolerance: up to 100.1% is considered valid (green)
+            const reinvoiceValid = totalPercent >= 99.99 && totalPercent <= 100.1;
+            badge.className = `badge ms-1 ${totalPercent > 100.1 ? 'bg-danger' : reinvoiceValid ? 'bg-success' : 'bg-secondary'} reinvoice-total-badge`;
         }
 
         function updateReinvoiceValues(campaignKey) {
@@ -1463,21 +2823,22 @@
 
             const inv = reportData.invoices[selectedInvoiceIndex];
             const invoiceValue = inv.invoice_value || 0;
-            const campaigns = inv.campaigns || {};
-            const campaignEntries = Object.entries(campaigns);
 
             let totalAllocValue = 0;
             let totalPercent = 0;
             let allDepartmentsSelected = true;
+            let companySelected = !!selectedMasterCompany;
             let validationErrors = [];
 
-            campaignEntries.forEach((_, campIdx) => {
-                const key = `inv_${selectedInvoiceIndex}_camp_${campIdx}`;
+            // Process only visible items (including merged campaigns, excluding hidden originals)
+            const visibleItems = document.querySelectorAll('.distribute-item:not(.merged-hidden)');
+            visibleItems.forEach(item => {
+                const key = item.dataset.campaignKey;
                 const alloc = campaignAllocations[key] || {};
 
                 // Get values from inputs (if rendered)
-                const percentInput = document.querySelector(`.campaign-percent-input[data-key="${key}"]`);
-                const valueInput = document.querySelector(`.campaign-value-input[data-key="${key}"]`);
+                const percentInput = item.querySelector('.campaign-percent-input');
+                const valueInput = item.querySelector('.campaign-value-input');
 
                 const percent = percentInput ? parseFloat(percentInput.value) || 0 : (alloc.allocation_percent || 0);
                 const value = valueInput ? parseFloat(valueInput.value) || 0 : (alloc.allocation_value || 0);
@@ -1486,10 +2847,9 @@
                 totalAllocValue += value;
 
                 // Check if department is selected
-                const companySelect = document.querySelector(`.campaign-company-select[data-key="${key}"]`);
-                const deptSelect = document.querySelector(`.campaign-department-select[data-key="${key}"]`);
+                const deptSelect = item.querySelector('.campaign-department-select');
 
-                if (!companySelect?.value || !deptSelect?.value) {
+                if (!deptSelect?.value) {
                     allDepartmentsSelected = false;
                 }
             });
@@ -1500,13 +2860,18 @@
 
             // Validation status
             const validationDiv = document.getElementById('validationStatus');
-            const isValid = Math.abs(totalPercent - 100) < 0.01 && allDepartmentsSelected;
+            // Allow tolerance: 99.99% to 100.1% is considered valid (100%)
+            const percentValid = totalPercent >= 99.99 && totalPercent <= 100.1;
+            const isValid = percentValid && allDepartmentsSelected && companySelected;
 
             if (isValid) {
                 validationDiv.innerHTML = '<span class="badge bg-success"><i class="bi bi-check-circle"></i> Ready</span>';
             } else {
                 let errors = [];
-                if (Math.abs(totalPercent - 100) >= 0.01) {
+                if (!companySelected) {
+                    errors.push('No company');
+                }
+                if (!percentValid) {
                     errors.push(`${totalPercent.toFixed(2)}% ≠ 100%`);
                 }
                 if (!allDepartmentsSelected) {
@@ -1528,109 +2893,230 @@
             return isValid;
         }
 
-        async function transferToNewInvoice() {
+        async function saveToAccounting() {
             if (selectedInvoiceIndex === null) {
-                alert('Please select an invoice first.');
+                showModal('Please select an invoice first.', 'warning');
                 return;
             }
 
-            // Validate before transfer
+            // Validate before saving
             const isValid = updateAllocationSummary();
             if (!isValid) {
-                alert('Please complete all allocations:\n- All campaigns must have Company and Department selected\n- Total allocation must equal 100%');
+                showModal('Please complete all allocations:\n• Company must be selected\n• All items must have Department selected\n• Total allocation must equal 100%', 'warning', 'Validation Required');
                 return;
             }
 
             const loadingOverlay = document.getElementById('loadingOverlay');
-            loadingOverlay.querySelector('.progress-text').textContent = 'Preparing transfer...';
+            const btn = document.getElementById('transferBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Saving...';
+            loadingOverlay.querySelector('.progress-text').textContent = 'Saving to accounting...';
             loadingOverlay.classList.add('show');
 
             try {
                 const inv = reportData.invoices[selectedInvoiceIndex];
                 const campaigns = inv.campaigns || {};
                 const campaignEntries = Object.entries(campaigns);
+                const invoiceValue = inv.invoice_value || 0;
 
-                // Find the matching file from uploadedFiles by filename
-                let fileData = null;
-                let fileName = inv.filename || '';
-                if (fileName && uploadedFiles.length > 0) {
-                    const matchingFile = uploadedFiles.find(f => f.name === fileName);
-                    if (matchingFile) {
-                        // Convert file to base64
-                        fileData = await fileToBase64(matchingFile);
-                    }
+                // If no campaigns found, use "Full Invoice" placeholder
+                let effectiveCampaignEntries = campaignEntries;
+                if (campaignEntries.length === 0) {
+                    effectiveCampaignEntries = [['Full Invoice', invoiceValue]];
                 }
 
-                // Build transfer data with full allocation details
-                const transferData = {
-                    // Invoice header data
-                    supplier: inv.supplier || '',
-                    supplier_vat: inv.supplier_vat || '',
-                    invoice_number: inv.invoice_number || '',
-                    invoice_date: inv.invoice_date || '',
-                    invoice_value: inv.invoice_value || 0,
-                    currency: inv.currency || 'RON',
-                    customer_vat: inv.customer_vat || '',
+                // Build distributions array (same format as Add Invoice page)
+                // Process visible campaigns only (skip hidden/merged originals)
+                const distributions = [];
+                const visibleItems = document.querySelectorAll('.distribute-item:not(.merged-hidden)');
 
-                    // File data for uploader
-                    file_name: fileName,
-                    file_data: fileData,
+                visibleItems.forEach(item => {
+                    const key = item.dataset.campaignKey;
+                    const name = item.dataset.campaignName;
+                    const isMerged = item.classList.contains('merged-campaign');
 
-                    // Campaign allocations with all fields
-                    campaigns: campaignEntries.map(([name, value], campIdx) => {
-                        const key = `inv_${selectedInvoiceIndex}_camp_${campIdx}`;
-                        const alloc = campaignAllocations[key] || {};
+                    const percentInput = item.querySelector('.campaign-percent-input');
+                    const valueInput = item.querySelector('.campaign-value-input');
+                    const brandSelect = item.querySelector('.campaign-brand-select');
+                    const deptSelect = item.querySelector('.campaign-department-select');
+                    const subdeptSelect = item.querySelector('.campaign-subdept-select');
+                    const commentInput = item.querySelector('.campaign-comment-input');
+                    const isLocked = item.classList.contains('locked') || false;
 
-                        // Get values from inputs
-                        const percentInput = document.querySelector(`.campaign-percent-input[data-key="${key}"]`);
-                        const valueInput = document.querySelector(`.campaign-value-input[data-key="${key}"]`);
-                        const companySelect = document.querySelector(`.campaign-company-select[data-key="${key}"]`);
-                        const brandSelect = document.querySelector(`.campaign-brand-select[data-key="${key}"]`);
-                        const deptSelect = document.querySelector(`.campaign-department-select[data-key="${key}"]`);
-                        const subdeptSelect = document.querySelector(`.campaign-subdept-select[data-key="${key}"]`);
-                        const reinvoiceCheck = document.querySelector(`.campaign-reinvoice-check[data-key="${key}"]`);
-                        const commentInput = document.querySelector(`.campaign-comment-input[data-key="${key}"]`);
-                        const item = document.querySelector(`.distribute-item[data-campaign-key="${key}"]`);
-                        const isLocked = item?.classList.contains('locked') || false;
+                    const percent = parseFloat(percentInput?.value) || 0;
+                    const allocValue = parseFloat(valueInput?.value) || 0;
 
-                        return {
-                            name: name,
-                            original_value: value,
-                            allocation_percent: parseFloat(percentInput?.value) || 0,
-                            allocation_value: parseFloat(valueInput?.value) || 0,
-                            company: companySelect?.value || '',
-                            brand: brandSelect?.value || '',
-                            department: deptSelect?.value || '',
-                            subdepartment: subdeptSelect?.value || '',
-                            locked: isLocked,
-                            comment: commentInput?.value || '',
-                            reinvoice: reinvoiceCheck?.checked || false,
-                            reinvoice_destinations: getReinvoiceDestinations(key)
-                        };
+                    // For merged campaigns, store original campaign names in comment
+                    let commentText = name;
+                    if (isMerged && campaignAllocations[key]?.originalNames) {
+                        commentText = `[MERGED] Original campaigns: ${campaignAllocations[key].originalNames.join(', ')}`;
+                    }
+                    if (commentInput?.value) {
+                        commentText += ' - ' + commentInput.value;
+                    }
+
+                    distributions.push({
+                        company: selectedMasterCompany,
+                        brand: brandSelect?.value || null,
+                        department: deptSelect?.value || '',
+                        subdepartment: subdeptSelect?.value || null,
+                        allocation: percent / 100,  // Convert percentage to decimal (0-1)
+                        reinvoice_destinations: getReinvoiceDestinations(key),
+                        locked: isLocked,
+                        comment: commentText
+                    });
+                });
+
+                // Parse invoice date to ISO format
+                let invoiceDate = inv.invoice_date || '';
+                if (inv.date_parsed) {
+                    // If we have a parsed date object, format it as YYYY-MM-DD
+                    const d = new Date(inv.date_parsed);
+                    invoiceDate = d.toISOString().split('T')[0];
+                } else if (invoiceDate) {
+                    // Try to parse Romanian date format (e.g., "20 nov. 2025")
+                    invoiceDate = parseRomanianDateToISO(invoiceDate);
+                }
+
+                // First save to database
+                const res = await fetch('/api/submit', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        supplier: inv.supplier || '',
+                        invoice_number: inv.invoice_number || '',
+                        invoice_date: invoiceDate,
+                        invoice_value: invoiceValue,
+                        currency: inv.currency || 'RON',
+                        drive_link: '',  // Will be set after upload
+                        distributions,
+                        value_ron: null,
+                        value_eur: null,
+                        exchange_rate: null,
+                        comment: '',
+                        payment_status: 'not_paid',
+                        subtract_vat: false,
+                        vat_rate: null,
+                        net_value: null
                     })
-                };
+                });
 
-                // Store in sessionStorage for the New Invoice page to read
-                sessionStorage.setItem('bulkTransferData', JSON.stringify(transferData));
+                const result = await res.json();
+                if (result.success) {
+                    // Upload file to Drive if available
+                    let driveLink = '';
+                    const fileName = inv.filename || '';
+                    if (fileName && uploadedFiles.length > 0) {
+                        const matchingFile = uploadedFiles.find(f => f.name === fileName);
+                        if (matchingFile) {
+                            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Uploading to Drive...';
+                            loadingOverlay.querySelector('.progress-text').textContent = 'Uploading to Google Drive...';
 
-                // Open New Invoice page in new window/tab
-                window.open('/add-invoice?fromBulk=1', '_blank');
+                            const uploadResult = await uploadToDrive(matchingFile, invoiceDate, selectedMasterCompany, inv.invoice_number);
+                            if (uploadResult.success) {
+                                driveLink = uploadResult.drive_link;
+                                // Update the invoice with the drive link
+                                await fetch(`/api/invoices/${result.invoice_id}/drive-link`, {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ drive_link: driveLink })
+                                });
+                            }
+                        }
+                    }
+
+                    // Mark invoice as saved in the list
+                    markInvoiceAsSaved(selectedInvoiceIndex);
+
+                    let successMsg = `Invoice ${inv.invoice_number} saved with ${result.allocations} allocation(s)!`;
+                    if (driveLink) successMsg += '\nUploaded to Google Drive.';
+                    showModal(successMsg, 'success', 'Invoice Saved');
+
+                    // Move to next unsaved invoice or clear selection
+                    selectNextUnsavedInvoice();
+                } else {
+                    showModal('Error: ' + result.error, 'error');
+                }
             } catch (error) {
-                alert('Error preparing transfer: ' + error.message);
+                showModal('Error saving invoice: ' + error.message, 'error');
             } finally {
                 loadingOverlay.querySelector('.progress-text').textContent = 'Processing invoices...';
                 loadingOverlay.classList.remove('show');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-check-circle"></i> Save to Accounting';
+                updateAllocationSummary();
             }
         }
 
-        // Helper function to convert File to base64
-        function fileToBase64(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
+        // Upload file to Google Drive
+        async function uploadToDrive(file, invoiceDate, company, invoiceNumber) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('invoice_date', invoiceDate);
+            formData.append('company', company);
+            formData.append('invoice_number', invoiceNumber);
+
+            const res = await fetch('/api/drive/upload', { method: 'POST', body: formData });
+            return await res.json();
+        }
+
+        // Parse Romanian date format to ISO (YYYY-MM-DD)
+        function parseRomanianDateToISO(dateStr) {
+            const months = {
+                'ian': '01', 'feb': '02', 'mar': '03', 'apr': '04', 'mai': '05', 'iun': '06',
+                'iul': '07', 'aug': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12',
+                'ianuarie': '01', 'februarie': '02', 'martie': '03', 'aprilie': '04',
+                'iunie': '06', 'iulie': '07', 'august': '08', 'septembrie': '09',
+                'octombrie': '10', 'noiembrie': '11', 'decembrie': '12'
+            };
+
+            const match = dateStr.match(/(\d{1,2})\s+(\w+)\.?,?\s*(\d{4})/);
+            if (match) {
+                const day = match[1].padStart(2, '0');
+                const monthStr = match[2].toLowerCase().replace('.', '');
+                const year = match[3];
+                const month = months[monthStr] || '01';
+                return `${year}-${month}-${day}`;
+            }
+            return dateStr;  // Return as-is if can't parse
+        }
+
+        // Mark invoice as saved in the list
+        function markInvoiceAsSaved(idx) {
+            if (!reportData?.invoices[idx]) return;
+            reportData.invoices[idx].saved = true;
+
+            // Re-render the list to show updated saved status
+            renderInvoiceList();
+        }
+
+        // Select next unsaved invoice
+        function selectNextUnsavedInvoice() {
+            if (!reportData?.invoices) return;
+
+            // Find next unsaved invoice
+            const nextIdx = reportData.invoices.findIndex((inv, idx) => idx > selectedInvoiceIndex && !inv.saved);
+            if (nextIdx >= 0) {
+                selectInvoice(nextIdx);
+            } else {
+                // Check if all invoices are saved
+                const allSaved = reportData.invoices.every(inv => inv.saved);
+                if (allSaved) {
+                    showModal('All invoices have been saved successfully!', 'success', 'Complete');
+                    // Reset selection
+                    selectedInvoiceIndex = null;
+                    document.getElementById('campaignDetailsPanel').innerHTML = `
+                        <div class="text-center text-success py-5">
+                            <i class="bi bi-check-circle fs-1"></i>
+                            <p class="mt-2">All invoices saved to accounting!</p>
+                        </div>
+                    `;
+                    document.getElementById('selectedInvoiceSummary').style.display = 'none';
+                    document.getElementById('transferBtn').disabled = true;
+                    document.getElementById('copyPatternBtn').disabled = true;
+                    document.getElementById('mergeSimilarBtn').disabled = true;
+                }
+            }
         }
 
         // Initialize distribute tab when shown
@@ -1650,6 +3136,8 @@
                         `;
                         document.getElementById('selectedInvoiceSummary').style.display = 'none';
                         document.getElementById('transferBtn').disabled = true;
+                        document.getElementById('copyPatternBtn').disabled = true;
+                        document.getElementById('mergeSimilarBtn').disabled = true;
                         document.getElementById('campaignCountBadge').textContent = '0';
                         document.getElementById('allocationStatusBadge').style.display = 'none';
                     }

@@ -1009,3 +1009,77 @@ def auto_detect_and_parse(file_bytes: bytes, filename: str, templates: list[dict
             return result
     finally:
         os.unlink(tmp_path)
+
+
+def match_campaigns_with_ai(source_campaigns: list, target_campaigns: list, api_key: str = None) -> dict:
+    """
+    Use AI to match campaign names from source to target based on semantic similarity.
+
+    Args:
+        source_campaigns: List of campaign names from the source (pattern) invoice
+        target_campaigns: List of campaign names from the target invoice to apply pattern to
+        api_key: Optional Anthropic API key
+
+    Returns:
+        Dictionary mapping target campaign index to source campaign index
+        e.g., {0: 1, 1: 0, 2: 2} means target[0] matches source[1], target[1] matches source[0], etc.
+    """
+    if not api_key:
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY not set")
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    prompt = f"""Match advertising campaign names from a source list to a target list based on semantic similarity.
+The campaigns are typically advertising campaigns with similar naming conventions like "[CA] Leads - Brand Name" or "CAMPAIGN NAME - DESCRIPTION".
+
+SOURCE CAMPAIGNS (from the pattern invoice):
+{json.dumps(source_campaigns, indent=2)}
+
+TARGET CAMPAIGNS (to apply the pattern to):
+{json.dumps(target_campaigns, indent=2)}
+
+For each TARGET campaign, find the best matching SOURCE campaign based on:
+1. Similar campaign type (e.g., "Leads", "Traffic", "Awareness")
+2. Similar brand/product (e.g., "Mazda CX80" matches "Mazda CX60", "Volvo" matches "Volvo")
+3. Similar structure/format
+
+Return a JSON object mapping each target index to the best matching source index.
+If a target has no good match, map it to the first source index (0) as a fallback.
+
+Example response format:
+{{"0": 1, "1": 0, "2": 2, "3": 0}}
+
+IMPORTANT: Return ONLY the JSON object, no explanation or additional text."""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        # Extract JSON from response
+        response_text = response.content[0].text.strip()
+
+        # Try to parse the response as JSON
+        try:
+            # Remove any markdown code blocks if present
+            if response_text.startswith('```'):
+                response_text = response_text.split('```')[1]
+                if response_text.startswith('json'):
+                    response_text = response_text[4:]
+                response_text = response_text.strip()
+
+            result = json.loads(response_text)
+            # Convert string keys to int if needed
+            return {int(k): int(v) for k, v in result.items()}
+        except json.JSONDecodeError:
+            # Fallback: return sequential mapping
+            return {i: i % len(source_campaigns) for i in range(len(target_campaigns))}
+
+    except Exception as e:
+        print(f"AI campaign matching error: {e}")
+        # Fallback: return sequential mapping (cycle through pattern)
+        return {i: i % len(source_campaigns) for i in range(len(target_campaigns))}

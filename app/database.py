@@ -818,8 +818,8 @@ def save_invoice(
         for dist in distributions:
             allocation_value = invoice_value * dist['allocation']
             cursor.execute('''
-                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment, allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment, allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked, comment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 invoice_id,
@@ -834,7 +834,8 @@ def save_invoice(
                 dist.get('reinvoice_brand'),
                 dist.get('reinvoice_department'),
                 dist.get('reinvoice_subdepartment'),
-                dist.get('locked', False)
+                dist.get('locked', False),
+                dist.get('comment')
             ))
             allocation_id = cursor.fetchone()['id']
 

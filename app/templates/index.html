@@ -522,15 +522,22 @@
                     }
                 }
 
-                // Try to match customer VAT to company
-                if (data.customer_vat) {
+                // Set dedicated company if provided directly from bulk transfer
+                const dedicatedCompanySelect = document.getElementById('dedicatedCompany');
+                if (data.dedicated_company) {
+                    dedicatedCompanySelect.value = data.dedicated_company;
+                    // Trigger change to load departments for this company
+                    dedicatedCompanySelect.dispatchEvent(new Event('change'));
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+                // Otherwise try to match customer VAT to company
+                else if (data.customer_vat) {
                     document.getElementById('matchedCompany').value = data.customer_vat;
                     // Try to find matching company
                     const matchedCompany = companiesWithVat.find(c =>
                         c.vat && c.vat.replace(/\s/g, '') === data.customer_vat.replace(/\s/g, '')
                     );
                     if (matchedCompany) {
-                        const dedicatedCompanySelect = document.getElementById('dedicatedCompany');
                         dedicatedCompanySelect.value = matchedCompany.name;
                         // Trigger change to load departments for this company
                         dedicatedCompanySelect.dispatchEvent(new Event('change'));

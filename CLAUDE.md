@@ -312,6 +312,57 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
 - Shows either total in RON or converted total in EUR
 - Uses BNR exchange rates from invoice dates
 
+## Bulk Invoice Processor (`bulk_processor.py`)
+
+### Overview
+The bulk processor handles analysis of multiple invoices at once, extracting line items/campaigns and generating reports.
+
+### Meta Invoice Item Parsing
+The `parse_meta_invoice()` function uses dynamic line-by-line parsing to extract ALL invoice items:
+
+**Algorithm:**
+1. **Preprocess text** - Split concatenated item headers that PDF extraction merges:
+   - `RON[CA]` → `RON\n[CA]`
+   - `RON(Postare:)` → `RON\n(Postare:)`
+   - `RON(Stoc_)` → `RON\n(Stoc_)`
+   - `RON(GENERARE)` → `RON\n(GENERARE)`
+
+2. **Line-by-line scan** - For each line, check if next line matches date range + value pattern:
+   - Pattern: `\d{1,2}\s+\w+\.?\s+202\d.*\d{2}:\d{2}([\d.,]+)\s*RON`
+   - Example: `29 oct. 2025, 00:00 - 4 nov. 2025, 17:31380,30 RON`
+
+3. **Skip metadata** - Filter out non-item lines using skip keywords:
+   - `de Afișări`, `Afișări`, `Meta Platforms`, `Merrion Road`, `Dublin`, `Ireland`, `VAT Reg`, etc.
+
+4. **Extract value** - Parse the value from date range line and add to items dict
+
+**Data Structure:**
+```python
+{
+    'items': {  # Generic name for all invoice types
+        '[CA] Traffic - Interese - Modele masini': 380.30,
+        'Postare: „Audi RS6..."': 4.37,
+        'Stoc_DWA - TEST': 522.27,
+        ...
+    },
+    'campaigns': {...}  # Alias of items for frontend compatibility
+}
+```
+
+### Return Structure
+The `process_invoices()` function returns:
+```python
+{
+    'invoices': [...]  # List with items/campaigns per invoice
+    'by_item': {...}   # Aggregated items across all invoices
+    'by_campaign': {...}  # Alias for frontend compatibility
+    'by_month': {...}
+    'by_supplier': {...}
+    'total': float
+    'currency': str
+}
+```
+
 ## Recent Changes
 - Added department CC email feature: each department can have a CC email that receives all allocation notifications for that department
   - CC Email field in Department Structure modal (Settings → Department Structure)
@@ -407,3 +458,11 @@ The "Total Value" card on the accounting dashboard has a EUR/RON toggle switch:
   - Progress tracking shows allocated items count and value
   - "Save All to Accounting" button saves all allocated invoices to database
   - Uses the same `/api/submit` endpoint as New Invoice page (same validation, notifications, logging)
+- Improved Meta invoice item parser for 100% extraction coverage
+  - Renamed "campaigns" to "items" throughout bulk processor (supports all invoice types)
+  - Dynamic line-by-line parsing instead of specific regex patterns for prefixes
+  - Handles PDF text extraction quirks where items are concatenated after "RON"
+  - Preprocesses text to split concatenated item headers (e.g., "RON[CA]" → "RON\n[CA]")
+  - Pattern detection: item name on one line, date range + value on next line
+  - Skip keywords filter out metadata (Afișări, Meta Platforms, Dublin, etc.)
+  - Returns both `items` and `campaigns` keys for frontend compatibility
