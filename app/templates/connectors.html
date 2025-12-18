@@ -20,9 +20,49 @@
         .sync-log-item.running { border-left-color: #0d6efd; }
         .connector-unavailable { opacity: 0.6; }
         .coming-soon-badge { font-size: 0.7em; }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.85);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 9999;
+        }
+        .loading-overlay.show {
+            display: flex;
+        }
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #dee2e6;
+            border-top-color: #0d6efd;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .loading-text {
+            margin-top: 1rem;
+            font-size: 1.1rem;
+            color: #495057;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading...</div>
+    </div>
+
     <nav class="navbar navbar-dark bg-primary mb-4">
         <div class="container">
             <span class="navbar-brand mb-0 h1">
@@ -355,6 +395,17 @@
         const connectModal = new bootstrap.Modal(document.getElementById('connectModal'));
         const configureModal = new bootstrap.Modal(document.getElementById('configureModal'));
 
+        // Loading overlay helpers
+        function showLoading(message = 'Loading...') {
+            const overlay = document.getElementById('loadingOverlay');
+            const text = overlay.querySelector('.loading-text');
+            text.textContent = message;
+            overlay.classList.add('show');
+        }
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('show');
+        }
+
         function showConnectModal(connectorType) {
             document.getElementById('connectorType').value = connectorType;
 
@@ -435,12 +486,14 @@
         async function syncConnector(connectorId) {
             if (!confirm('Start syncing invoices from this connector?')) return;
 
+            showLoading('Syncing invoices...');
             try {
                 const response = await fetch(`/api/connectors/${connectorId}/sync`, {
                     method: 'POST'
                 });
 
                 const result = await response.json();
+                hideLoading();
 
                 if (response.ok) {
                     alert(`Sync complete!\nFound: ${result.invoices_found}\nImported: ${result.invoices_imported}`);
@@ -450,6 +503,7 @@
                     location.reload();
                 }
             } catch (err) {
+                hideLoading();
                 alert('Error syncing: ' + err.message);
             }
         }

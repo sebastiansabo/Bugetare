@@ -95,9 +95,49 @@
             font-style: italic;
             font-size: 0.875rem;
         }
+
+        /* Loading overlay */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255,255,255,0.85);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 9999;
+        }
+        .loading-overlay.show {
+            display: flex;
+        }
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #dee2e6;
+            border-top-color: #0d6efd;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        .loading-text {
+            margin-top: 1rem;
+            font-size: 1.1rem;
+            color: #495057;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading...</div>
+    </div>
+
     <nav class="navbar navbar-dark bg-secondary mb-4">
         <div class="container">
             <span class="navbar-brand mb-0 h1">
@@ -1055,14 +1095,38 @@
         const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
         const editVatRateModal = new bootstrap.Modal(document.getElementById('editVatRateModal'));
 
+        // Loading overlay helpers
+        let loadingCount = 0;
+        function showLoading(message = 'Loading...') {
+            loadingCount++;
+            const overlay = document.getElementById('loadingOverlay');
+            const text = overlay.querySelector('.loading-text');
+            text.textContent = message;
+            overlay.classList.add('show');
+        }
+        function hideLoading() {
+            loadingCount = Math.max(0, loadingCount - 1);
+            if (loadingCount === 0) {
+                document.getElementById('loadingOverlay').classList.remove('show');
+            }
+        }
+        function setLoadingMessage(message) {
+            document.querySelector('#loadingOverlay .loading-text').textContent = message;
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
-            loadRoles();
-            loadUsers();
-            loadResponsables();
-            loadNotificationSettings();
-            loadCompaniesWithVat();  // Load VAT registry first (needed for department structure modal)
-            loadDepartmentStructures();
-            loadVatRates();
+            showLoading('Loading settings...');
+            Promise.all([
+                loadRoles(),
+                loadUsers(),
+                loadResponsables(),
+                loadNotificationSettings(),
+                loadCompaniesWithVat(),
+                loadDepartmentStructures(),
+                loadVatRates()
+            ]).finally(() => {
+                hideLoading();
+            });
 
             // Event listener for Add Company VAT button
             document.getElementById('addCompanyVatBtn').addEventListener('click', addNewCompanyVat);
