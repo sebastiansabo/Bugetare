@@ -3015,8 +3015,8 @@
                             const uploadResult = await uploadToDrive(matchingFile, invoiceDate, selectedMasterCompany, inv.invoice_number);
                             if (uploadResult.success) {
                                 driveLink = uploadResult.drive_link;
-                                // Update the invoice with the drive link
-                                await fetch(`/api/invoices/${result.invoice_id}/drive-link`, {
+                                // Update the invoice with the drive link (with retry for cold start)
+                                await fetchWithRetry(`/api/invoices/${result.invoice_id}/drive-link`, {
                                     method: 'PUT',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({ drive_link: driveLink })
@@ -3048,7 +3048,7 @@
             }
         }
 
-        // Upload file to Google Drive
+        // Upload file to Google Drive (with retry for cold start)
         async function uploadToDrive(file, invoiceDate, company, invoiceNumber) {
             const formData = new FormData();
             formData.append('file', file);
@@ -3056,7 +3056,7 @@
             formData.append('company', company);
             formData.append('invoice_number', invoiceNumber);
 
-            const res = await fetch('/api/drive/upload', { method: 'POST', body: formData });
+            const res = await fetchWithRetry('/api/drive/upload', { method: 'POST', body: formData });
             return await res.json();
         }
 
