@@ -562,8 +562,8 @@
             // Handle newlines in message
             modalBody.innerHTML = message.replace(/\n/g, '<br>');
 
-            // Show modal
-            const bsModal = new bootstrap.Modal(modal);
+            // Show modal - use getOrCreateInstance to avoid stacking backdrop issues
+            const bsModal = bootstrap.Modal.getOrCreateInstance(modal);
             bsModal.show();
         }
 

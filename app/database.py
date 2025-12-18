@@ -817,6 +817,27 @@ def save_invoice(
         # Insert allocations
         for dist in distributions:
             allocation_value = invoice_value * dist['allocation']
+
+            # Look up the responsible (manager) from department_structure if not provided
+            responsible = dist.get('responsible', '')
+            if not responsible and dist['company'] and dist['department']:
+                subdept = dist.get('subdepartment')
+                if subdept:
+                    cursor.execute('''
+                        SELECT manager FROM department_structure
+                        WHERE company = %s AND department = %s AND subdepartment = %s
+                        LIMIT 1
+                    ''', (dist['company'], dist['department'], subdept))
+                else:
+                    cursor.execute('''
+                        SELECT manager FROM department_structure
+                        WHERE company = %s AND department = %s
+                        LIMIT 1
+                    ''', (dist['company'], dist['department']))
+                row = cursor.fetchone()
+                if row and row['manager']:
+                    responsible = row['manager']
+
             cursor.execute('''
                 INSERT INTO allocations (invoice_id, company, brand, department, subdepartment, allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked, comment)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -829,7 +850,7 @@ def save_invoice(
                 dist.get('subdepartment'),
                 dist['allocation'] * 100,
                 allocation_value,
-                dist.get('responsible', ''),
+                responsible,
                 dist.get('reinvoice_to'),
                 dist.get('reinvoice_brand'),
                 dist.get('reinvoice_department'),
