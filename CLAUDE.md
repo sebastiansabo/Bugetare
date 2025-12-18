@@ -490,3 +490,12 @@ The `process_invoices()` function returns:
   - Extracts campaign names and costs (e.g., "[CA] S Skoda modele")
   - Uses AI fallback for reliable extraction
   - Campaign values sum to 100% of invoice value
+- Added health endpoint version for deployment verification (`/health` returns `version` field)
+- Fixed role permission editing not persisting (can_edit_invoices was missing from API endpoints)
+  - Added `can_edit_invoices` parameter to both `api_create_role` (POST) and `api_update_role` (PUT)
+  - All 8 role permissions now properly saved: can_add_invoices, can_edit_invoices, can_delete_invoices, can_view_invoices, can_access_accounting, can_access_settings, can_access_connectors, can_access_templates
+- Enhanced notification service with department-specific CC emails
+  - `send_email()` now accepts optional `department_cc` parameter
+  - Both global CC and department CC addresses receive notification copies
+  - Duplicate CC addresses are automatically filtered out
+  - Department CC is looked up via `get_department_cc_email(company, department)`
