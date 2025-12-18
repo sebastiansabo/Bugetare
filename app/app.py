@@ -1588,6 +1588,7 @@ def api_create_role():
             name=name,
             description=data.get('description'),
             can_add_invoices=data.get('can_add_invoices', False),
+            can_edit_invoices=data.get('can_edit_invoices', False),
             can_delete_invoices=data.get('can_delete_invoices', False),
             can_view_invoices=data.get('can_view_invoices', False),
             can_access_accounting=data.get('can_access_accounting', False),
