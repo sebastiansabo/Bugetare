@@ -1613,6 +1613,7 @@ def api_update_role(role_id):
             name=data.get('name'),
             description=data.get('description'),
             can_add_invoices=data.get('can_add_invoices'),
+            can_edit_invoices=data.get('can_edit_invoices'),
             can_delete_invoices=data.get('can_delete_invoices'),
             can_view_invoices=data.get('can_view_invoices'),
             can_access_accounting=data.get('can_access_accounting'),
