@@ -476,3 +476,14 @@ The `process_invoices()` function returns:
   - Applied to `/api/drive/upload` call for Drive upload
   - Applied to `/api/invoices/{id}/drive-link` PUT call for saving drive link
   - Fixes "Load failed" errors on first save attempt after cold start
+- Added eFactura (Romanian e-invoice) parsing support
+  - Detects eFactura format by presence of "RO eFactura" or "efactura" in text
+  - Extracts invoice number, date, supplier, customer VAT from eFactura format
+  - Parses line items with automatic NET to GROSS value conversion
+  - Each line item has VAT rate extracted and applied: `gross = net * (1 + vat_rate/100)`
+  - Items sum to invoice total (100%) for proper allocation percentage validation
+- Added Google Ads invoice parsing in bulk processor
+  - Detects "Google Ads" or "Google Ireland" in invoice text
+  - Extracts campaign names and costs (e.g., "[CA] S Skoda modele")
+  - Uses AI fallback for reliable extraction
+  - Campaign values sum to 100% of invoice value
