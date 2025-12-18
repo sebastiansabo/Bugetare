@@ -125,6 +125,11 @@ def get_db():
             # Use a lightweight query to test connection
             with conn.cursor() as cur:
                 cur.execute('SELECT 1')
+            # End the implicit transaction started by health check
+            conn.rollback()
+            # Set autocommit mode so each query sees the latest committed data
+            # without needing explicit transaction management
+            conn.autocommit = True
             # Connection is good, return it
             return conn
         except (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.DatabaseError) as e:
@@ -141,8 +146,15 @@ def get_db():
 
 
 def release_db(conn):
-    """Return connection to pool."""
+    """Return connection to pool.
+
+    Resets autocommit to False before returning to pool.
+    """
     if conn and _connection_pool:
+        try:
+            conn.autocommit = False  # Reset for next user
+        except Exception:
+            pass  # Ignore errors on closed connections
         _connection_pool.putconn(conn)
 
 

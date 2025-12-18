@@ -364,6 +364,11 @@ The `process_invoices()` function returns:
 ```
 
 ## Recent Changes
+- Fixed role permission editing stale data bug
+  - Root cause: `/api/roles` was in `CACHEABLE_API_ENDPOINTS` with 5-minute browser cache
+  - Browser cached `/api/roles` responses, causing stale data after permission edits
+  - Fix: Removed `/api/roles` from cacheable endpoints in app.py
+  - Also added `autocommit=True` in database.py `get_db()` for fresh transaction snapshots
 - Fixed missing `can_edit_invoices` permission in role create/update API endpoints
   - Both POST and PUT `/api/roles` now properly handle the edit permission
   - All 8 role permissions are now consistent across database, API, and frontend

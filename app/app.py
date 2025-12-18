@@ -97,11 +97,12 @@ app.config['REMEMBER_COOKIE_HTTPONLY'] = True  # Not accessible via JavaScript
 app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 
 # Cache-Control headers for static-ish API responses
+# NOTE: /api/roles removed - roles are edited frequently in Settings and
+# browser caching caused stale data issues (list vs single role mismatch)
 CACHEABLE_API_ENDPOINTS = {
     '/api/structure': 300,           # 5 minutes - department structure rarely changes
     '/api/companies': 300,           # 5 minutes - company list rarely changes
     '/api/templates': 300,           # 5 minutes - invoice templates rarely change
-    '/api/roles': 300,               # 5 minutes - roles rarely change
     '/api/vat-rates': 300,           # 5 minutes - VAT rates rarely change
     '/api/companies-vat': 300,       # 5 minutes - company VAT info rarely changes
     '/api/responsables': 300,        # 5 minutes - responsables rarely change
