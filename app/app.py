@@ -96,17 +96,11 @@ app.config['REMEMBER_COOKIE_SECURE'] = True  # Only send over HTTPS
 app.config['REMEMBER_COOKIE_HTTPONLY'] = True  # Not accessible via JavaScript
 app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 
-# Cache-Control headers for static-ish API responses
-# NOTE: /api/roles removed - roles are edited frequently in Settings and
-# browser caching caused stale data issues (list vs single role mismatch)
+# Cache-Control headers for API responses
+# NOTE: Browser caching disabled for all Settings-related endpoints to avoid stale data
+# after edits. Performance impact is minimal (<50ms per request for these simple queries).
 CACHEABLE_API_ENDPOINTS = {
-    '/api/structure': 300,           # 5 minutes - department structure rarely changes
-    '/api/companies': 300,           # 5 minutes - company list rarely changes
-    '/api/templates': 300,           # 5 minutes - invoice templates rarely change
-    '/api/vat-rates': 300,           # 5 minutes - VAT rates rarely change
-    '/api/companies-vat': 300,       # 5 minutes - company VAT info rarely changes
-    '/api/responsables': 300,        # 5 minutes - responsables rarely change
-    '/api/department-structures': 300,  # 5 minutes
+    # All reference data endpoints removed - fresh data is more valuable than caching
 }
 
 @app.after_request
