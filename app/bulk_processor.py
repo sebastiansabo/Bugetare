@@ -277,8 +277,113 @@ def detect_invoice_type(text: str) -> str:
         return 'google_ads'
     elif 'dreamstime' in text_lower:
         return 'dreamstime'
+    elif 'ro efactura' in text_lower or 'efactura' in text_lower or 'nr. factura' in text_lower:
+        return 'efactura'
     else:
         return 'generic'
+
+
+def parse_efactura_invoice(text: str) -> dict:
+    """Parse Romanian eFactura format invoices."""
+    result = {
+        'supplier': None,
+        'supplier_vat': None,
+        'items': {},
+        'invoice_value': None,
+        'net_value': None,
+        'currency': 'RON'
+    }
+
+    # Extract invoice number - format: "XXXX 1234 Nr. factura" or at start
+    inv_match = re.search(r'([A-Z]{2,}[\s]?\d+)\s+Nr\.?\s*factura', text)
+    if inv_match:
+        result['invoice_number'] = inv_match.group(1).strip()
+
+    # Extract date - format: "Data emitere 2025-12-04" or "Data emitere" followed by date
+    date_match = re.search(r'Data\s+emitere\s+(\d{4}-\d{2}-\d{2})', text)
+    if date_match:
+        result['invoice_date'] = date_match.group(1)
+
+    # Extract supplier name - after VANZATOR section
+    supplier_match = re.search(r'VANZATOR\s*\n?\s*([A-Z][A-Z\s\.]+(?:S\.?R\.?L\.?|S\.?A\.?))', text)
+    if supplier_match:
+        result['supplier'] = supplier_match.group(1).strip()
+    else:
+        # Try simpler pattern
+        supplier_match = re.search(r'([A-Z][A-Z\s\.]+(?:S\.?R\.?L\.?|S\.?A\.?))\s+Nume\s*\n?\s*Nr\. inregistrare', text)
+        if supplier_match:
+            result['supplier'] = supplier_match.group(1).strip()
+
+    # Extract supplier VAT - RO followed by digits
+    vat_match = re.search(r'Identificatorul TVA\s*\n?\s*(RO\d+)', text)
+    if vat_match:
+        result['supplier_vat'] = vat_match.group(1)
+    else:
+        vat_match = re.search(r'(RO\d{6,})', text)
+        if vat_match:
+            result['supplier_vat'] = vat_match.group(1)
+
+    # Extract customer info
+    customer_match = re.search(r'CUMPARATOR\s*\n?\s*([A-Z][A-Z\s\.]+(?:S\.?R\.?L\.?|S\.?A\.?))', text)
+    if customer_match:
+        result['customer_name'] = customer_match.group(1).strip()
+
+    customer_vat = re.search(r'Identificator\s*\n?\s*(RO\d+)', text)
+    if customer_vat:
+        result['customer_vat'] = customer_vat.group(1)
+
+    # Extract total values - look for TOTAL PLATA or VALOARE TOTALA cu TVA
+    total_match = re.search(r'TOTAL PLATA\s*\n?\s*([\d.,]+)', text)
+    if total_match:
+        result['invoice_value'] = parse_value(total_match.group(1))
+    else:
+        total_match = re.search(r'VALOARE TOTALA cu\s*\n?\s*TVA\s*\n?\s*([\d.,]+)', text)
+        if total_match:
+            result['invoice_value'] = parse_value(total_match.group(1))
+
+    # Extract net value - look for pattern with net and gross values
+    # Format: "535.00 535.00 647.35" followed by "647.35 TOTAL PLATA..."
+    # The first value is the net value
+    net_match = re.search(r'([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*\n\s*([\d.,]+)\s*TOTAL PLATA', text)
+    if net_match:
+        # First value is net, last value is gross
+        result['net_value'] = parse_value(net_match.group(1))
+    else:
+        # Try to extract from "Baza de calcul" (VAT base = net value)
+        net_match = re.search(r'Baza de calcul\s+Valoare TVA.*?\n\s*([\d.,]+)\s+([\d.,]+)', text, re.DOTALL)
+        if net_match:
+            result['net_value'] = parse_value(net_match.group(1))
+
+    # Extract line items from eFactura format
+    # Format: "21.00 Item description LineNo RON Qty UnitQty NetValue H87 UnitPrice"
+    # Example: "21.00 Display plastic prezentare A6 portrait - Mazda 1 RON 1 25.0000 205.00 H87 8.2000"
+    # Items in eFactura are NET values - we convert to GROSS by applying VAT rate
+
+    lines = text.split('\n')
+    for line in lines:
+        # Pattern: VAT% + item description + line# + RON + qty + unit_qty + net_value + H87 + unit_price
+        # The item description can contain letters, numbers, spaces, and special chars
+        match = re.match(
+            r'^\s*(\d+\.\d+)\s+'  # VAT rate (e.g., 21.00)
+            r'(.+?)\s+'  # Item description (greedy but minimal)
+            r'(\d+)\s+'  # Line number
+            r'RON\s+'  # Currency
+            r'(\d+)\s+'  # Quantity
+            r'([\d.]+)\s+'  # Unit quantity
+            r'([\d.,]+)\s+'  # Net value
+            r'H87',  # Unit code
+            line
+        )
+        if match:
+            vat_rate = float(match.group(1))  # e.g., 21.00
+            item_name = match.group(2).strip()
+            net_value = parse_value(match.group(6))
+            if item_name and net_value > 0:
+                # Convert NET to GROSS by applying VAT rate
+                gross_value = net_value * (1 + vat_rate / 100)
+                result['items'][item_name] = round(gross_value, 2)
+
+    return result
 
 
 def parse_invoice_auto(text: str, filename: str = '') -> dict:
@@ -292,6 +397,8 @@ def parse_invoice_auto(text: str, filename: str = '') -> dict:
         result = parse_meta_invoice(text)
     elif invoice_type == 'google_ads':
         result = parse_google_ads_invoice(text)
+    elif invoice_type == 'efactura':
+        result = parse_efactura_invoice(text)
     else:
         # Generic parsing
         result = parse_generic_invoice(text)
@@ -303,7 +410,7 @@ def parse_invoice_auto(text: str, filename: str = '') -> dict:
     needs_ai = (
         not result.get('invoice_number') or
         not result.get('invoice_value') or
-        (not result.get('items') and invoice_type not in ['meta', 'google_ads'])
+        (not result.get('items') and invoice_type not in ['meta', 'google_ads', 'efactura'])
     )
 
     if needs_ai and AI_ENABLED:
