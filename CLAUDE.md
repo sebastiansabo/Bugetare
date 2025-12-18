@@ -364,6 +364,10 @@ The `process_invoices()` function returns:
 ```
 
 ## Recent Changes
+- Added invoice list caching (60s TTL) for faster accounting page loads
+  - Cache key includes all query parameters (limit, offset, filters)
+  - Automatic invalidation on invoice CRUD operations
+- Fixed allocation percentage validation tolerance (0.01% → 0.1%) to handle floating-point precision errors
 - Added department CC email feature: each department can have a CC email that receives all allocation notifications for that department
   - CC Email field in Department Structure modal (Settings → Department Structure)
   - Combined with global CC: both global and department CC emails receive notifications
