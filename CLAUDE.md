@@ -23,8 +23,11 @@ app/
 ├── image_compressor.py # TinyPNG image compression for attachments
 ├── currency_converter.py # BNR exchange rate fetching and conversion
 ├── notification_service.py # SMTP email notifications
+├── google_ads_connector.py # Google Ads invoice fetching (DISABLED)
+├── anthropic_connector.py  # Anthropic billing invoice fetching (DISABLED)
 ├── config.py           # Configuration settings
 └── templates/          # Jinja2 HTML templates
+    └── buffer.html     # Invoice buffer page (DISABLED)
 ```
 
 ## Key Commands
@@ -61,6 +64,7 @@ docker run -p 8080:8080 -e DATABASE_URL="..." -e ANTHROPIC_API_KEY="..." bugetar
 - `users` - Application users with bcrypt passwords and role permissions
 - `user_events` - Activity log for user actions (login, invoice operations)
 - `vat_rates` - VAT rate definitions (id, name, rate)
+- `connectors` - External service connectors (Google Ads, Anthropic) - DISABLED
 
 ## Deployment
 Configured via `.do/app.yaml` for DigitalOcean App Platform with auto-deploy on push to main branch.
@@ -511,3 +515,58 @@ The `process_invoices()` function returns:
   - Both global CC and department CC addresses receive notification copies
   - Duplicate CC addresses are automatically filtered out
   - Department CC is looked up via `get_department_cc_email(company, department)`
+- Added connector infrastructure for automatic invoice fetching (DISABLED)
+  - Buffer page (`/buffer`) - universal inbox for invoices from connectors
+  - Google Ads connector with multi-account support and Playwright browser automation
+  - Anthropic connector for billing invoice fetching
+  - Connectors page (`/connectors`) with multi-account management UI
+  - `get_connectors_by_type()` function in database.py for multi-account support
+  - Feature temporarily disabled due to Google's security measures (passkeys, 2FA)
+  - All connector routes return "Coming Soon" or redirect to accounting
+  - API endpoints return 503 status with "feature coming soon" message
+
+## Connector Infrastructure (DISABLED)
+
+### Overview
+The connector system allows automatic invoice fetching from external services. Currently **disabled** due to authentication challenges with Google's security measures.
+
+### Components
+
+**Buffer Page** (`/buffer` → redirects to `/accounting`)
+- Universal inbox for invoices from all connectors
+- Fetch buttons for each connector type (Anthropic, Google Ads)
+- Checkbox selection for sending invoices to bulk processor
+- Source badges showing invoice origin
+
+**Connectors Page** (`/connectors` → shows "Coming Soon")
+- Multi-account management for Google Ads
+- Credential storage with encryption
+- Connect/disconnect functionality
+
+**Google Ads Connector** (`google_ads_connector.py`)
+- Playwright browser automation for invoice fetching
+- Persistent browser context with session cookies
+- Multi-account support via `connectors` table
+- Subprocess execution to avoid Flask asyncio conflicts
+- Unique temp directories per session to avoid browser lock conflicts
+
+**Anthropic Connector** (`anthropic_connector.py`)
+- API-based billing invoice fetching
+- Uses Anthropic API credentials
+
+### Database Support
+- `connectors` table stores connector configurations
+- `get_connectors_by_type(type)` returns all connectors of given type
+- Credentials stored encrypted in `credentials` JSON column
+- Config options in `config` JSON column (e.g., account_id)
+
+### Why Disabled
+Google's authentication requires:
+- Passkey/security key verification
+- 2FA prompts that can't be automated
+- Browser fingerprinting that blocks automation
+
+Future options:
+1. OAuth-based authentication (requires Google API access)
+2. Manual session cookie import
+3. Google Ads API integration (requires developer account)
