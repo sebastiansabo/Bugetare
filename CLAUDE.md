@@ -364,6 +364,13 @@ The `process_invoices()` function returns:
 ```
 
 ## Recent Changes
+- Added admin-configurable default column configuration for Accounting dashboard
+  - "Set as Default for All" button in Configure Columns modal (visible to admins only)
+  - Admins can set default column arrangements for all tabs (Invoices, By Company, By Department, By Brand)
+  - Users without localStorage config will see admin-set defaults
+  - Users can still personalize columns (localStorage overrides server default)
+  - "Reset to Default" button resets to server default (if set) or hardcoded defaults
+  - Stored in `notification_settings` table with keys: `default_columns_accounting`, `default_columns_company`, `default_columns_department`, `default_columns_brand`
 - Fixed role permission editing stale data bug
   - Root cause: `/api/roles` was in `CACHEABLE_API_ENDPOINTS` with 5-minute browser cache
   - Browser cached `/api/roles` responses, causing stale data after permission edits

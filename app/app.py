@@ -25,7 +25,7 @@ from database import (
     get_all_users, get_user, get_user_by_email, save_user, update_user, delete_user,
     get_all_roles, get_role, save_role, update_role, delete_role,
     get_all_responsables, get_responsable, save_responsable, update_responsable, delete_responsable,
-    get_notification_settings, save_notification_settings_bulk, get_notification_logs,
+    get_notification_settings, save_notification_settings_bulk, save_notification_setting, get_notification_logs,
     get_all_companies, get_company, save_company, update_company, delete_company as delete_company_db,
     get_all_department_structures, get_department_structure, save_department_structure,
     update_department_structure, delete_department_structure, get_unique_departments, get_unique_brands,
@@ -784,6 +784,16 @@ def accounting():
 
 # ============== CONNECTORS INTERFACE ENDPOINTS ==============
 
+@app.route('/buffer')
+@login_required
+def buffer():
+    """Buffer page for invoices fetched from connectors."""
+    if not current_user.can_access_connectors:
+        flash('You do not have permission to access the buffer.', 'error')
+        return redirect(url_for('accounting'))
+    return render_template('buffer.html')
+
+
 @app.route('/connectors')
 @login_required
 def connectors():
@@ -792,7 +802,7 @@ def connectors():
         flash('You do not have permission to access connectors.', 'error')
         return redirect(url_for('accounting'))
 
-    from database import get_all_connectors, get_connector_by_type, get_connector_sync_logs
+    from database import get_all_connectors, get_connector_by_type, get_connector_sync_logs, get_connectors_by_type
 
     all_connectors = get_all_connectors()
 
@@ -800,14 +810,19 @@ def connectors():
     for connector in all_connectors:
         connector['sync_logs'] = get_connector_sync_logs(connector['id'], limit=10)
 
-    # Get specific connectors for the template
-    google_ads_connector = get_connector_by_type('google_ads')
-    if google_ads_connector:
-        google_ads_connector['sync_logs'] = get_connector_sync_logs(google_ads_connector['id'], limit=10)
+    # Get all Google Ads connectors (multi-account support)
+    google_ads_connectors = get_connectors_by_type('google_ads')
+    for conn in google_ads_connectors:
+        conn['sync_logs'] = get_connector_sync_logs(conn['id'], limit=10)
+
+    anthropic_connector = get_connector_by_type('anthropic')
+    if anthropic_connector:
+        anthropic_connector['sync_logs'] = get_connector_sync_logs(anthropic_connector['id'], limit=10)
 
     return render_template('connectors.html',
                            connectors=all_connectors,
-                           google_ads_connector=google_ads_connector)
+                           google_ads_connectors=google_ads_connectors,
+                           anthropic_connector=anthropic_connector)
 
 
 @app.route('/api/connectors', methods=['GET'])
@@ -842,21 +857,26 @@ def api_create_connector():
     if not connector_type or not name:
         return jsonify({'error': 'connector_type and name are required'}), 400
 
-    # Check if connector of this type already exists
-    existing = get_connector_by_type(connector_type)
-    if existing:
-        return jsonify({'error': f'A {connector_type} connector already exists'}), 400
+    # Check if connector of this type already exists (except for google_ads which supports multiple)
+    if connector_type != 'google_ads':
+        existing = get_connector_by_type(connector_type)
+        if existing:
+            return jsonify({'error': f'A {connector_type} connector already exists'}), 400
 
     # Build config and credentials based on connector type
     config = {}
     credentials = {}
 
     if connector_type == 'google_ads':
-        config['customer_id'] = data.get('customer_id', '').replace('-', '')
-        credentials['developer_token'] = data.get('developer_token', '')
-        credentials['oauth_client_id'] = data.get('oauth_client_id', '')
-        credentials['oauth_client_secret'] = data.get('oauth_client_secret', '')
-        credentials['refresh_token'] = data.get('refresh_token', '')
+        # Browser automation credentials for Google Ads
+        config['account_id'] = data.get('account_id', '').replace('-', '')
+        credentials['email'] = data.get('google_email', '')
+        credentials['password'] = data.get('google_password', '')
+    elif connector_type == 'anthropic':
+        name = data.get('anthropic_name', 'Anthropic (Claude)')
+        config['max_invoices'] = int(data.get('max_invoices', 12))
+        credentials['email'] = data.get('anthropic_email', '')
+        credentials['password'] = data.get('anthropic_password', '')
 
     connector_id = save_connector(
         connector_type=connector_type,
@@ -933,8 +953,7 @@ def api_sync_connector(connector_id):
     if not connector:
         return jsonify({'error': 'Connector not found'}), 404
 
-    # For now, just log a placeholder sync
-    # Real implementation would call the appropriate connector service
+    # Call the appropriate connector service based on type
     try:
         if connector['connector_type'] == 'google_ads':
             # TODO: Implement actual Google Ads invoice sync
@@ -959,6 +978,74 @@ def api_sync_connector(connector_id):
                 'invoices_imported': 0,
                 'message': 'Google Ads API integration not yet implemented'
             })
+
+        elif connector['connector_type'] == 'anthropic':
+            # Anthropic invoice sync using browser automation
+            from anthropic_connector import fetch_anthropic_invoices, parse_anthropic_invoice_for_bulk
+
+            credentials = connector.get('credentials', {})
+            config = connector.get('config', {})
+
+            # Fetch invoices from Anthropic Console
+            result = fetch_anthropic_invoices(credentials, config)
+
+            if not result.get('success'):
+                error_msg = '; '.join(result.get('errors', ['Unknown error']))
+                add_connector_sync_log(
+                    connector_id=connector_id,
+                    sync_type='manual',
+                    status='error',
+                    invoices_found=result.get('invoices_found', 0),
+                    invoices_imported=0,
+                    error_message=error_msg,
+                    details={'errors': result.get('errors', [])}
+                )
+                update_connector(connector_id, last_error=error_msg, status='error')
+                return jsonify({
+                    'success': False,
+                    'error': error_msg,
+                    'invoices_found': result.get('invoices_found', 0)
+                }), 500
+
+            # Convert to bulk processor format and store for bulk distribution
+            invoices_for_bulk = []
+            for inv in result.get('invoices', []):
+                bulk_format = parse_anthropic_invoice_for_bulk(inv)
+                # Store PDF bytes in session or temp storage for later use
+                if inv.get('pdf_bytes'):
+                    bulk_format['has_pdf'] = True
+                invoices_for_bulk.append(bulk_format)
+
+            # Log successful sync
+            add_connector_sync_log(
+                connector_id=connector_id,
+                sync_type='manual',
+                status='success',
+                invoices_found=result.get('invoices_found', 0),
+                invoices_imported=result.get('invoices_downloaded', 0),
+                details={
+                    'invoices': [
+                        {
+                            'invoice_number': inv.get('invoice_number'),
+                            'invoice_date': inv.get('invoice_date'),
+                            'invoice_value': inv.get('invoice_value'),
+                            'currency': inv.get('currency')
+                        }
+                        for inv in invoices_for_bulk
+                    ]
+                }
+            )
+
+            update_connector(connector_id, last_sync=datetime.now(), status='connected', last_error=None)
+
+            return jsonify({
+                'success': True,
+                'invoices_found': result.get('invoices_found', 0),
+                'invoices_imported': result.get('invoices_downloaded', 0),
+                'invoices': invoices_for_bulk,
+                'message': f'Successfully synced {result.get("invoices_downloaded", 0)} invoices from Anthropic'
+            })
+
         else:
             return jsonify({'error': f'Unknown connector type: {connector["connector_type"]}'}), 400
 
@@ -971,6 +1058,120 @@ def api_sync_connector(connector_id):
         )
         update_connector(connector_id, last_error=str(e), status='error')
         return jsonify({'error': str(e)}), 500
+
+
+# ============== BUFFER API ENDPOINTS ==============
+
+@app.route('/api/buffer/fetch/<source>', methods=['POST'])
+@login_required
+def api_buffer_fetch(source):
+    """Fetch invoices from a connector source for the buffer.
+
+    Returns list of invoices with filename and source for display in buffer.
+    """
+    from database import get_connector_by_type
+
+    if source == 'anthropic':
+        connector = get_connector_by_type('anthropic')
+        if not connector:
+            return jsonify({'error': 'Anthropic connector not configured. Go to Connectors to set it up.'}), 400
+
+        try:
+            from anthropic_connector import fetch_anthropic_invoices
+
+            credentials = connector.get('credentials', {})
+            config = connector.get('config', {})
+
+            result = fetch_anthropic_invoices(credentials, config)
+
+            if not result.get('success'):
+                return jsonify({
+                    'error': '; '.join(result.get('errors', ['Failed to fetch invoices']))
+                }), 500
+
+            # Return simple list with filename and source
+            invoices = []
+            for inv in result.get('invoices', []):
+                invoices.append({
+                    'filename': inv.get('filename', inv.get('invoice_number', 'Unknown')),
+                    'source': 'anthropic',
+                    'invoice_number': inv.get('invoice_number'),
+                    'invoice_date': inv.get('invoice_date'),
+                    'invoice_value': inv.get('invoice_value'),
+                    'currency': inv.get('currency', 'USD'),
+                    'file_path': inv.get('file_path')
+                })
+
+            return jsonify({
+                'success': True,
+                'invoices': invoices
+            })
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    elif source == 'google_ads':
+        from database import get_connectors_by_type
+
+        connectors = get_connectors_by_type('google_ads')
+        if not connectors:
+            return jsonify({'error': 'No Google Ads connectors configured. Go to Connectors to set one up.'}), 400
+
+        try:
+            from google_ads_connector import fetch_google_ads_invoices
+
+            all_invoices = []
+            errors = []
+
+            # Fetch from each configured Google Ads account
+            for connector in connectors:
+                credentials = connector.get('credentials', {})
+                config = connector.get('config', {})
+                account_name = connector.get('name', 'Unknown Account')
+
+                try:
+                    result = fetch_google_ads_invoices(credentials, config)
+
+                    if result.get('success'):
+                        for inv in result.get('invoices', []):
+                            all_invoices.append({
+                                'filename': inv.get('filename', inv.get('invoice_number', 'Unknown')),
+                                'source': 'google_ads',
+                                'account_name': account_name,
+                                'invoice_number': inv.get('invoice_number'),
+                                'invoice_date': inv.get('invoice_date'),
+                                'invoice_value': inv.get('invoice_value'),
+                                'currency': inv.get('currency', 'RON'),
+                                'pdf_data': inv.get('pdf_data'),  # Base64 encoded PDF
+                                'file_path': inv.get('file_path')
+                            })
+                    else:
+                        # Check both 'error' (string) and 'errors' (list) in response
+                        err_msg = result.get('error') or '; '.join(result.get('errors', ['Failed to fetch']))
+                        errors.append(f"{account_name}: {err_msg}")
+                except Exception as e:
+                    errors.append(f"{account_name}: {str(e)}")
+
+            if all_invoices:
+                return jsonify({
+                    'success': True,
+                    'invoices': all_invoices,
+                    'errors': errors if errors else None
+                })
+            elif errors:
+                return jsonify({'error': '; '.join(errors)}), 500
+            else:
+                return jsonify({
+                    'success': True,
+                    'invoices': [],
+                    'message': 'No invoices found'
+                })
+
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+    else:
+        return jsonify({'error': f'Unknown source: {source}'}), 400
 
 
 @app.route('/api/db/invoices')
@@ -1915,6 +2116,50 @@ def api_test_email():
         return jsonify({'success': True, 'message': f'Test email sent to {to_email}'})
     else:
         return jsonify({'success': False, 'error': error_message}), 500
+
+
+# ============== Default Column Configuration API ==============
+
+@app.route('/api/default-columns', methods=['GET'])
+@login_required
+def api_get_default_columns():
+    """Get default column configurations for all tabs."""
+    settings = get_notification_settings()
+    return jsonify({
+        'accounting': settings.get('default_columns_accounting'),
+        'company': settings.get('default_columns_company'),
+        'department': settings.get('default_columns_department'),
+        'brand': settings.get('default_columns_brand')
+    })
+
+
+@app.route('/api/default-columns', methods=['POST'])
+@login_required
+def api_set_default_columns():
+    """Set default column configuration (admin only)."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    data = request.get_json()
+    tab = data.get('tab')  # 'accounting', 'company', 'department', 'brand'
+    config = data.get('config')  # JSON string of column config
+
+    if not tab or not config:
+        return jsonify({'success': False, 'error': 'Tab and config are required'}), 400
+
+    valid_tabs = ['accounting', 'company', 'department', 'brand']
+    if tab not in valid_tabs:
+        return jsonify({'success': False, 'error': f'Invalid tab. Must be one of: {valid_tabs}'}), 400
+
+    try:
+        setting_key = f'default_columns_{tab}'
+        save_notification_setting(setting_key, config)
+        log_event('default_columns_set', f'Set default column config for {tab} tab')
+        return jsonify({'success': True, 'message': f'Default columns set for {tab} tab'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 
 
 # ============================================================================

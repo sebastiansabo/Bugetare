@@ -578,6 +578,13 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="me-auto">
+                        {% if current_user.can_access_settings %}
+                        <button type="button" class="btn btn-outline-success" id="setDefaultColumnsBtn" title="Set current configuration as default for all users">
+                            <i class="bi bi-people"></i> Set as Default for All
+                        </button>
+                        {% endif %}
+                    </div>
                     <button type="button" class="btn btn-outline-warning" id="resetColumnsBtn">
                         <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
                     </button>
@@ -604,6 +611,13 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="me-auto">
+                        {% if current_user.can_access_settings %}
+                        <button type="button" class="btn btn-outline-success" id="setDefaultCompanyColumnsBtn" title="Set current configuration as default for all users">
+                            <i class="bi bi-people"></i> Set as Default for All
+                        </button>
+                        {% endif %}
+                    </div>
                     <button type="button" class="btn btn-outline-warning" id="resetCompanyColumnsBtn">
                         <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
                     </button>
@@ -630,6 +644,13 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="me-auto">
+                        {% if current_user.can_access_settings %}
+                        <button type="button" class="btn btn-outline-success" id="setDefaultDepartmentColumnsBtn" title="Set current configuration as default for all users">
+                            <i class="bi bi-people"></i> Set as Default for All
+                        </button>
+                        {% endif %}
+                    </div>
                     <button type="button" class="btn btn-outline-warning" id="resetDepartmentColumnsBtn">
                         <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
                     </button>
@@ -656,6 +677,13 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="me-auto">
+                        {% if current_user.can_access_settings %}
+                        <button type="button" class="btn btn-outline-success" id="setDefaultBrandColumnsBtn" title="Set current configuration as default for all users">
+                            <i class="bi bi-people"></i> Set as Default for All
+                        </button>
+                        {% endif %}
+                    </div>
                     <button type="button" class="btn btn-outline-warning" id="resetBrandColumnsBtn">
                         <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
                     </button>
@@ -936,7 +964,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             showLoading('Loading dashboard...');
             try {
-                loadColumnConfig();
+                await loadColumnConfig();
                 initPagination();
                 await loadData();
                 setupEventListeners();
@@ -954,8 +982,13 @@
             document.getElementById('pageSize').value = pageSize.toString();
         }
 
-        function loadColumnConfig() {
-            // Invoice columns
+        async function loadColumnConfig() {
+            // Fetch server defaults first (if not already loaded)
+            if (Object.keys(serverDefaultColumns).length === 0) {
+                await fetchServerDefaultColumns();
+            }
+
+            // Invoice columns: localStorage > serverDefault > hardcoded DEFAULT
             const saved = localStorage.getItem('accountingColumnConfig');
             if (saved) {
                 columnConfig = JSON.parse(saved);
@@ -985,33 +1018,42 @@
                         columnConfig.push(netValueCol);
                     }
                 }
+            } else if (serverDefaultColumns.accounting) {
+                // Use server default if no user personalization
+                columnConfig = JSON.parse(JSON.stringify(serverDefaultColumns.accounting));
             } else {
                 columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
             }
             renderColumnList();
 
-            // Company columns
+            // Company columns: localStorage > serverDefault > hardcoded DEFAULT
             const savedCompany = localStorage.getItem('companyColumnConfig');
             if (savedCompany) {
                 companyColumnConfig = JSON.parse(savedCompany);
+            } else if (serverDefaultColumns.company) {
+                companyColumnConfig = JSON.parse(JSON.stringify(serverDefaultColumns.company));
             } else {
                 companyColumnConfig = JSON.parse(JSON.stringify(DEFAULT_COMPANY_COLUMNS));
             }
             renderCompanyColumnList();
 
-            // Department columns
+            // Department columns: localStorage > serverDefault > hardcoded DEFAULT
             const savedDept = localStorage.getItem('departmentColumnConfig');
             if (savedDept) {
                 departmentColumnConfig = JSON.parse(savedDept);
+            } else if (serverDefaultColumns.department) {
+                departmentColumnConfig = JSON.parse(JSON.stringify(serverDefaultColumns.department));
             } else {
                 departmentColumnConfig = JSON.parse(JSON.stringify(DEFAULT_DEPARTMENT_COLUMNS));
             }
             renderDepartmentColumnList();
 
-            // Brand columns
+            // Brand columns: localStorage > serverDefault > hardcoded DEFAULT
             const savedBrand = localStorage.getItem('brandColumnConfig');
             if (savedBrand) {
                 brandColumnConfig = JSON.parse(savedBrand);
+            } else if (serverDefaultColumns.brand) {
+                brandColumnConfig = JSON.parse(JSON.stringify(serverDefaultColumns.brand));
             } else {
                 brandColumnConfig = JSON.parse(JSON.stringify(DEFAULT_BRAND_COLUMNS));
             }
@@ -1039,27 +1081,94 @@
         }
 
         function resetColumnConfig() {
-            columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
+            // Use server default if available, otherwise hardcoded DEFAULT
+            columnConfig = serverDefaultColumns.accounting
+                ? JSON.parse(JSON.stringify(serverDefaultColumns.accounting))
+                : JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
             saveColumnConfig();
             renderColumnList();
         }
 
         function resetCompanyColumnConfig() {
-            companyColumnConfig = JSON.parse(JSON.stringify(DEFAULT_COMPANY_COLUMNS));
+            // Use server default if available, otherwise hardcoded DEFAULT
+            companyColumnConfig = serverDefaultColumns.company
+                ? JSON.parse(JSON.stringify(serverDefaultColumns.company))
+                : JSON.parse(JSON.stringify(DEFAULT_COMPANY_COLUMNS));
             saveCompanyColumnConfig();
             renderCompanyColumnList();
         }
 
         function resetDepartmentColumnConfig() {
-            departmentColumnConfig = JSON.parse(JSON.stringify(DEFAULT_DEPARTMENT_COLUMNS));
+            // Use server default if available, otherwise hardcoded DEFAULT
+            departmentColumnConfig = serverDefaultColumns.department
+                ? JSON.parse(JSON.stringify(serverDefaultColumns.department))
+                : JSON.parse(JSON.stringify(DEFAULT_DEPARTMENT_COLUMNS));
             saveDepartmentColumnConfig();
             renderDepartmentColumnList();
         }
 
         function resetBrandColumnConfig() {
-            brandColumnConfig = JSON.parse(JSON.stringify(DEFAULT_BRAND_COLUMNS));
+            // Use server default if available, otherwise hardcoded DEFAULT
+            brandColumnConfig = serverDefaultColumns.brand
+                ? JSON.parse(JSON.stringify(serverDefaultColumns.brand))
+                : JSON.parse(JSON.stringify(DEFAULT_BRAND_COLUMNS));
             saveBrandColumnConfig();
             renderBrandColumnList();
+        }
+
+        // Set current column configuration as server default for all users
+        async function setDefaultColumns(tab) {
+            const configMap = {
+                'accounting': columnConfig,
+                'company': companyColumnConfig,
+                'department': departmentColumnConfig,
+                'brand': brandColumnConfig
+            };
+            const config = configMap[tab];
+            if (!config) return;
+
+            if (!confirm(`Set current ${tab} column configuration as the default for all users?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/default-columns', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        tab: tab,
+                        config: JSON.stringify(config)
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    alert('Default columns saved for all users');
+                    // Update the cached server defaults
+                    serverDefaultColumns[tab] = JSON.parse(JSON.stringify(config));
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error setting default columns:', error);
+                alert('Error saving default columns');
+            }
+        }
+
+        // Fetch server default columns
+        let serverDefaultColumns = {};
+        async function fetchServerDefaultColumns() {
+            try {
+                const response = await fetch('/api/default-columns');
+                const data = await response.json();
+                serverDefaultColumns = {
+                    accounting: data.accounting ? JSON.parse(data.accounting) : null,
+                    company: data.company ? JSON.parse(data.company) : null,
+                    department: data.department ? JSON.parse(data.department) : null,
+                    brand: data.brand ? JSON.parse(data.brand) : null
+                };
+            } catch (error) {
+                console.error('Error fetching server default columns:', error);
+            }
         }
 
         function renderColumnList() {
@@ -1301,6 +1410,24 @@
                     resetBrandColumnConfig();
                 }
             });
+
+            // Set as Default buttons (admin only)
+            const setDefaultColumnsBtn = document.getElementById('setDefaultColumnsBtn');
+            if (setDefaultColumnsBtn) {
+                setDefaultColumnsBtn.addEventListener('click', () => setDefaultColumns('accounting'));
+            }
+            const setDefaultCompanyColumnsBtn = document.getElementById('setDefaultCompanyColumnsBtn');
+            if (setDefaultCompanyColumnsBtn) {
+                setDefaultCompanyColumnsBtn.addEventListener('click', () => setDefaultColumns('company'));
+            }
+            const setDefaultDepartmentColumnsBtn = document.getElementById('setDefaultDepartmentColumnsBtn');
+            if (setDefaultDepartmentColumnsBtn) {
+                setDefaultDepartmentColumnsBtn.addEventListener('click', () => setDefaultColumns('department'));
+            }
+            const setDefaultBrandColumnsBtn = document.getElementById('setDefaultBrandColumnsBtn');
+            if (setDefaultBrandColumnsBtn) {
+                setDefaultBrandColumnsBtn.addEventListener('click', () => setDefaultColumns('brand'));
+            }
 
             // Currency toggle for summary card
             document.getElementById('currencyToggle').addEventListener('change', (e) => {
