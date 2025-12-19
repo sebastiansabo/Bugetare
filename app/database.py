@@ -2241,6 +2241,18 @@ def get_connector_by_type(connector_type: str) -> Optional[dict]:
     return dict_from_row(connector) if connector else None
 
 
+def get_connectors_by_type(connector_type: str) -> list[dict]:
+    """Get all connectors of a given type (supports multi-account connectors like Google Ads)."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('SELECT * FROM connectors WHERE connector_type = %s ORDER BY name', (connector_type,))
+    connectors = [dict_from_row(row) for row in cursor.fetchall()]
+
+    release_db(conn)
+    return connectors
+
+
 def save_connector(
     connector_type: str,
     name: str,

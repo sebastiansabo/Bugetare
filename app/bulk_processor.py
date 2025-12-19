@@ -267,6 +267,125 @@ def parse_google_ads_invoice(text: str) -> dict:
     return result
 
 
+def parse_anthropic_invoice(text: str) -> dict:
+    """
+    Parse Anthropic (Claude API) invoice from extracted text.
+
+    Anthropic invoices are typically Stripe invoices with:
+    - Invoice number: KCSFWF6E-0001 format
+    - Supplier: Anthropic, PBC
+    - Items: Credit purchases or API usage
+    - Currency: USD
+
+    Returns dict with invoice details and items breakdown.
+    """
+    result = {
+        'supplier': 'Anthropic, PBC',
+        'supplier_vat': '',  # US company, no VAT
+        'currency': 'USD',
+        'items': {}
+    }
+
+    # Extract invoice number - format: KCSFWF6E-0001 or similar alphanumeric
+    invoice_match = re.search(r'Invoice\s+number\s+([A-Z0-9]+-\d+)', text, re.IGNORECASE)
+    if invoice_match:
+        result['invoice_number'] = invoice_match.group(1)
+    else:
+        # Try alternate pattern
+        alt_match = re.search(r'#([A-Z0-9]+-\d+)', text)
+        if alt_match:
+            result['invoice_number'] = alt_match.group(1)
+
+    # Extract date - format: "December 4, 2025" or "Date of issue December 4, 2025"
+    date_patterns = [
+        r'Date\s+of\s+issue\s+(\w+\s+\d{1,2},?\s*\d{4})',
+        r'Payment\s+date\s+(\d{1,2}\s+\w+\s+\d{4})',
+        r'(\w+\s+\d{1,2},?\s*\d{4})'
+    ]
+    for pattern in date_patterns:
+        date_match = re.search(pattern, text, re.IGNORECASE)
+        if date_match:
+            result['invoice_date'] = date_match.group(1)
+            result['date_parsed'] = parse_english_date(date_match.group(1))
+            break
+
+    # Extract total amount - format: "$50.00" or "US$50.00" or "Amount due $50.00"
+    value_patterns = [
+        r'Amount\s+due\s+\$?([\d,]+\.?\d*)\s*USD?',
+        r'Total\s+\$?([\d,]+\.?\d*)',
+        r'US?\$\s*([\d,]+\.\d{2})',
+        r'\$([\d,]+\.\d{2})\s*USD'
+    ]
+    for pattern in value_patterns:
+        value_match = re.search(pattern, text, re.IGNORECASE)
+        if value_match:
+            result['invoice_value'] = parse_value(value_match.group(1))
+            break
+
+    # Extract customer VAT (for EU customers)
+    vat_match = re.search(r'(?:RO\s*VAT|VAT)\s+(RO\d+)', text, re.IGNORECASE)
+    if vat_match:
+        result['customer_vat'] = vat_match.group(1)
+
+    # Extract line items - format: "Description Qty Unit price Tax Amount"
+    # Look for items like "One-time credit purchase 1 $50.00 0% $50.00"
+    item_patterns = [
+        r'(One-time credit purchase|API usage|Credit purchase|Usage credits?)\s+\d+\s+\$?([\d,]+\.?\d*)',
+        r'(Claude[\s\w]*(?:API|usage)?)\s+\$?([\d,]+\.?\d*)',
+    ]
+    for pattern in item_patterns:
+        for match in re.finditer(pattern, text, re.IGNORECASE):
+            item_name = match.group(1).strip()
+            try:
+                value = parse_value(match.group(2))
+                result['items'][item_name] = value
+            except ValueError:
+                pass
+
+    # If no items found, create a default item from total
+    if not result['items'] and result.get('invoice_value'):
+        result['items']['API Credits'] = result['invoice_value']
+
+    # Add campaigns alias for compatibility
+    result['campaigns'] = result['items']
+
+    return result
+
+
+def parse_english_date(date_str: str) -> Optional[datetime]:
+    """Parse English date formats to datetime object."""
+    if not date_str:
+        return None
+
+    # Month name mapping
+    months = {
+        'january': 1, 'february': 2, 'march': 3, 'april': 4,
+        'may': 5, 'june': 6, 'july': 7, 'august': 8,
+        'september': 9, 'october': 10, 'november': 11, 'december': 12,
+        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+        'jun': 6, 'jul': 7, 'aug': 8, 'sep': 9,
+        'oct': 10, 'nov': 11, 'dec': 12
+    }
+
+    # Try "December 4, 2025" format
+    match = re.match(r'(\w+)\s+(\d{1,2}),?\s*(\d{4})', date_str)
+    if match:
+        month_str, day, year = match.groups()
+        month = months.get(month_str.lower())
+        if month:
+            return datetime(int(year), month, int(day))
+
+    # Try "4 December 2025" format
+    match = re.match(r'(\d{1,2})\s+(\w+)\s+(\d{4})', date_str)
+    if match:
+        day, month_str, year = match.groups()
+        month = months.get(month_str.lower())
+        if month:
+            return datetime(int(year), month, int(day))
+
+    return None
+
+
 def detect_invoice_type(text: str) -> str:
     """Detect the type of invoice based on text content."""
     text_lower = text.lower()
@@ -275,6 +394,8 @@ def detect_invoice_type(text: str) -> str:
         return 'meta'
     elif 'google' in text_lower and ('ads' in text_lower or 'adwords' in text_lower):
         return 'google_ads'
+    elif 'anthropic' in text_lower or 'claude' in text_lower:
+        return 'anthropic'
     elif 'dreamstime' in text_lower:
         return 'dreamstime'
     elif 'ro efactura' in text_lower or 'efactura' in text_lower or 'nr. factura' in text_lower:

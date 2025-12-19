@@ -783,395 +783,106 @@ def accounting():
 
 
 # ============== CONNECTORS INTERFACE ENDPOINTS ==============
+# NOTE: Connectors feature is disabled/under development
+# The full implementation is in google_ads_connector.py and anthropic_connector.py
+# Re-enable by uncommenting the routes below
 
 @app.route('/buffer')
 @login_required
 def buffer():
-    """Buffer page for invoices fetched from connectors."""
-    if not current_user.can_access_connectors:
-        flash('You do not have permission to access the buffer.', 'error')
-        return redirect(url_for('accounting'))
-    return render_template('buffer.html')
+    """Buffer page - currently disabled."""
+    flash('Connectors feature is coming soon.', 'info')
+    return redirect(url_for('accounting'))
 
 
 @app.route('/connectors')
 @login_required
 def connectors():
-    """Connectors page for managing external integrations."""
+    """Connectors page - currently disabled, shows coming soon message."""
     if not current_user.can_access_connectors:
         flash('You do not have permission to access connectors.', 'error')
         return redirect(url_for('accounting'))
 
-    from database import get_all_connectors, get_connector_by_type, get_connector_sync_logs, get_connectors_by_type
+    # Return a simple coming soon page
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Connectors - Coming Soon</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    </head>
+    <body class="bg-light">
+        <div class="container py-5">
+            <div class="text-center">
+                <i class="bi bi-plug display-1 text-muted mb-4 d-block"></i>
+                <h2>Connectors - Coming Soon</h2>
+                <p class="text-muted mb-4">
+                    Automatic invoice import from Google Ads, Meta, and other platforms is under development.
+                </p>
+                <a href="/accounting" class="btn btn-primary">
+                    <i class="bi bi-arrow-left"></i> Back to Accounting
+                </a>
+            </div>
+        </div>
+    </body>
+    </html>
+    '''
 
-    all_connectors = get_all_connectors()
 
-    # Add sync logs to each connector
-    for connector in all_connectors:
-        connector['sync_logs'] = get_connector_sync_logs(connector['id'], limit=10)
-
-    # Get all Google Ads connectors (multi-account support)
-    google_ads_connectors = get_connectors_by_type('google_ads')
-    for conn in google_ads_connectors:
-        conn['sync_logs'] = get_connector_sync_logs(conn['id'], limit=10)
-
-    anthropic_connector = get_connector_by_type('anthropic')
-    if anthropic_connector:
-        anthropic_connector['sync_logs'] = get_connector_sync_logs(anthropic_connector['id'], limit=10)
-
-    return render_template('connectors.html',
-                           connectors=all_connectors,
-                           google_ads_connectors=google_ads_connectors,
-                           anthropic_connector=anthropic_connector)
-
+# Connector API endpoints - disabled for now
+# Uncomment when connectors feature is ready
 
 @app.route('/api/connectors', methods=['GET'])
 @login_required
 def api_get_connectors():
-    """Get all connectors."""
-    from database import get_all_connectors
-    return jsonify(get_all_connectors())
+    """Get all connectors - DISABLED."""
+    return jsonify({'error': 'Connectors feature is coming soon'}), 503
 
 
 @app.route('/api/connectors/<int:connector_id>', methods=['GET'])
 @login_required
 def api_get_connector(connector_id):
-    """Get a specific connector."""
-    from database import get_connector
-    connector = get_connector(connector_id)
-    if connector:
-        return jsonify(connector)
-    return jsonify({'error': 'Connector not found'}), 404
+    """Get a specific connector - DISABLED."""
+    return jsonify({'error': 'Connectors feature is coming soon'}), 503
 
 
 @app.route('/api/connectors', methods=['POST'])
 @login_required
 def api_create_connector():
-    """Create a new connector."""
-    from database import save_connector, get_connector_by_type
-
-    data = request.get_json()
-    connector_type = data.get('connector_type')
-    name = data.get('name')
-
-    if not connector_type or not name:
-        return jsonify({'error': 'connector_type and name are required'}), 400
-
-    # Check if connector of this type already exists (except for google_ads which supports multiple)
-    if connector_type != 'google_ads':
-        existing = get_connector_by_type(connector_type)
-        if existing:
-            return jsonify({'error': f'A {connector_type} connector already exists'}), 400
-
-    # Build config and credentials based on connector type
-    config = {}
-    credentials = {}
-
-    if connector_type == 'google_ads':
-        # Browser automation credentials for Google Ads
-        config['account_id'] = data.get('account_id', '').replace('-', '')
-        credentials['email'] = data.get('google_email', '')
-        credentials['password'] = data.get('google_password', '')
-    elif connector_type == 'anthropic':
-        name = data.get('anthropic_name', 'Anthropic (Claude)')
-        config['max_invoices'] = int(data.get('max_invoices', 12))
-        credentials['email'] = data.get('anthropic_email', '')
-        credentials['password'] = data.get('anthropic_password', '')
-
-    connector_id = save_connector(
-        connector_type=connector_type,
-        name=name,
-        status='connected',
-        config=config,
-        credentials=credentials
-    )
-
-    return jsonify({'success': True, 'id': connector_id})
+    """Create a new connector - DISABLED."""
+    return jsonify({'error': 'Connectors feature is coming soon'}), 503
 
 
 @app.route('/api/connectors/<int:connector_id>', methods=['PUT'])
 @login_required
 def api_update_connector(connector_id):
-    """Update a connector."""
-    from database import update_connector, get_connector
-
-    connector = get_connector(connector_id)
-    if not connector:
-        return jsonify({'error': 'Connector not found'}), 404
-
-    data = request.get_json()
-
-    # Update name if provided
-    name = data.get('name')
-
-    # Update config
-    config = connector.get('config', {})
-    if data.get('customer_id'):
-        config['customer_id'] = data.get('customer_id', '').replace('-', '')
-
-    # Update credentials only if new values provided
-    credentials = connector.get('credentials', {})
-    if data.get('developer_token'):
-        credentials['developer_token'] = data['developer_token']
-    if data.get('oauth_client_id'):
-        credentials['oauth_client_id'] = data['oauth_client_id']
-    if data.get('oauth_client_secret'):
-        credentials['oauth_client_secret'] = data['oauth_client_secret']
-    if data.get('refresh_token'):
-        credentials['refresh_token'] = data['refresh_token']
-
-    success = update_connector(
-        connector_id,
-        name=name,
-        config=config,
-        credentials=credentials
-    )
-
-    return jsonify({'success': success})
+    """Update a connector - DISABLED."""
+    return jsonify({'error': 'Connectors feature is coming soon'}), 503
 
 
 @app.route('/api/connectors/<int:connector_id>', methods=['DELETE'])
 @login_required
 def api_delete_connector(connector_id):
-    """Delete a connector."""
-    from database import delete_connector
-
-    success = delete_connector(connector_id)
-    if success:
-        return jsonify({'success': True})
-    return jsonify({'error': 'Connector not found'}), 404
+    """Delete a connector - DISABLED."""
+    return jsonify({'error': 'Connectors feature is coming soon'}), 503
 
 
 @app.route('/api/connectors/<int:connector_id>/sync', methods=['POST'])
 @login_required
 def api_sync_connector(connector_id):
-    """Trigger a sync for a connector."""
-    from database import get_connector, update_connector, add_connector_sync_log
-    from datetime import datetime
-
-    connector = get_connector(connector_id)
-    if not connector:
-        return jsonify({'error': 'Connector not found'}), 404
-
-    # Call the appropriate connector service based on type
-    try:
-        if connector['connector_type'] == 'google_ads':
-            # TODO: Implement actual Google Ads invoice sync
-            # from google_ads_connector import sync_google_ads_invoices
-            # result = sync_google_ads_invoices(connector)
-
-            # Placeholder response
-            log_id = add_connector_sync_log(
-                connector_id=connector_id,
-                sync_type='manual',
-                status='success',
-                invoices_found=0,
-                invoices_imported=0,
-                details={'message': 'Google Ads connector not yet implemented'}
-            )
-
-            update_connector(connector_id, last_sync=datetime.now(), status='connected')
-
-            return jsonify({
-                'success': True,
-                'invoices_found': 0,
-                'invoices_imported': 0,
-                'message': 'Google Ads API integration not yet implemented'
-            })
-
-        elif connector['connector_type'] == 'anthropic':
-            # Anthropic invoice sync using browser automation
-            from anthropic_connector import fetch_anthropic_invoices, parse_anthropic_invoice_for_bulk
-
-            credentials = connector.get('credentials', {})
-            config = connector.get('config', {})
-
-            # Fetch invoices from Anthropic Console
-            result = fetch_anthropic_invoices(credentials, config)
-
-            if not result.get('success'):
-                error_msg = '; '.join(result.get('errors', ['Unknown error']))
-                add_connector_sync_log(
-                    connector_id=connector_id,
-                    sync_type='manual',
-                    status='error',
-                    invoices_found=result.get('invoices_found', 0),
-                    invoices_imported=0,
-                    error_message=error_msg,
-                    details={'errors': result.get('errors', [])}
-                )
-                update_connector(connector_id, last_error=error_msg, status='error')
-                return jsonify({
-                    'success': False,
-                    'error': error_msg,
-                    'invoices_found': result.get('invoices_found', 0)
-                }), 500
-
-            # Convert to bulk processor format and store for bulk distribution
-            invoices_for_bulk = []
-            for inv in result.get('invoices', []):
-                bulk_format = parse_anthropic_invoice_for_bulk(inv)
-                # Store PDF bytes in session or temp storage for later use
-                if inv.get('pdf_bytes'):
-                    bulk_format['has_pdf'] = True
-                invoices_for_bulk.append(bulk_format)
-
-            # Log successful sync
-            add_connector_sync_log(
-                connector_id=connector_id,
-                sync_type='manual',
-                status='success',
-                invoices_found=result.get('invoices_found', 0),
-                invoices_imported=result.get('invoices_downloaded', 0),
-                details={
-                    'invoices': [
-                        {
-                            'invoice_number': inv.get('invoice_number'),
-                            'invoice_date': inv.get('invoice_date'),
-                            'invoice_value': inv.get('invoice_value'),
-                            'currency': inv.get('currency')
-                        }
-                        for inv in invoices_for_bulk
-                    ]
-                }
-            )
-
-            update_connector(connector_id, last_sync=datetime.now(), status='connected', last_error=None)
-
-            return jsonify({
-                'success': True,
-                'invoices_found': result.get('invoices_found', 0),
-                'invoices_imported': result.get('invoices_downloaded', 0),
-                'invoices': invoices_for_bulk,
-                'message': f'Successfully synced {result.get("invoices_downloaded", 0)} invoices from Anthropic'
-            })
-
-        else:
-            return jsonify({'error': f'Unknown connector type: {connector["connector_type"]}'}), 400
-
-    except Exception as e:
-        add_connector_sync_log(
-            connector_id=connector_id,
-            sync_type='manual',
-            status='error',
-            error_message=str(e)
-        )
-        update_connector(connector_id, last_error=str(e), status='error')
-        return jsonify({'error': str(e)}), 500
+    """Trigger a sync for a connector - DISABLED."""
+    return jsonify({'error': 'Connectors feature is coming soon'}), 503
 
 
 # ============== BUFFER API ENDPOINTS ==============
+# Disabled - part of connectors feature
 
 @app.route('/api/buffer/fetch/<source>', methods=['POST'])
 @login_required
 def api_buffer_fetch(source):
-    """Fetch invoices from a connector source for the buffer.
-
-    Returns list of invoices with filename and source for display in buffer.
-    """
-    from database import get_connector_by_type
-
-    if source == 'anthropic':
-        connector = get_connector_by_type('anthropic')
-        if not connector:
-            return jsonify({'error': 'Anthropic connector not configured. Go to Connectors to set it up.'}), 400
-
-        try:
-            from anthropic_connector import fetch_anthropic_invoices
-
-            credentials = connector.get('credentials', {})
-            config = connector.get('config', {})
-
-            result = fetch_anthropic_invoices(credentials, config)
-
-            if not result.get('success'):
-                return jsonify({
-                    'error': '; '.join(result.get('errors', ['Failed to fetch invoices']))
-                }), 500
-
-            # Return simple list with filename and source
-            invoices = []
-            for inv in result.get('invoices', []):
-                invoices.append({
-                    'filename': inv.get('filename', inv.get('invoice_number', 'Unknown')),
-                    'source': 'anthropic',
-                    'invoice_number': inv.get('invoice_number'),
-                    'invoice_date': inv.get('invoice_date'),
-                    'invoice_value': inv.get('invoice_value'),
-                    'currency': inv.get('currency', 'USD'),
-                    'file_path': inv.get('file_path')
-                })
-
-            return jsonify({
-                'success': True,
-                'invoices': invoices
-            })
-
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-
-    elif source == 'google_ads':
-        from database import get_connectors_by_type
-
-        connectors = get_connectors_by_type('google_ads')
-        if not connectors:
-            return jsonify({'error': 'No Google Ads connectors configured. Go to Connectors to set one up.'}), 400
-
-        try:
-            from google_ads_connector import fetch_google_ads_invoices
-
-            all_invoices = []
-            errors = []
-
-            # Fetch from each configured Google Ads account
-            for connector in connectors:
-                credentials = connector.get('credentials', {})
-                config = connector.get('config', {})
-                account_name = connector.get('name', 'Unknown Account')
-
-                try:
-                    result = fetch_google_ads_invoices(credentials, config)
-
-                    if result.get('success'):
-                        for inv in result.get('invoices', []):
-                            all_invoices.append({
-                                'filename': inv.get('filename', inv.get('invoice_number', 'Unknown')),
-                                'source': 'google_ads',
-                                'account_name': account_name,
-                                'invoice_number': inv.get('invoice_number'),
-                                'invoice_date': inv.get('invoice_date'),
-                                'invoice_value': inv.get('invoice_value'),
-                                'currency': inv.get('currency', 'RON'),
-                                'pdf_data': inv.get('pdf_data'),  # Base64 encoded PDF
-                                'file_path': inv.get('file_path')
-                            })
-                    else:
-                        # Check both 'error' (string) and 'errors' (list) in response
-                        err_msg = result.get('error') or '; '.join(result.get('errors', ['Failed to fetch']))
-                        errors.append(f"{account_name}: {err_msg}")
-                except Exception as e:
-                    errors.append(f"{account_name}: {str(e)}")
-
-            if all_invoices:
-                return jsonify({
-                    'success': True,
-                    'invoices': all_invoices,
-                    'errors': errors if errors else None
-                })
-            elif errors:
-                return jsonify({'error': '; '.join(errors)}), 500
-            else:
-                return jsonify({
-                    'success': True,
-                    'invoices': [],
-                    'message': 'No invoices found'
-                })
-
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-
-    else:
-        return jsonify({'error': f'Unknown source: {source}'}), 400
+    """Fetch invoices from a connector source - DISABLED."""
+    return jsonify({'error': 'Connectors feature is coming soon'}), 503
 
 
 @app.route('/api/db/invoices')
