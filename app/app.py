@@ -203,7 +203,7 @@ def log_event(event_type, description=None, entity_type=None, entity_id=None, de
 def login():
     """Login page and form handler."""
     if current_user.is_authenticated:
-        return redirect(url_for('accounting'))
+        return redirect(url_for('index'))
 
     if request.method == 'POST':
         email = request.form.get('email', '').strip()
@@ -222,7 +222,7 @@ def login():
             log_event('login', f'User {email} logged in')
 
             next_page = request.args.get('next')
-            return redirect(next_page or url_for('accounting'))
+            return redirect(next_page or url_for('index'))
         else:
             log_event('login_failed', f'Failed login attempt for {email}')
             flash('Invalid email or password.', 'error')
@@ -386,8 +386,8 @@ def health_check():
 @app.route('/')
 @login_required
 def index():
-    """Redirect to accounting dashboard (default view)."""
-    return redirect(url_for('accounting'))
+    """Show applications landing page."""
+    return render_template('apps.html')
 
 
 @app.route('/add-invoice')
