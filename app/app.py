@@ -904,6 +904,7 @@ def api_db_invoices():
     - limit: Max invoices to return (default 100)
     - offset: Pagination offset
     - company, department, subdepartment, brand: Filter by allocation fields
+    - status, payment_status: Filter by invoice status
     - start_date, end_date: Filter by invoice date range
     - include_allocations: If "true", returns invoices with allocations embedded (optimized single query)
     """
@@ -913,6 +914,8 @@ def api_db_invoices():
     department = request.args.get('department')
     subdepartment = request.args.get('subdepartment')
     brand = request.args.get('brand')
+    status = request.args.get('status')
+    payment_status = request.args.get('payment_status')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     include_allocations = request.args.get('include_allocations', 'false').lower() == 'true'
@@ -922,14 +925,16 @@ def api_db_invoices():
         invoices = get_invoices_with_allocations(
             limit=limit, offset=offset, company=company,
             start_date=start_date, end_date=end_date,
-            department=department, subdepartment=subdepartment, brand=brand
+            department=department, subdepartment=subdepartment, brand=brand,
+            status=status, payment_status=payment_status
         )
     else:
         # Original behavior - invoices only, allocations fetched separately
         invoices = get_all_invoices(
             limit=limit, offset=offset, company=company,
             start_date=start_date, end_date=end_date,
-            department=department, subdepartment=subdepartment, brand=brand
+            department=department, subdepartment=subdepartment, brand=brand,
+            status=status, payment_status=payment_status
         )
     return jsonify(invoices)
 

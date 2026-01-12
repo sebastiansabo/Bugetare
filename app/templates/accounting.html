@@ -213,6 +213,23 @@
                         <option value="">All</option>
                     </select>
                 </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">Status</label>
+                    <select class="form-select form-select-sm" id="statusFilter">
+                        <option value="">All</option>
+                        <option value="new">New</option>
+                        <option value="processed">Processed</option>
+                        <option value="incomplete">Incomplete</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <label class="form-label small mb-0">Payment</label>
+                    <select class="form-select form-select-sm" id="paymentFilter">
+                        <option value="">All</option>
+                        <option value="not_paid">Not Paid</option>
+                        <option value="paid">Paid</option>
+                    </select>
+                </div>
                 <div class="col">
                     <label class="form-label small mb-0">Start</label>
                     <input type="date" class="form-control form-control-sm" id="startDate">
@@ -1465,6 +1482,8 @@
             });
             document.getElementById('subdepartmentFilter').addEventListener('change', applyFiltersOnly);
             document.getElementById('brandFilter').addEventListener('change', applyFiltersOnly);
+            document.getElementById('statusFilter').addEventListener('change', applyFiltersOnly);
+            document.getElementById('paymentFilter').addEventListener('change', applyFiltersOnly);
             document.getElementById('startDate').addEventListener('change', applyFiltersOnly);
             document.getElementById('endDate').addEventListener('change', applyFiltersOnly);
             document.getElementById('quickFilter').addEventListener('change', (e) => {
@@ -1573,6 +1592,8 @@
                 const department = document.getElementById('departmentFilter').value;
                 const subdepartment = document.getElementById('subdepartmentFilter').value;
                 const brand = document.getElementById('brandFilter').value;
+                const status = document.getElementById('statusFilter').value;
+                const payment = document.getElementById('paymentFilter').value;
                 const startDate = document.getElementById('startDate').value;
                 const endDate = document.getElementById('endDate').value;
 
@@ -1580,6 +1601,8 @@
                 if (department) params.append('department', department);
                 if (subdepartment) params.append('subdepartment', subdepartment);
                 if (brand) params.append('brand', brand);
+                if (status) params.append('status', status);
+                if (payment) params.append('payment_status', payment);
                 if (startDate) params.append('start_date', startDate);
                 if (endDate) params.append('end_date', endDate);
 
@@ -1678,6 +1701,8 @@
             document.getElementById('departmentFilter').value = '';
             document.getElementById('subdepartmentFilter').innerHTML = '<option value="">All Subdepartments</option>';
             document.getElementById('brandFilter').value = '';
+            document.getElementById('statusFilter').value = '';
+            document.getElementById('paymentFilter').value = '';
             applyFiltersOnly();
         }
 

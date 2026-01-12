@@ -980,7 +980,8 @@ def save_invoice(
 def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] = None,
                      start_date: Optional[str] = None, end_date: Optional[str] = None,
                      department: Optional[str] = None, subdepartment: Optional[str] = None,
-                     brand: Optional[str] = None, include_deleted: bool = False) -> list[dict]:
+                     brand: Optional[str] = None, status: Optional[str] = None,
+                     payment_status: Optional[str] = None, include_deleted: bool = False) -> list[dict]:
     """Get all invoices with pagination and optional filtering by allocation fields.
 
     By default, deleted invoices (with deleted_at set) are excluded.
@@ -1031,6 +1032,14 @@ def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] =
         if end_date:
             conditions.append('i.invoice_date <= %s')
             params.append(end_date)
+
+        # Status filters
+        if status:
+            conditions.append('i.status = %s')
+            params.append(status)
+        if payment_status:
+            conditions.append('i.payment_status = %s')
+            params.append(payment_status)
 
         if conditions:
             query += ' WHERE ' + ' AND '.join(conditions)
@@ -1097,7 +1106,8 @@ def get_invoice_with_allocations(invoice_id: int) -> Optional[dict]:
 def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Optional[str] = None,
                                    start_date: Optional[str] = None, end_date: Optional[str] = None,
                                    department: Optional[str] = None, subdepartment: Optional[str] = None,
-                                   brand: Optional[str] = None, include_deleted: bool = False) -> list[dict]:
+                                   brand: Optional[str] = None, status: Optional[str] = None,
+                                   payment_status: Optional[str] = None, include_deleted: bool = False) -> list[dict]:
     """Get all invoices with their allocations in a single optimized query.
 
     Uses PostgreSQL JSON aggregation to fetch invoices and allocations together,
@@ -1109,7 +1119,7 @@ def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Op
     global _invoices_cache
 
     # Build cache key from all parameters
-    cache_key = f"{limit}:{offset}:{company}:{start_date}:{end_date}:{department}:{subdepartment}:{brand}:{include_deleted}"
+    cache_key = f"{limit}:{offset}:{company}:{start_date}:{end_date}:{department}:{subdepartment}:{brand}:{status}:{payment_status}:{include_deleted}"
 
     # Check cache
     if _is_cache_valid(_invoices_cache) and _invoices_cache.get('key') == cache_key:
@@ -1136,6 +1146,14 @@ def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Op
         if end_date:
             conditions.append('i.invoice_date <= %s')
             params.append(end_date)
+
+        # Status filters
+        if status:
+            conditions.append('i.status = %s')
+            params.append(status)
+        if payment_status:
+            conditions.append('i.payment_status = %s')
+            params.append(payment_status)
 
         # Allocation filters - if any are set, filter invoices that have matching allocations
         allocation_filters = []
