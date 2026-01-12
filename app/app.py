@@ -1472,7 +1472,7 @@ def settings():
     """Settings page for managing users and permissions."""
     if not current_user.can_access_settings:
         flash('You do not have permission to access settings.', 'error')
-        return redirect(url_for('accounting'))
+        return redirect(url_for('index'))
     return render_template('settings.html')
 
 

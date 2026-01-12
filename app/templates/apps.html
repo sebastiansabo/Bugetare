@@ -6,379 +6,9 @@
     <title>J.A.R.V.I.S. - Applications</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
-
-        :root {
-            --jarvis-blue: #00d4ff;
-            --jarvis-gold: #f0a500;
-            --jarvis-red: #ff3333;
-            --jarvis-dark: #0a0a0f;
-            --jarvis-panel: rgba(0, 212, 255, 0.05);
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            background: var(--jarvis-dark);
-            min-height: 100vh;
-            font-family: 'Rajdhani', sans-serif;
-            overflow-x: hidden;
-        }
-
-        /* Animated background grid */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background:
-                linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px),
-                linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px);
-            background-size: 50px 50px;
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        /* Scanning line effect */
-        body::after {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 2px;
-            background: linear-gradient(90deg, transparent, var(--jarvis-blue), transparent);
-            animation: scan 4s linear infinite;
-            pointer-events: none;
-            z-index: 1000;
-            opacity: 0.5;
-        }
-
-        @keyframes scan {
-            0% { top: 0; }
-            100% { top: 100%; }
-        }
-
-        .apps-container {
-            min-height: calc(100vh - 80px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 40px 20px;
-            position: relative;
-            z-index: 1;
-        }
-
-        /* Jarvis Logo */
-        .jarvis-logo {
-            width: 120px;
-            height: 120px;
-            margin: 0 auto 30px;
-            position: relative;
-        }
-
-        .jarvis-logo svg {
-            width: 100%;
-            height: 100%;
-            filter: drop-shadow(0 0 20px var(--jarvis-blue));
-        }
-
-        .arc-reactor {
-            animation: pulse 2s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; filter: drop-shadow(0 0 10px var(--jarvis-blue)); }
-            50% { opacity: 0.8; filter: drop-shadow(0 0 30px var(--jarvis-blue)); }
-        }
-
-        .reactor-ring {
-            animation: rotate 20s linear infinite;
-            transform-origin: center;
-        }
-
-        @keyframes rotate {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .reactor-ring-reverse {
-            animation: rotate-reverse 15s linear infinite;
-            transform-origin: center;
-        }
-
-        @keyframes rotate-reverse {
-            from { transform: rotate(360deg); }
-            to { transform: rotate(0deg); }
-        }
-
-        .apps-header {
-            text-align: center;
-            margin-bottom: 50px;
-        }
-
-        .apps-header h1 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 3rem;
-            font-weight: 900;
-            color: var(--jarvis-blue);
-            text-transform: uppercase;
-            letter-spacing: 15px;
-            margin-bottom: 10px;
-            text-shadow: 0 0 30px rgba(0, 212, 255, 0.5);
-        }
-
-        .apps-header p {
-            font-size: 1.2rem;
-            color: rgba(255,255,255,0.6);
-            letter-spacing: 3px;
-            text-transform: uppercase;
-        }
-
-        .app-card {
-            background: var(--jarvis-panel);
-            border: 1px solid rgba(0, 212, 255, 0.2);
-            border-radius: 16px;
-            padding: 40px 30px;
-            text-align: center;
-            transition: all 0.4s ease;
-            cursor: pointer;
-            text-decoration: none;
-            color: inherit;
-            display: block;
-            height: 100%;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .app-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.1), transparent);
-            transition: left 0.5s ease;
-        }
-
-        .app-card:hover::before {
-            left: 100%;
-        }
-
-        .app-card:hover {
-            transform: translateY(-10px);
-            border-color: var(--jarvis-blue);
-            box-shadow:
-                0 0 30px rgba(0, 212, 255, 0.3),
-                inset 0 0 30px rgba(0, 212, 255, 0.05);
-        }
-
-        .app-card.disabled {
-            opacity: 0.4;
-            cursor: not-allowed;
-        }
-
-        .app-card.disabled:hover {
-            transform: none;
-            border-color: rgba(0, 212, 255, 0.2);
-            box-shadow: none;
-        }
-
-        .app-icon {
-            width: 90px;
-            height: 90px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 25px;
-            font-size: 2.5rem;
-            position: relative;
-        }
-
-        .app-icon::before {
-            content: '';
-            position: absolute;
-            inset: -3px;
-            border-radius: 50%;
-            padding: 3px;
-            background: linear-gradient(135deg, var(--jarvis-blue), transparent, var(--jarvis-blue));
-            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-            -webkit-mask-composite: xor;
-            mask-composite: exclude;
-        }
-
-        .app-icon.accounting {
-            background: rgba(0, 212, 255, 0.1);
-            color: var(--jarvis-blue);
-        }
-
-        .app-icon.hr {
-            background: rgba(240, 165, 0, 0.1);
-            color: var(--jarvis-gold);
-        }
-
-        .app-icon.hr::before {
-            background: linear-gradient(135deg, var(--jarvis-gold), transparent, var(--jarvis-gold));
-        }
-
-        .app-icon.sales {
-            background: rgba(255, 51, 51, 0.1);
-            color: var(--jarvis-red);
-        }
-
-        .app-icon.sales::before {
-            background: linear-gradient(135deg, var(--jarvis-red), transparent, var(--jarvis-red));
-        }
-
-        .app-icon.aftersales {
-            background: rgba(0, 255, 136, 0.1);
-            color: #00ff88;
-        }
-
-        .app-icon.aftersales::before {
-            background: linear-gradient(135deg, #00ff88, transparent, #00ff88);
-        }
-
-        .app-title {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 1.3rem;
-            font-weight: 700;
-            color: white;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        .app-description {
-            color: rgba(255,255,255,0.5);
-            font-size: 0.95rem;
-            margin-bottom: 20px;
-        }
-
-        .app-badge {
-            display: inline-block;
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .badge-active {
-            background: rgba(0, 212, 255, 0.2);
-            color: var(--jarvis-blue);
-            border: 1px solid var(--jarvis-blue);
-        }
-
-        .badge-coming {
-            background: rgba(255, 255, 255, 0.05);
-            color: rgba(255,255,255,0.4);
-            border: 1px solid rgba(255,255,255,0.2);
-        }
-
-        .badge-loading {
-            background: rgba(240, 165, 0, 0.2);
-            color: var(--jarvis-gold);
-            border: 1px solid var(--jarvis-gold);
-        }
-
-        .badge-ready {
-            background: rgba(0, 255, 136, 0.2);
-            color: #00ff88;
-            border: 1px solid #00ff88;
-        }
-
-        .spin {
-            display: inline-block;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-
-        .navbar {
-            background: rgba(10, 10, 15, 0.9) !important;
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
-            position: relative;
-            z-index: 100;
-        }
-
-        .navbar-brand {
-            font-family: 'Orbitron', sans-serif;
-            color: var(--jarvis-blue) !important;
-            font-weight: 700;
-            letter-spacing: 3px;
-            text-transform: uppercase;
-        }
-
-        .navbar-brand svg {
-            width: 32px;
-            height: 32px;
-            margin-right: 10px;
-            vertical-align: middle;
-        }
-
-        .user-info {
-            color: rgba(255,255,255,0.6);
-            font-size: 0.9rem;
-        }
-
-        .btn-outline-light {
-            border-color: rgba(0, 212, 255, 0.5);
-            color: var(--jarvis-blue);
-        }
-
-        .btn-outline-light:hover {
-            background: rgba(0, 212, 255, 0.1);
-            border-color: var(--jarvis-blue);
-            color: var(--jarvis-blue);
-        }
-
-        /* Status indicator */
-        .status-bar {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 10px 20px;
-            background: rgba(0, 212, 255, 0.05);
-            border: 1px solid rgba(0, 212, 255, 0.2);
-            border-radius: 30px;
-            font-size: 0.8rem;
-            color: rgba(255,255,255,0.5);
-            z-index: 100;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            background: var(--jarvis-blue);
-            border-radius: 50%;
-            animation: blink 1s ease-in-out infinite;
-        }
-
-        @keyframes blink {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.3; }
-        }
-    </style>
+    <!-- J.A.R.V.I.S. Theme -->
+    <link href="{{ url_for('static', filename='css/jarvis-theme.css') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/apps.css') }}" rel="stylesheet">
 </head>
 <body>
     <!-- Navbar -->
@@ -394,6 +24,11 @@
                 J.A.R.V.I.S.
             </a>
             <div class="d-flex align-items-center">
+                {% if current_user.can_access_settings %}
+                <a href="/settings" class="btn btn-link nav-icon-btn me-2" title="System Settings">
+                    <i class="bi bi-gear"></i>
+                </a>
+                {% endif %}
                 <span class="user-info me-3">
                     <i class="bi bi-person-circle me-1"></i>{{ current_user.name }}
                 </span>
@@ -452,7 +87,35 @@
                     </svg>
                 </div>
                 <h1>J.A.R.V.I.S.</h1>
-                <p>Just A Rather Very Intelligent System</p>
+                <p>Just Autoworld's Real Very Intelligent <span class="seba-easter-egg">S</span>ystem</p>
+<style>
+.seba-easter-egg {
+    position: relative;
+    cursor: help;
+    border-bottom: 1px dotted rgba(0,212,255,0.5);
+}
+.seba-easter-egg::after {
+    content: "...or Seba's 😉";
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 212, 255, 0.9);
+    color: #0a0a0f;
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s, visibility 0.3s;
+    z-index: 100;
+}
+.seba-easter-egg:hover::after {
+    opacity: 1;
+    visibility: visible;
+}
+</style>
             </div>
 
             <div class="row justify-content-center g-4">
