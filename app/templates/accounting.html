@@ -3481,15 +3481,21 @@
             const showEur = document.getElementById('currencyToggle').checked;
             updateTotalValueDisplay(showEur);
 
-            // Count unique companies and departments from summaries
-            fetch('/api/db/summary/company').then(r => r.json()).then(data => {
-                document.getElementById('totalCompanies').textContent = data.length;
-                updateCompactSummary();
+            // Count unique companies and departments from filtered invoices
+            const uniqueCompanies = new Set();
+            const uniqueDepartments = new Set();
+
+            allInvoices.forEach(inv => {
+                if (inv.allocations) {
+                    inv.allocations.forEach(alloc => {
+                        if (alloc.company) uniqueCompanies.add(alloc.company);
+                        if (alloc.department) uniqueDepartments.add(alloc.department);
+                    });
+                }
             });
-            fetch('/api/db/summary/department').then(r => r.json()).then(data => {
-                document.getElementById('totalDepartments').textContent = data.length;
-                updateCompactSummary();
-            });
+
+            document.getElementById('totalCompanies').textContent = uniqueCompanies.size;
+            document.getElementById('totalDepartments').textContent = uniqueDepartments.size;
 
             // Update compact summary
             updateCompactSummary();
