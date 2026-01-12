@@ -393,6 +393,26 @@ The `process_invoices()` function returns:
 ```
 
 ## Recent Changes
+- Added Invoice Status and Payment Status filters to Accounting dashboard
+  - Status filter: New / Processed / Incomplete
+  - Payment filter: Not Paid / Paid
+  - Filters work with existing company, department, brand, date range filters
+  - Backend support in `get_invoices_with_allocations()` and `get_all_invoices()`
+- Summary cards improvements
+  - Hidden by default (toggle to show, preference persists in localStorage)
+  - Summary values now reflect filtered data (invoices, value, companies, departments)
+  - Counts calculated from filtered `allInvoices` array instead of separate API calls
+- Added format-based template matching for eFactura
+  - Template type "format" matches by text marker (e.g., "RO eFactura") instead of supplier VAT
+  - Works for any Romanian e-invoice supplier with standard eFactura format
+  - `find_matching_template()` checks format templates first, then fixed templates
+- Added AI fallback for missing fields in template parsing
+  - `extract_missing_fields_with_ai()` function uses targeted Claude API calls
+  - Only requests specific missing fields (more efficient than full AI parsing)
+  - `auto_detect_and_parse()` checks for missing fields after template parsing
+- Added keep-alive GitHub workflow (`.github/workflows/keep-alive.yml`)
+  - Pings staging and production health endpoints every 5 minutes (weekdays)
+  - Prevents cold starts during business hours (6 AM - 10 PM Romania time)
 - Performance optimizations for Invoice Details modal and Dashboard tabs
   - Fixed N+1 query in `get_invoice_with_allocations()` - now batch fetches reinvoice_destinations in single query
   - Added summary query caching (60s TTL) for By Company, By Department, By Brand tabs
