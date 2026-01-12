@@ -132,43 +132,55 @@
     </nav>
 
     <div class="container-fluid px-4">
+        <!-- Summary Cards Toggle -->
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <button class="btn btn-sm btn-outline-secondary" id="toggleSummary" onclick="toggleSummaryCards()">
+                <i class="bi bi-chevron-up" id="toggleSummaryIcon"></i> <span id="toggleSummaryText">Hide Summary</span>
+            </button>
+            <div id="summaryCollapsed" class="d-none text-muted small">
+                <span class="badge bg-primary me-1"><i class="bi bi-receipt"></i> <span id="totalInvoicesCompact">0</span></span>
+                <span class="badge bg-success me-1"><i class="bi bi-currency-exchange"></i> <span id="totalValueCompact">0</span></span>
+                <span class="badge bg-info me-1"><i class="bi bi-building"></i> <span id="totalCompaniesCompact">0</span></span>
+                <span class="badge bg-warning text-dark"><i class="bi bi-diagram-3"></i> <span id="totalDepartmentsCompact">0</span></span>
+            </div>
+        </div>
         <!-- Summary Cards -->
-        <div class="row mb-4" id="summaryCards">
+        <div class="row mb-3" id="summaryCards">
             <div class="col-md-3">
                 <div class="card summary-card bg-primary text-white">
-                    <div class="card-body">
-                        <h6 class="card-title"><i class="bi bi-receipt"></i> Total Invoices</h6>
-                        <h2 id="totalInvoices">0</h2>
+                    <div class="card-body py-2">
+                        <h6 class="card-title small mb-1"><i class="bi bi-receipt"></i> Total Invoices</h6>
+                        <h4 id="totalInvoices" class="mb-0">0</h4>
                     </div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="card summary-card bg-success text-white">
-                    <div class="card-body">
+                    <div class="card-body py-2">
                         <div class="d-flex justify-content-between align-items-center">
-                            <h6 class="card-title mb-0"><i class="bi bi-currency-exchange"></i> Total Value</h6>
+                            <h6 class="card-title small mb-0"><i class="bi bi-currency-exchange"></i> Total Value</h6>
                             <div class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" id="currencyToggle" style="cursor: pointer;">
-                                <label class="form-check-label small" for="currencyToggle" id="currencyToggleLabel" style="cursor: pointer;">EUR</label>
+                                <input class="form-check-input" type="checkbox" id="currencyToggle" style="cursor: pointer; transform: scale(0.8);">
+                                <label class="form-check-label small" for="currencyToggle" id="currencyToggleLabel" style="cursor: pointer; font-size: 0.7rem;">EUR</label>
                             </div>
                         </div>
-                        <h2 id="totalValue">0 RON</h2>
+                        <h4 id="totalValue" class="mb-0">0 RON</h4>
                     </div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="card summary-card bg-info text-white">
-                    <div class="card-body">
-                        <h6 class="card-title"><i class="bi bi-building"></i> Companies</h6>
-                        <h2 id="totalCompanies">0</h2>
+                    <div class="card-body py-2">
+                        <h6 class="card-title small mb-1"><i class="bi bi-building"></i> Companies</h6>
+                        <h4 id="totalCompanies" class="mb-0">0</h4>
                     </div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="card summary-card bg-warning text-dark">
-                    <div class="card-body">
-                        <h6 class="card-title"><i class="bi bi-diagram-3"></i> Departments</h6>
-                        <h2 id="totalDepartments">0</h2>
+                    <div class="card-body py-2">
+                        <h6 class="card-title small mb-1"><i class="bi bi-diagram-3"></i> Departments</h6>
+                        <h4 id="totalDepartments" class="mb-0">0</h4>
                     </div>
                 </div>
             </div>
@@ -964,6 +976,7 @@
         document.addEventListener('DOMContentLoaded', async () => {
             showLoading('Loading dashboard...');
             try {
+                restoreSummaryState();
                 await loadColumnConfig();
                 initPagination();
                 await loadData();
@@ -3366,6 +3379,51 @@
 
         // ============== END ALLOCATION EDITING FUNCTIONS ==============
 
+        // ============== SUMMARY CARDS TOGGLE ==============
+        function toggleSummaryCards() {
+            const cards = document.getElementById('summaryCards');
+            const collapsed = document.getElementById('summaryCollapsed');
+            const icon = document.getElementById('toggleSummaryIcon');
+            const text = document.getElementById('toggleSummaryText');
+
+            if (cards.classList.contains('d-none')) {
+                // Show cards
+                cards.classList.remove('d-none');
+                collapsed.classList.add('d-none');
+                icon.className = 'bi bi-chevron-up';
+                text.textContent = 'Hide Summary';
+                localStorage.setItem('summaryCardsVisible', 'true');
+            } else {
+                // Hide cards, show compact
+                cards.classList.add('d-none');
+                collapsed.classList.remove('d-none');
+                icon.className = 'bi bi-chevron-down';
+                text.textContent = 'Show Summary';
+                localStorage.setItem('summaryCardsVisible', 'false');
+            }
+        }
+
+        // Restore summary visibility state on load
+        function restoreSummaryState() {
+            const visible = localStorage.getItem('summaryCardsVisible');
+            if (visible === 'false') {
+                toggleSummaryCards();
+            }
+        }
+
+        function updateCompactSummary() {
+            // Update compact badges with same values
+            const invoices = document.getElementById('totalInvoices').textContent;
+            const value = document.getElementById('totalValue').textContent;
+            const companies = document.getElementById('totalCompanies').textContent;
+            const depts = document.getElementById('totalDepartments').textContent;
+
+            document.getElementById('totalInvoicesCompact').textContent = invoices;
+            document.getElementById('totalValueCompact').textContent = value;
+            document.getElementById('totalCompaniesCompact').textContent = companies;
+            document.getElementById('totalDepartmentsCompact').textContent = depts;
+        }
+
         function updateSummaryCards() {
             document.getElementById('totalInvoices').textContent = allInvoices.length;
 
@@ -3401,10 +3459,15 @@
             // Count unique companies and departments from summaries
             fetch('/api/db/summary/company').then(r => r.json()).then(data => {
                 document.getElementById('totalCompanies').textContent = data.length;
+                updateCompactSummary();
             });
             fetch('/api/db/summary/department').then(r => r.json()).then(data => {
                 document.getElementById('totalDepartments').textContent = data.length;
+                updateCompactSummary();
             });
+
+            // Update compact summary
+            updateCompactSummary();
         }
 
         function updateTotalValueDisplay(showEur) {
@@ -3418,6 +3481,7 @@
                 totalValueEl.textContent = formatCurrency(summaryTotalRon) + ' RON';
                 toggleLabel.textContent = 'EUR';
             }
+            updateCompactSummary();
         }
 
         function formatCurrency(value) {
