@@ -287,6 +287,28 @@
             border: 1px solid rgba(255,255,255,0.2);
         }
 
+        .badge-loading {
+            background: rgba(240, 165, 0, 0.2);
+            color: var(--jarvis-gold);
+            border: 1px solid var(--jarvis-gold);
+        }
+
+        .badge-ready {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+            border: 1px solid #00ff88;
+        }
+
+        .spin {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
         .navbar {
             background: rgba(10, 10, 15, 0.9) !important;
             backdrop-filter: blur(10px);
@@ -436,14 +458,15 @@
             <div class="row justify-content-center g-4">
                 <!-- Accounting App -->
                 <div class="col-md-4 col-sm-6">
-                    <a href="/accounting" class="app-card">
+                    <a href="/accounting" class="app-card" id="accountingCard">
                         <div class="app-icon accounting">
                             <i class="bi bi-calculator"></i>
                         </div>
                         <h3 class="app-title">Accounting</h3>
                         <p class="app-description">Invoice management, allocations & financial reports</p>
-                        <span class="app-badge badge-active">
-                            <i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i>Online
+                        <span class="app-badge badge-loading" id="accountingBadge">
+                            <i class="bi bi-arrow-repeat spin me-1"></i>
+                            <span id="preloadStatus">Initializing...</span>
                         </span>
                     </a>
                 </div>
@@ -511,6 +534,49 @@
         }
         updateTime();
         setInterval(updateTime, 1000);
+
+        // Preload Accounting app data
+        async function preloadAccounting() {
+            const badge = document.getElementById('accountingBadge');
+            const status = document.getElementById('preloadStatus');
+            const card = document.getElementById('accountingCard');
+
+            const endpoints = [
+                { url: '/api/db/invoices?include_allocations=true&limit=25', name: 'Invoices' },
+                { url: '/api/structure', name: 'Structure' },
+                { url: '/api/companies', name: 'Companies' },
+                { url: '/api/templates', name: 'Templates' },
+                { url: '/api/db/summary/company', name: 'Summary' }
+            ];
+
+            let loaded = 0;
+            const total = endpoints.length;
+            const startTime = Date.now();
+
+            for (const endpoint of endpoints) {
+                try {
+                    status.textContent = `Loading ${endpoint.name}...`;
+                    await fetch(endpoint.url);
+                    loaded++;
+                    status.textContent = `${loaded}/${total} loaded`;
+                } catch (e) {
+                    console.warn(`Preload failed for ${endpoint.name}:`, e);
+                    loaded++;
+                }
+            }
+
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+            // Update badge to ready state
+            badge.className = 'app-badge badge-ready';
+            badge.innerHTML = `<i class="bi bi-check-circle me-1"></i>Ready (${elapsed}s)`;
+
+            // Add a subtle glow effect to indicate ready state
+            card.style.boxShadow = '0 0 20px rgba(0, 255, 136, 0.2)';
+        }
+
+        // Start preloading when page loads
+        document.addEventListener('DOMContentLoaded', preloadAccounting);
     </script>
 </body>
 </html>
