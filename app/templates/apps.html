@@ -240,6 +240,15 @@
             background: linear-gradient(135deg, var(--jarvis-red), transparent, var(--jarvis-red));
         }
 
+        .app-icon.aftersales {
+            background: rgba(0, 255, 136, 0.1);
+            color: #00ff88;
+        }
+
+        .app-icon.aftersales::before {
+            background: linear-gradient(135deg, #00ff88, transparent, #00ff88);
+        }
+
         .app-title {
             font-family: 'Orbitron', sans-serif;
             font-size: 1.3rem;
@@ -461,6 +470,20 @@
                         </div>
                         <h3 class="app-title">Sales</h3>
                         <p class="app-description">Sales tracking, clients & performance</p>
+                        <span class="app-badge badge-coming">
+                            <i class="bi bi-hourglass-split me-1"></i>Coming Soon
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Aftersales App -->
+                <div class="col-md-4 col-sm-6">
+                    <div class="app-card disabled">
+                        <div class="app-icon aftersales">
+                            <i class="bi bi-wrench-adjustable"></i>
+                        </div>
+                        <h3 class="app-title">Aftersales</h3>
+                        <p class="app-description">Service management & customer support</p>
                         <span class="app-badge badge-coming">
                             <i class="bi bi-hourglass-split me-1"></i>Coming Soon
                         </span>
