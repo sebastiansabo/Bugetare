@@ -737,7 +737,7 @@ def extract_customer_vat_from_text(text: str, supplier_vat: str = None) -> Optio
 
 def find_matching_template(text: str, templates: list[dict]) -> Optional[dict]:
     """
-    Find a template that matches the invoice based on supplier VAT.
+    Find a template that matches the invoice based on supplier VAT or text markers.
 
     Args:
         text: Extracted text from the invoice
@@ -749,6 +749,20 @@ def find_matching_template(text: str, templates: list[dict]) -> Optional[dict]:
     if not text or not templates:
         return None
 
+    text_lower = text.lower()
+
+    # First, check for format-based templates with text markers (like eFactura)
+    for template in templates:
+        if template.get('template_type') == 'format':
+            template_supplier_vat = template.get('supplier_vat', '')
+            # For format templates, check if the marker text exists in the invoice
+            # e.g., "RO eFactura" or "efactura"
+            if template_supplier_vat:
+                marker = template_supplier_vat.lower()
+                # Check for exact marker or partial match
+                if marker in text_lower or marker.replace(' ', '') in text_lower.replace(' ', ''):
+                    return template
+
     # Extract all VAT numbers from the invoice text
     found_vats = extract_vat_numbers_from_text(text)
 
@@ -759,6 +773,10 @@ def find_matching_template(text: str, templates: list[dict]) -> Optional[dict]:
     for template in templates:
         template_supplier_vat = template.get('supplier_vat')
         if not template_supplier_vat:
+            continue
+
+        # Skip format templates (already checked above)
+        if template.get('template_type') == 'format':
             continue
 
         # Normalize template VAT for comparison
