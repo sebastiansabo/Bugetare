@@ -25,4 +25,8 @@ EXPOSE 8080
 
 # Run with gunicorn (2 workers + 2 threads each)
 # Keep workers low due to DigitalOcean DB connection limits (~25 max)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "2", "--worker-class", "gthread", "app:app"]
+# Timeout settings prevent worker hangs after idle periods:
+#   --timeout: Kill worker if no response in 120s
+#   --graceful-timeout: Allow 30s for graceful shutdown
+#   --keep-alive: Keep HTTP connections open for 5s (reduces reconnects)
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "2", "--worker-class", "gthread", "--timeout", "120", "--graceful-timeout", "30", "--keep-alive", "5", "app:app"]

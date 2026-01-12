@@ -529,6 +529,10 @@ The `process_invoices()` function returns:
   - Rows are grouped by entity + currency (e.g., same company appears twice if it has RON and EUR invoices)
   - Replaced hardcoded "RON" with dynamic `row.currency` in all three summary table render functions
   - Split values in By Brand table now also pass currency to formatColumnValue()
+- Improved production stability for idle periods
+  - Updated app.yaml instance size from 512MB to 1GB RAM
+  - Added Gunicorn timeout settings: --timeout 120, --graceful-timeout 30, --keep-alive 5
+  - Prevents 500 errors after 2-3 days idle (worker hangs, stale connections)
 
 ## Connector Infrastructure (DISABLED)
 
