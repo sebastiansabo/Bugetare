@@ -377,7 +377,7 @@ def health_check():
     This endpoint is lightweight and doesn't require authentication.
     Use an external service (UptimeRobot, Pingdom) to ping every 5 minutes.
     """
-    return jsonify({'status': 'ok', 'service': 'bugetare', 'version': '2025-12-18-v2'})
+    return jsonify({'status': 'ok', 'service': 'bugetare', 'version': '2025-01-12-perf-opt'})
 
 
 # ============== Main Routes ==============
