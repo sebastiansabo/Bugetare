@@ -1002,47 +1002,47 @@ def get_invoice_with_allocations(invoice_id: int) -> Optional[dict]:
     Optimized to use batch query for reinvoice_destinations instead of N+1 queries.
     """
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    cursor.execute('SELECT * FROM invoices WHERE id = %s', (invoice_id,))
-    invoice = cursor.fetchone()
+        cursor.execute('SELECT * FROM invoices WHERE id = %s', (invoice_id,))
+        invoice = cursor.fetchone()
 
-    if not invoice:
+        if not invoice:
+            return None
+
+        invoice = dict_from_row(invoice)
+
+        cursor.execute('SELECT * FROM allocations WHERE invoice_id = %s', (invoice_id,))
+        allocations = [dict_from_row(row) for row in cursor.fetchall()]
+
+        # Batch fetch all reinvoice destinations for this invoice's allocations (single query)
+        allocation_ids = [alloc['id'] for alloc in allocations]
+        reinvoice_map = {}  # allocation_id -> list of destinations
+
+        if allocation_ids:
+            placeholders = ','.join(['%s'] * len(allocation_ids))
+            cursor.execute(f'''
+                SELECT id, allocation_id, company, brand, department, subdepartment, percentage, value
+                FROM reinvoice_destinations
+                WHERE allocation_id IN ({placeholders})
+            ''', allocation_ids)
+
+            for row in cursor.fetchall():
+                rd = dict_from_row(row)
+                alloc_id = rd.pop('allocation_id')
+                if alloc_id not in reinvoice_map:
+                    reinvoice_map[alloc_id] = []
+                reinvoice_map[alloc_id].append(rd)
+
+        # Assign reinvoice destinations to their allocations
+        for alloc in allocations:
+            alloc['reinvoice_destinations'] = reinvoice_map.get(alloc['id'], [])
+
+        invoice['allocations'] = allocations
+        return invoice
+    finally:
         release_db(conn)
-        return None
-
-    invoice = dict_from_row(invoice)
-
-    cursor.execute('SELECT * FROM allocations WHERE invoice_id = %s', (invoice_id,))
-    allocations = [dict_from_row(row) for row in cursor.fetchall()]
-
-    # Batch fetch all reinvoice destinations for this invoice's allocations (single query)
-    allocation_ids = [alloc['id'] for alloc in allocations]
-    reinvoice_map = {}  # allocation_id -> list of destinations
-
-    if allocation_ids:
-        placeholders = ','.join(['%s'] * len(allocation_ids))
-        cursor.execute(f'''
-            SELECT id, allocation_id, company, brand, department, subdepartment, percentage, value
-            FROM reinvoice_destinations
-            WHERE allocation_id IN ({placeholders})
-        ''', allocation_ids)
-
-        for row in cursor.fetchall():
-            rd = dict_from_row(row)
-            alloc_id = rd.pop('allocation_id')
-            if alloc_id not in reinvoice_map:
-                reinvoice_map[alloc_id] = []
-            reinvoice_map[alloc_id].append(rd)
-
-    # Assign reinvoice destinations to their allocations
-    for alloc in allocations:
-        alloc['reinvoice_destinations'] = reinvoice_map.get(alloc['id'], [])
-
-    invoice['allocations'] = allocations
-
-    release_db(conn)
-    return invoice
 
 
 def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Optional[str] = None,
@@ -1067,47 +1067,48 @@ def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Op
         return _invoices_cache['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    # Build the query with optional filters
-    params = []
-    conditions = []
+        # Build the query with optional filters
+        params = []
+        conditions = []
 
-    # Soft delete filter
-    if include_deleted:
-        conditions.append('i.deleted_at IS NOT NULL')
-    else:
-        conditions.append('i.deleted_at IS NULL')
+        # Soft delete filter
+        if include_deleted:
+            conditions.append('i.deleted_at IS NOT NULL')
+        else:
+            conditions.append('i.deleted_at IS NULL')
 
-    # Date filters
-    if start_date:
-        conditions.append('i.invoice_date >= %s')
-        params.append(start_date)
-    if end_date:
-        conditions.append('i.invoice_date <= %s')
-        params.append(end_date)
+        # Date filters
+        if start_date:
+            conditions.append('i.invoice_date >= %s')
+            params.append(start_date)
+        if end_date:
+            conditions.append('i.invoice_date <= %s')
+            params.append(end_date)
 
-    # Allocation filters - if any are set, filter invoices that have matching allocations
-    allocation_filters = []
-    if company:
-        allocation_filters.append('a.company = %s')
-        params.append(company)
-    if department:
-        allocation_filters.append('a.department = %s')
-        params.append(department)
-    if subdepartment:
-        allocation_filters.append('a.subdepartment = %s')
-        params.append(subdepartment)
-    if brand:
-        allocation_filters.append('a.brand = %s')
-        params.append(brand)
+        # Allocation filters - if any are set, filter invoices that have matching allocations
+        allocation_filters = []
+        if company:
+            allocation_filters.append('a.company = %s')
+            params.append(company)
+        if department:
+            allocation_filters.append('a.department = %s')
+            params.append(department)
+        if subdepartment:
+            allocation_filters.append('a.subdepartment = %s')
+            params.append(subdepartment)
+        if brand:
+            allocation_filters.append('a.brand = %s')
+            params.append(brand)
 
-    where_clause = ' AND '.join(conditions) if conditions else '1=1'
+        where_clause = ' AND '.join(conditions) if conditions else '1=1'
 
-    if allocation_filters:
-        # If we have allocation filters, use a subquery to filter invoices
-        allocation_filter_clause = ' AND '.join(allocation_filters)
-        query = f'''
+        if allocation_filters:
+            # If we have allocation filters, use a subquery to filter invoices
+            allocation_filter_clause = ' AND '.join(allocation_filters)
+            query = f'''
             WITH filtered_invoices AS (
                 SELECT DISTINCT i.id
                 FROM invoices i
@@ -1159,10 +1160,10 @@ def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Op
             LEFT JOIN allocations a ON a.invoice_id = i.id
             GROUP BY i.id
             ORDER BY i.created_at DESC
-        '''
-    else:
-        # No allocation filters - simpler query
-        query = f'''
+            '''
+        else:
+            # No allocation filters - simpler query
+            query = f'''
             WITH paginated_invoices AS (
                 SELECT i.*
                 FROM invoices i
@@ -1215,27 +1216,27 @@ def get_invoices_with_allocations(limit: int = 100, offset: int = 0, company: Op
                      pi.drive_link, pi.comment, pi.status, pi.payment_status, pi.deleted_at,
                      pi.created_at, pi.updated_at, pi.subtract_vat, pi.vat_rate, pi.net_value
             ORDER BY pi.created_at DESC
-        '''
+            '''
 
-    params.extend([limit, offset])
-    cursor.execute(query, params)
+        params.extend([limit, offset])
+        cursor.execute(query, params)
 
-    invoices = []
-    for row in cursor.fetchall():
-        invoice = dict_from_row(row)
-        # The allocations field is already JSON from the query
-        if isinstance(invoice.get('allocations'), str):
-            invoice['allocations'] = json.loads(invoice['allocations'])
-        invoices.append(invoice)
+        invoices = []
+        for row in cursor.fetchall():
+            invoice = dict_from_row(row)
+            # The allocations field is already JSON from the query
+            if isinstance(invoice.get('allocations'), str):
+                invoice['allocations'] = json.loads(invoice['allocations'])
+            invoices.append(invoice)
 
-    release_db(conn)
+        # Cache the results
+        _invoices_cache['data'] = invoices
+        _invoices_cache['timestamp'] = time.time()
+        _invoices_cache['key'] = cache_key
 
-    # Cache the results
-    _invoices_cache['data'] = invoices
-    _invoices_cache['timestamp'] = time.time()
-    _invoices_cache['key'] = cache_key
-
-    return invoices
+        return invoices
+    finally:
+        release_db(conn)
 
 
 def get_allocations_by_company(company: str) -> list[dict]:
@@ -1292,45 +1293,47 @@ def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[
         return cache_entry['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    query = '''
-        SELECT a.company, i.currency, SUM(a.allocation_value) as total_value, COUNT(DISTINCT a.invoice_id) as invoice_count
-        FROM allocations a
-        JOIN invoices i ON a.invoice_id = i.id
-    '''
-    params = []
-    conditions = []
+        query = '''
+            SELECT a.company, i.currency, SUM(a.allocation_value) as total_value, COUNT(DISTINCT a.invoice_id) as invoice_count
+            FROM allocations a
+            JOIN invoices i ON a.invoice_id = i.id
+        '''
+        params = []
+        conditions = []
 
-    if start_date:
-        conditions.append('i.invoice_date >= %s')
-        params.append(start_date)
-    if end_date:
-        conditions.append('i.invoice_date <= %s')
-        params.append(end_date)
-    if department:
-        conditions.append('a.department = %s')
-        params.append(department)
-    if subdepartment:
-        conditions.append('a.subdepartment = %s')
-        params.append(subdepartment)
-    if brand:
-        conditions.append('a.brand = %s')
-        params.append(brand)
+        if start_date:
+            conditions.append('i.invoice_date >= %s')
+            params.append(start_date)
+        if end_date:
+            conditions.append('i.invoice_date <= %s')
+            params.append(end_date)
+        if department:
+            conditions.append('a.department = %s')
+            params.append(department)
+        if subdepartment:
+            conditions.append('a.subdepartment = %s')
+            params.append(subdepartment)
+        if brand:
+            conditions.append('a.brand = %s')
+            params.append(brand)
 
-    if conditions:
-        query += ' WHERE ' + ' AND '.join(conditions)
+        if conditions:
+            query += ' WHERE ' + ' AND '.join(conditions)
 
-    query += ' GROUP BY a.company, i.currency ORDER BY total_value DESC'
+        query += ' GROUP BY a.company, i.currency ORDER BY total_value DESC'
 
-    cursor.execute(query, params)
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
+        cursor.execute(query, params)
+        results = [dict_from_row(row) for row in cursor.fetchall()]
 
-    # Cache results
-    _summary_cache['company'][cache_key] = {'data': results, 'timestamp': time.time()}
+        # Cache results
+        _summary_cache['company'][cache_key] = {'data': results, 'timestamp': time.time()}
 
-    return results
+        return results
+    finally:
+        release_db(conn)
 
 
 def get_summary_by_department(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
@@ -1351,48 +1354,50 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
         return cache_entry['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    query = '''
-        SELECT a.company, a.department, a.subdepartment, i.currency, SUM(a.allocation_value) as total_value, COUNT(DISTINCT a.invoice_id) as invoice_count
-        FROM allocations a
-        JOIN invoices i ON a.invoice_id = i.id
-    '''
-    params = []
-    conditions = []
+        query = '''
+            SELECT a.company, a.department, a.subdepartment, i.currency, SUM(a.allocation_value) as total_value, COUNT(DISTINCT a.invoice_id) as invoice_count
+            FROM allocations a
+            JOIN invoices i ON a.invoice_id = i.id
+        '''
+        params = []
+        conditions = []
 
-    if company:
-        conditions.append('a.company = %s')
-        params.append(company)
-    if start_date:
-        conditions.append('i.invoice_date >= %s')
-        params.append(start_date)
-    if end_date:
-        conditions.append('i.invoice_date <= %s')
-        params.append(end_date)
-    if department:
-        conditions.append('a.department = %s')
-        params.append(department)
-    if subdepartment:
-        conditions.append('a.subdepartment = %s')
-        params.append(subdepartment)
-    if brand:
-        conditions.append('a.brand = %s')
-        params.append(brand)
+        if company:
+            conditions.append('a.company = %s')
+            params.append(company)
+        if start_date:
+            conditions.append('i.invoice_date >= %s')
+            params.append(start_date)
+        if end_date:
+            conditions.append('i.invoice_date <= %s')
+            params.append(end_date)
+        if department:
+            conditions.append('a.department = %s')
+            params.append(department)
+        if subdepartment:
+            conditions.append('a.subdepartment = %s')
+            params.append(subdepartment)
+        if brand:
+            conditions.append('a.brand = %s')
+            params.append(brand)
 
-    if conditions:
-        query += ' WHERE ' + ' AND '.join(conditions)
+        if conditions:
+            query += ' WHERE ' + ' AND '.join(conditions)
 
-    query += ' GROUP BY a.company, a.department, a.subdepartment, i.currency ORDER BY total_value DESC'
+        query += ' GROUP BY a.company, a.department, a.subdepartment, i.currency ORDER BY total_value DESC'
 
-    cursor.execute(query, params)
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
+        cursor.execute(query, params)
+        results = [dict_from_row(row) for row in cursor.fetchall()]
 
-    # Cache results
-    _summary_cache['department'][cache_key] = {'data': results, 'timestamp': time.time()}
+        # Cache results
+        _summary_cache['department'][cache_key] = {'data': results, 'timestamp': time.time()}
 
-    return results
+        return results
+    finally:
+        release_db(conn)
 
 
 def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
@@ -1413,64 +1418,66 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
         return cache_entry['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    query = '''
-        SELECT a.brand,
-               i.currency,
-               SUM(a.allocation_value) as total_value,
-               COUNT(DISTINCT a.invoice_id) as invoice_count,
-               STRING_AGG(DISTINCT i.invoice_number, ', ') as invoice_numbers,
-               JSON_AGG(JSON_BUILD_OBJECT(
-                   'department', a.department,
-                   'subdepartment', a.subdepartment,
-                   'brand', a.brand,
-                   'value', a.allocation_value,
-                   'percent', ROUND(a.allocation_percent),
-                   'reinvoice_to', a.reinvoice_to,
-                   'reinvoice_brand', a.reinvoice_brand,
-                   'reinvoice_department', a.reinvoice_department,
-                   'reinvoice_subdepartment', a.reinvoice_subdepartment,
-                   'currency', i.currency
-               )) as split_values
-        FROM allocations a
-        JOIN invoices i ON a.invoice_id = i.id
-    '''
-    params = []
-    conditions = []
+        query = '''
+            SELECT a.brand,
+                   i.currency,
+                   SUM(a.allocation_value) as total_value,
+                   COUNT(DISTINCT a.invoice_id) as invoice_count,
+                   STRING_AGG(DISTINCT i.invoice_number, ', ') as invoice_numbers,
+                   JSON_AGG(JSON_BUILD_OBJECT(
+                       'department', a.department,
+                       'subdepartment', a.subdepartment,
+                       'brand', a.brand,
+                       'value', a.allocation_value,
+                       'percent', ROUND(a.allocation_percent),
+                       'reinvoice_to', a.reinvoice_to,
+                       'reinvoice_brand', a.reinvoice_brand,
+                       'reinvoice_department', a.reinvoice_department,
+                       'reinvoice_subdepartment', a.reinvoice_subdepartment,
+                       'currency', i.currency
+                   )) as split_values
+            FROM allocations a
+            JOIN invoices i ON a.invoice_id = i.id
+        '''
+        params = []
+        conditions = []
 
-    if company:
-        conditions.append('a.company = %s')
-        params.append(company)
-    if start_date:
-        conditions.append('i.invoice_date >= %s')
-        params.append(start_date)
-    if end_date:
-        conditions.append('i.invoice_date <= %s')
-        params.append(end_date)
-    if department:
-        conditions.append('a.department = %s')
-        params.append(department)
-    if subdepartment:
-        conditions.append('a.subdepartment = %s')
-        params.append(subdepartment)
-    if brand:
-        conditions.append('a.brand = %s')
-        params.append(brand)
+        if company:
+            conditions.append('a.company = %s')
+            params.append(company)
+        if start_date:
+            conditions.append('i.invoice_date >= %s')
+            params.append(start_date)
+        if end_date:
+            conditions.append('i.invoice_date <= %s')
+            params.append(end_date)
+        if department:
+            conditions.append('a.department = %s')
+            params.append(department)
+        if subdepartment:
+            conditions.append('a.subdepartment = %s')
+            params.append(subdepartment)
+        if brand:
+            conditions.append('a.brand = %s')
+            params.append(brand)
 
-    if conditions:
-        query += ' WHERE ' + ' AND '.join(conditions)
+        if conditions:
+            query += ' WHERE ' + ' AND '.join(conditions)
 
-    query += ' GROUP BY a.brand, i.currency ORDER BY total_value DESC'
+        query += ' GROUP BY a.brand, i.currency ORDER BY total_value DESC'
 
-    cursor.execute(query, params)
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
+        cursor.execute(query, params)
+        results = [dict_from_row(row) for row in cursor.fetchall()]
 
-    # Cache results
-    _summary_cache['brand'][cache_key] = {'data': results, 'timestamp': time.time()}
+        # Cache results
+        _summary_cache['brand'][cache_key] = {'data': results, 'timestamp': time.time()}
 
-    return results
+        return results
+    finally:
+        release_db(conn)
 
 
 def delete_invoice(invoice_id: int) -> bool:
@@ -2683,21 +2690,22 @@ def get_user(user_id: int) -> Optional[dict]:
 def get_user_by_email(email: str) -> Optional[dict]:
     """Get a user by email address with role information."""
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    cursor.execute('''
-        SELECT u.*, r.name as role_name, r.description as role_description,
-               r.can_add_invoices, r.can_edit_invoices, r.can_delete_invoices, r.can_view_invoices,
-               r.can_access_accounting, r.can_access_settings, r.can_access_connectors,
-               r.can_access_templates
-        FROM users u
-        LEFT JOIN roles r ON u.role_id = r.id
-        WHERE u.email = %s
-    ''', (email,))
-    user = cursor.fetchone()
-
-    release_db(conn)
-    return dict_from_row(user) if user else None
+        cursor.execute('''
+            SELECT u.*, r.name as role_name, r.description as role_description,
+                   r.can_add_invoices, r.can_edit_invoices, r.can_delete_invoices, r.can_view_invoices,
+                   r.can_access_accounting, r.can_access_settings, r.can_access_connectors,
+                   r.can_access_templates
+            FROM users u
+            LEFT JOIN roles r ON u.role_id = r.id
+            WHERE u.email = %s
+        ''', (email,))
+        user = cursor.fetchone()
+        return dict_from_row(user) if user else None
+    finally:
+        release_db(conn)
 
 
 def save_user(
