@@ -102,8 +102,8 @@ if not DATABASE_URL:
 _connection_pool = None
 
 # Pool size configuration - can be tuned via environment variables
-POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '2'))
-POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '5'))
+POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '3'))
+POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '8'))
 
 
 def _get_pool():
@@ -940,60 +940,62 @@ def get_all_invoices(limit: int = 100, offset: int = 0, company: Optional[str] =
     Set include_deleted=True to get only deleted invoices (for the bin view).
     """
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    # Build query with optional joins and filters
-    query = '''
-        SELECT DISTINCT i.*
-        FROM invoices i
-    '''
-    params = []
-    conditions = []
-
-    # If any allocation filter is set, join with allocations table
-    if company or department or subdepartment or brand:
+        # Build query with optional joins and filters
         query = '''
             SELECT DISTINCT i.*
             FROM invoices i
-            JOIN allocations a ON a.invoice_id = i.id
         '''
-        if company:
-            conditions.append('a.company = %s')
-            params.append(company)
-        if department:
-            conditions.append('a.department = %s')
-            params.append(department)
-        if subdepartment:
-            conditions.append('a.subdepartment = %s')
-            params.append(subdepartment)
-        if brand:
-            conditions.append('a.brand = %s')
-            params.append(brand)
+        params = []
+        conditions = []
 
-    # Soft delete filter
-    if include_deleted:
-        conditions.append('i.deleted_at IS NOT NULL')
-    else:
-        conditions.append('i.deleted_at IS NULL')
+        # If any allocation filter is set, join with allocations table
+        if company or department or subdepartment or brand:
+            query = '''
+                SELECT DISTINCT i.*
+                FROM invoices i
+                JOIN allocations a ON a.invoice_id = i.id
+            '''
+            if company:
+                conditions.append('a.company = %s')
+                params.append(company)
+            if department:
+                conditions.append('a.department = %s')
+                params.append(department)
+            if subdepartment:
+                conditions.append('a.subdepartment = %s')
+                params.append(subdepartment)
+            if brand:
+                conditions.append('a.brand = %s')
+                params.append(brand)
 
-    # Date filters on invoice table
-    if start_date:
-        conditions.append('i.invoice_date >= %s')
-        params.append(start_date)
-    if end_date:
-        conditions.append('i.invoice_date <= %s')
-        params.append(end_date)
+        # Soft delete filter
+        if include_deleted:
+            conditions.append('i.deleted_at IS NOT NULL')
+        else:
+            conditions.append('i.deleted_at IS NULL')
 
-    if conditions:
-        query += ' WHERE ' + ' AND '.join(conditions)
+        # Date filters on invoice table
+        if start_date:
+            conditions.append('i.invoice_date >= %s')
+            params.append(start_date)
+        if end_date:
+            conditions.append('i.invoice_date <= %s')
+            params.append(end_date)
 
-    query += ' ORDER BY i.created_at DESC LIMIT %s OFFSET %s'
-    params.extend([limit, offset])
+        if conditions:
+            query += ' WHERE ' + ' AND '.join(conditions)
 
-    cursor.execute(query, params)
-    invoices = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
-    return invoices
+        query += ' ORDER BY i.created_at DESC LIMIT %s OFFSET %s'
+        params.extend([limit, offset])
+
+        cursor.execute(query, params)
+        invoices = [dict_from_row(row) for row in cursor.fetchall()]
+        return invoices
+    finally:
+        release_db(conn)
 
 
 def get_invoice_with_allocations(invoice_id: int) -> Optional[dict]:
@@ -2670,21 +2672,22 @@ def get_all_users() -> list[dict]:
 def get_user(user_id: int) -> Optional[dict]:
     """Get a specific user by ID with role information."""
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    cursor.execute('''
-        SELECT u.*, r.name as role_name, r.description as role_description,
-               r.can_add_invoices, r.can_edit_invoices, r.can_delete_invoices, r.can_view_invoices,
-               r.can_access_accounting, r.can_access_settings, r.can_access_connectors,
-               r.can_access_templates
-        FROM users u
-        LEFT JOIN roles r ON u.role_id = r.id
-        WHERE u.id = %s
-    ''', (user_id,))
-    user = cursor.fetchone()
-
-    release_db(conn)
-    return dict_from_row(user) if user else None
+        cursor.execute('''
+            SELECT u.*, r.name as role_name, r.description as role_description,
+                   r.can_add_invoices, r.can_edit_invoices, r.can_delete_invoices, r.can_view_invoices,
+                   r.can_access_accounting, r.can_access_settings, r.can_access_connectors,
+                   r.can_access_templates
+            FROM users u
+            LEFT JOIN roles r ON u.role_id = r.id
+            WHERE u.id = %s
+        ''', (user_id,))
+        user = cursor.fetchone()
+        return dict_from_row(user) if user else None
+    finally:
+        release_db(conn)
 
 
 def get_user_by_email(email: str) -> Optional[dict]:
