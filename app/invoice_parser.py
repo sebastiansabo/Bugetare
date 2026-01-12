@@ -232,6 +232,117 @@ def parse_invoice_from_bytes(file_bytes: bytes, filename: str, api_key: Optional
         os.unlink(tmp_path)
 
 
+def extract_missing_fields_with_ai(file_path: str, missing_fields: list, api_key: Optional[str] = None) -> dict:
+    """
+    Use AI to extract only specific missing fields from an invoice.
+    This is a targeted extraction to fill gaps left by template parsing.
+
+    Args:
+        file_path: Path to the invoice file
+        missing_fields: List of field names to extract (e.g., ['invoice_number', 'invoice_value'])
+        api_key: Optional Anthropic API key
+
+    Returns:
+        Dict with only the requested fields
+    """
+    if api_key is None:
+        api_key = os.environ.get('ANTHROPIC_API_KEY')
+
+    if not api_key:
+        return {}
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    # Prepare image(s) based on file type
+    ext = os.path.splitext(file_path)[1].lower()
+
+    if ext == '.pdf':
+        images = pdf_to_images(file_path)
+    elif ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp']:
+        images = [encode_image_to_base64(file_path)]
+    else:
+        return {}
+
+    # Build message content with images
+    content = []
+    for image_data, media_type in images:
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": media_type,
+                "data": image_data
+            }
+        })
+
+    # Build field descriptions for the prompt
+    field_descriptions = {
+        'invoice_number': '"invoice_number": "Invoice number/reference (include series if present, e.g., \'VGSR 3459\' or \'FBADS-733-103901503\')"',
+        'invoice_date': '"invoice_date": "Date in YYYY-MM-DD format"',
+        'invoice_value': '"invoice_value": 123.45 (total amount as a number, the GROSS total with VAT included)',
+        'customer_vat': '"customer_vat": "RO12345678" (VAT/CUI of the buyer/client, normalized with country code and no spaces)',
+        'supplier': '"supplier": "Name of the company issuing the invoice"',
+        'supplier_vat': '"supplier_vat": "RO12345678" (VAT/CUI of the seller, normalized)',
+        'currency': '"currency": "RON/EUR/USD"'
+    }
+
+    fields_to_extract = [field_descriptions.get(f, f'"{f}": "value"') for f in missing_fields if f in field_descriptions]
+
+    if not fields_to_extract:
+        return {}
+
+    prompt = f"""Analyze this invoice and extract ONLY the following specific fields. Return ONLY a valid JSON object.
+
+Extract these fields:
+{{
+    {','.join(fields_to_extract)}
+}}
+
+IMPORTANT:
+- For invoice_value, extract the TOTAL amount (with VAT) as a number
+- For VAT numbers (customer_vat, supplier_vat), normalize format: COUNTRYCODE + NUMBERS, no spaces (e.g., "RO50022994")
+- For invoice_number, include any series/prefix (e.g., "VGSR 3459" not just "3459")
+- For invoice_date, use YYYY-MM-DD format
+- Look carefully at ALL pages - customer info is often in the footer of the last page
+- If you cannot find a field, use null
+- Return ONLY the JSON object, no other text"""
+
+    content.append({"type": "text", "text": prompt})
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=512,
+        messages=[
+            {"role": "user", "content": content}
+        ]
+    )
+
+    # Parse the response
+    response_text = response.content[0].text.strip()
+
+    try:
+        if '```json' in response_text:
+            response_text = response_text.split('```json')[1].split('```')[0]
+        elif '```' in response_text:
+            response_text = response_text.split('```')[1].split('```')[0]
+
+        result = json.loads(response_text)
+
+        # Post-process VAT numbers
+        if result.get('supplier_vat'):
+            result['supplier_vat'] = normalize_vat_number(result['supplier_vat'])
+        if result.get('customer_vat'):
+            result['customer_vat'] = normalize_vat_number(result['customer_vat'])
+
+        # Post-process date
+        if result.get('invoice_date'):
+            result['invoice_date'] = parse_romanian_date(result['invoice_date'])
+
+        return result
+    except json.JSONDecodeError:
+        return {}
+
+
 def apply_template(template: dict, text: str = None) -> dict:
     """
     Apply a template to return fixed invoice data.
@@ -1009,6 +1120,30 @@ def auto_detect_and_parse(file_bytes: bytes, filename: str, templates: list[dict
             result = parse_with_template(tmp_path, matched_template)
             result['auto_detected_template'] = matched_template.get('name')
             result['auto_detected_template_id'] = matched_template.get('id')
+
+            # Check for critical missing fields - use AI to fill gaps
+            missing_fields = []
+            if not result.get('invoice_number'):
+                missing_fields.append('invoice_number')
+            if not result.get('invoice_date'):
+                missing_fields.append('invoice_date')
+            if not result.get('invoice_value'):
+                missing_fields.append('invoice_value')
+            if not result.get('customer_vat'):
+                missing_fields.append('customer_vat')
+
+            if missing_fields:
+                # Use AI to extract only the missing fields
+                try:
+                    ai_result = extract_missing_fields_with_ai(tmp_path, missing_fields, api_key)
+                    for field in missing_fields:
+                        if ai_result.get(field) and not result.get(field):
+                            result[field] = ai_result[field]
+                            result[f'{field}_source'] = 'ai_fallback'
+                except Exception as e:
+                    # AI fallback failed, continue with template results
+                    print(f"AI fallback failed for missing fields: {e}")
+
             return result
         else:
             # Fall back to AI parsing
