@@ -3,119 +3,349 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Applications - Contabilitate</title>
+    <title>J.A.R.V.I.S. - Applications</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <style>
-        body {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap');
+
+        :root {
+            --jarvis-blue: #00d4ff;
+            --jarvis-gold: #f0a500;
+            --jarvis-red: #ff3333;
+            --jarvis-dark: #0a0a0f;
+            --jarvis-panel: rgba(0, 212, 255, 0.05);
         }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--jarvis-dark);
+            min-height: 100vh;
+            font-family: 'Rajdhani', sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* Animated background grid */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background:
+                linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px),
+                linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* Scanning line effect */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--jarvis-blue), transparent);
+            animation: scan 4s linear infinite;
+            pointer-events: none;
+            z-index: 1000;
+            opacity: 0.5;
+        }
+
+        @keyframes scan {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+
         .apps-container {
             min-height: calc(100vh - 80px);
             display: flex;
             align-items: center;
             justify-content: center;
             padding: 40px 20px;
+            position: relative;
+            z-index: 1;
         }
+
+        /* Jarvis Logo */
+        .jarvis-logo {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 30px;
+            position: relative;
+        }
+
+        .jarvis-logo svg {
+            width: 100%;
+            height: 100%;
+            filter: drop-shadow(0 0 20px var(--jarvis-blue));
+        }
+
+        .arc-reactor {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; filter: drop-shadow(0 0 10px var(--jarvis-blue)); }
+            50% { opacity: 0.8; filter: drop-shadow(0 0 30px var(--jarvis-blue)); }
+        }
+
+        .reactor-ring {
+            animation: rotate 20s linear infinite;
+            transform-origin: center;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .reactor-ring-reverse {
+            animation: rotate-reverse 15s linear infinite;
+            transform-origin: center;
+        }
+
+        @keyframes rotate-reverse {
+            from { transform: rotate(360deg); }
+            to { transform: rotate(0deg); }
+        }
+
         .apps-header {
             text-align: center;
-            color: white;
             margin-bottom: 50px;
         }
+
         .apps-header h1 {
-            font-size: 2.5rem;
-            font-weight: 700;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 3rem;
+            font-weight: 900;
+            color: var(--jarvis-blue);
+            text-transform: uppercase;
+            letter-spacing: 15px;
             margin-bottom: 10px;
+            text-shadow: 0 0 30px rgba(0, 212, 255, 0.5);
         }
+
         .apps-header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
+            font-size: 1.2rem;
+            color: rgba(255,255,255,0.6);
+            letter-spacing: 3px;
+            text-transform: uppercase;
         }
+
         .app-card {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            background: var(--jarvis-panel);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 16px;
             padding: 40px 30px;
             text-align: center;
-            transition: all 0.3s ease;
+            transition: all 0.4s ease;
             cursor: pointer;
             text-decoration: none;
             color: inherit;
             display: block;
             height: 100%;
+            position: relative;
+            overflow: hidden;
         }
+
+        .app-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.1), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .app-card:hover::before {
+            left: 100%;
+        }
+
         .app-card:hover {
             transform: translateY(-10px);
-            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+            border-color: var(--jarvis-blue);
+            box-shadow:
+                0 0 30px rgba(0, 212, 255, 0.3),
+                inset 0 0 30px rgba(0, 212, 255, 0.05);
         }
+
         .app-card.disabled {
-            opacity: 0.6;
+            opacity: 0.4;
             cursor: not-allowed;
         }
+
         .app-card.disabled:hover {
             transform: none;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            border-color: rgba(0, 212, 255, 0.2);
+            box-shadow: none;
         }
+
         .app-icon {
-            width: 100px;
-            height: 100px;
-            border-radius: 24px;
+            width: 90px;
+            height: 90px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             margin: 0 auto 25px;
-            font-size: 3rem;
-            color: white;
+            font-size: 2.5rem;
+            position: relative;
         }
+
+        .app-icon::before {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            padding: 3px;
+            background: linear-gradient(135deg, var(--jarvis-blue), transparent, var(--jarvis-blue));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+        }
+
         .app-icon.accounting {
-            background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+            background: rgba(0, 212, 255, 0.1);
+            color: var(--jarvis-blue);
         }
+
         .app-icon.hr {
-            background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+            background: rgba(240, 165, 0, 0.1);
+            color: var(--jarvis-gold);
         }
+
+        .app-icon.hr::before {
+            background: linear-gradient(135deg, var(--jarvis-gold), transparent, var(--jarvis-gold));
+        }
+
         .app-icon.sales {
-            background: linear-gradient(135deg, #e17055 0%, #fdcb6e 100%);
+            background: rgba(255, 51, 51, 0.1);
+            color: var(--jarvis-red);
         }
+
+        .app-icon.sales::before {
+            background: linear-gradient(135deg, var(--jarvis-red), transparent, var(--jarvis-red));
+        }
+
         .app-title {
-            font-size: 1.5rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.3rem;
             font-weight: 700;
-            color: #2d3436;
+            color: white;
             margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
         }
+
         .app-description {
-            color: #636e72;
+            color: rgba(255,255,255,0.5);
             font-size: 0.95rem;
-            margin-bottom: 15px;
+            margin-bottom: 20px;
         }
+
         .app-badge {
             display: inline-block;
-            padding: 5px 15px;
+            padding: 6px 16px;
             border-radius: 20px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
+
         .badge-active {
-            background: #d4edda;
-            color: #155724;
+            background: rgba(0, 212, 255, 0.2);
+            color: var(--jarvis-blue);
+            border: 1px solid var(--jarvis-blue);
         }
+
         .badge-coming {
-            background: #fff3cd;
-            color: #856404;
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255,255,255,0.4);
+            border: 1px solid rgba(255,255,255,0.2);
         }
+
         .navbar {
-            background: rgba(255,255,255,0.1) !important;
+            background: rgba(10, 10, 15, 0.9) !important;
             backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 212, 255, 0.1);
+            position: relative;
+            z-index: 100;
         }
-        .navbar-brand, .nav-link {
-            color: white !important;
+
+        .navbar-brand {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--jarvis-blue) !important;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
         }
-        .nav-link:hover {
-            opacity: 0.8;
+
+        .navbar-brand svg {
+            width: 32px;
+            height: 32px;
+            margin-right: 10px;
+            vertical-align: middle;
         }
+
         .user-info {
-            color: rgba(255,255,255,0.8);
+            color: rgba(255,255,255,0.6);
             font-size: 0.9rem;
+        }
+
+        .btn-outline-light {
+            border-color: rgba(0, 212, 255, 0.5);
+            color: var(--jarvis-blue);
+        }
+
+        .btn-outline-light:hover {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: var(--jarvis-blue);
+            color: var(--jarvis-blue);
+        }
+
+        /* Status indicator */
+        .status-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            background: rgba(0, 212, 255, 0.05);
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 30px;
+            font-size: 0.8rem;
+            color: rgba(255,255,255,0.5);
+            z-index: 100;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--jarvis-blue);
+            border-radius: 50%;
+            animation: blink 1s ease-in-out infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
         }
     </style>
 </head>
@@ -123,8 +353,14 @@
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg">
         <div class="container">
-            <a class="navbar-brand fw-bold" href="/">
-                <i class="bi bi-grid-3x3-gap-fill me-2"></i>Contabilitate
+            <a class="navbar-brand" href="/">
+                <svg viewBox="0 0 100 100" class="arc-reactor">
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="35" fill="none" stroke="rgba(0,212,255,0.5)" stroke-width="1"/>
+                    <circle cx="50" cy="50" r="20" fill="rgba(0,212,255,0.1)" stroke="var(--jarvis-blue)" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="8" fill="var(--jarvis-blue)"/>
+                </svg>
+                J.A.R.V.I.S.
             </a>
             <div class="d-flex align-items-center">
                 <span class="user-info me-3">
@@ -141,8 +377,51 @@
     <div class="apps-container">
         <div class="container">
             <div class="apps-header">
-                <h1><i class="bi bi-building me-2"></i>Aplicatii</h1>
-                <p>Selecteaza o aplicatie pentru a continua</p>
+                <!-- Arc Reactor Logo -->
+                <div class="jarvis-logo">
+                    <svg viewBox="0 0 200 200" class="arc-reactor">
+                        <!-- Outer ring -->
+                        <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(0,212,255,0.2)" stroke-width="1"/>
+
+                        <!-- Rotating outer segments -->
+                        <g class="reactor-ring">
+                            <path d="M100 10 L105 30 L95 30 Z" fill="var(--jarvis-blue)" opacity="0.8"/>
+                            <path d="M190 100 L170 105 L170 95 Z" fill="var(--jarvis-blue)" opacity="0.8"/>
+                            <path d="M100 190 L95 170 L105 170 Z" fill="var(--jarvis-blue)" opacity="0.8"/>
+                            <path d="M10 100 L30 95 L30 105 Z" fill="var(--jarvis-blue)" opacity="0.8"/>
+                        </g>
+
+                        <!-- Middle ring -->
+                        <circle cx="100" cy="100" r="70" fill="none" stroke="rgba(0,212,255,0.3)" stroke-width="2"/>
+
+                        <!-- Rotating middle segments -->
+                        <g class="reactor-ring-reverse">
+                            <circle cx="100" cy="35" r="5" fill="var(--jarvis-blue)" opacity="0.6"/>
+                            <circle cx="165" cy="100" r="5" fill="var(--jarvis-blue)" opacity="0.6"/>
+                            <circle cx="100" cy="165" r="5" fill="var(--jarvis-blue)" opacity="0.6"/>
+                            <circle cx="35" cy="100" r="5" fill="var(--jarvis-blue)" opacity="0.6"/>
+                            <circle cx="145" cy="55" r="4" fill="var(--jarvis-blue)" opacity="0.4"/>
+                            <circle cx="145" cy="145" r="4" fill="var(--jarvis-blue)" opacity="0.4"/>
+                            <circle cx="55" cy="145" r="4" fill="var(--jarvis-blue)" opacity="0.4"/>
+                            <circle cx="55" cy="55" r="4" fill="var(--jarvis-blue)" opacity="0.4"/>
+                        </g>
+
+                        <!-- Inner ring -->
+                        <circle cx="100" cy="100" r="50" fill="none" stroke="var(--jarvis-blue)" stroke-width="2" opacity="0.5"/>
+
+                        <!-- Core glow -->
+                        <circle cx="100" cy="100" r="35" fill="rgba(0,212,255,0.05)"/>
+                        <circle cx="100" cy="100" r="25" fill="rgba(0,212,255,0.1)" stroke="var(--jarvis-blue)" stroke-width="1"/>
+
+                        <!-- Core -->
+                        <circle cx="100" cy="100" r="15" fill="rgba(0,212,255,0.3)" stroke="var(--jarvis-blue)" stroke-width="2"/>
+                        <circle cx="100" cy="100" r="8" fill="var(--jarvis-blue)">
+                            <animate attributeName="r" values="8;10;8" dur="2s" repeatCount="indefinite"/>
+                        </circle>
+                    </svg>
+                </div>
+                <h1>J.A.R.V.I.S.</h1>
+                <p>Just A Rather Very Intelligent System</p>
             </div>
 
             <div class="row justify-content-center g-4">
@@ -153,9 +432,9 @@
                             <i class="bi bi-calculator"></i>
                         </div>
                         <h3 class="app-title">Accounting</h3>
-                        <p class="app-description">Gestioneaza facturi, alocari si rapoarte financiare</p>
+                        <p class="app-description">Invoice management, allocations & financial reports</p>
                         <span class="app-badge badge-active">
-                            <i class="bi bi-check-circle me-1"></i>Activ
+                            <i class="bi bi-circle-fill me-1" style="font-size: 0.5rem;"></i>Online
                         </span>
                     </a>
                 </div>
@@ -167,9 +446,9 @@
                             <i class="bi bi-people"></i>
                         </div>
                         <h3 class="app-title">HR</h3>
-                        <p class="app-description">Managementul resurselor umane si pontaj</p>
+                        <p class="app-description">Human resources management & timekeeping</p>
                         <span class="app-badge badge-coming">
-                            <i class="bi bi-clock me-1"></i>In curand
+                            <i class="bi bi-hourglass-split me-1"></i>Coming Soon
                         </span>
                     </div>
                 </div>
@@ -181,9 +460,9 @@
                             <i class="bi bi-graph-up-arrow"></i>
                         </div>
                         <h3 class="app-title">Sales</h3>
-                        <p class="app-description">Urmarire vanzari, clienti si performanta</p>
+                        <p class="app-description">Sales tracking, clients & performance</p>
                         <span class="app-badge badge-coming">
-                            <i class="bi bi-clock me-1"></i>In curand
+                            <i class="bi bi-hourglass-split me-1"></i>Coming Soon
                         </span>
                     </div>
                 </div>
@@ -191,6 +470,24 @@
         </div>
     </div>
 
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <span class="status-dot"></span>
+        <span>System Online</span>
+        <span style="opacity: 0.3;">|</span>
+        <span id="currentTime"></span>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Update time
+        function updateTime() {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { hour12: false });
+            document.getElementById('currentTime').textContent = time;
+        }
+        updateTime();
+        setInterval(updateTime, 1000);
+    </script>
 </body>
 </html>
