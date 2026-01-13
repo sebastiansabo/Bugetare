@@ -3846,10 +3846,21 @@
             const sortOrder = document.getElementById('sortOrder').value;
             let sortedInvoices = [...allInvoices];
 
+            // Parse ISO date string (YYYY-MM-DD) to comparable number
+            function parseDateToNum(dateStr) {
+                if (!dateStr) return 0;
+                // Convert YYYY-MM-DD to YYYYMMDD number for proper comparison
+                const parts = dateStr.split('-');
+                if (parts.length === 3) {
+                    return parseInt(parts[0]) * 10000 + parseInt(parts[1]) * 100 + parseInt(parts[2]);
+                }
+                return 0;
+            }
+
             sortedInvoices.sort((a, b) => {
                 if (sortOrder === 'newest' || sortOrder === 'oldest') {
-                    const dateA = new Date(a.invoice_date || '1970-01-01');
-                    const dateB = new Date(b.invoice_date || '1970-01-01');
+                    const dateA = parseDateToNum(a.invoice_date);
+                    const dateB = parseDateToNum(b.invoice_date);
                     return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
                 } else if (sortOrder === 'value_highest' || sortOrder === 'value_lowest') {
                     const valueA = parseFloat(a.invoice_value) || 0;
