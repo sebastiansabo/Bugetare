@@ -262,7 +262,15 @@
             </div>
             <div class="row mt-2">
                 <div class="col">
-                    <input type="text" class="form-control form-control-sm" id="searchInput" placeholder="Search by supplier or invoice #...">
+                    <div class="input-group input-group-sm">
+                        <input type="text" class="form-control" id="searchInput" placeholder="Search by supplier or invoice #...">
+                        <button class="btn btn-primary" type="button" id="searchBtn">
+                            <i class="bi bi-search"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary" type="button" id="clearSearchBtn" title="Clear search">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1410,7 +1418,17 @@
         }
 
         function setupEventListeners() {
-            document.getElementById('searchInput').addEventListener('input', debounce(handleSearch, 300));
+            // Search button click
+            document.getElementById('searchBtn').addEventListener('click', handleSearch);
+            // Enter key in search input
+            document.getElementById('searchInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleSearch();
+            });
+            // Clear search button
+            document.getElementById('clearSearchBtn').addEventListener('click', () => {
+                document.getElementById('searchInput').value = '';
+                renderInvoicesTable(allInvoices);
+            });
             document.getElementById('deleteInvoiceBtn').addEventListener('click', handleDelete);
             document.getElementById('editInvoiceBtn').addEventListener('click', openEditModal);
             document.getElementById('saveInvoiceBtn').addEventListener('click', handleSaveInvoice);
