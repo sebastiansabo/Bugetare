@@ -595,6 +595,17 @@ The `process_invoices()` function returns:
   - Updated app.yaml instance size from 512MB to 1GB RAM
   - Added Gunicorn timeout settings: --timeout 120, --graceful-timeout 30, --keep-alive 5
   - Prevents 500 errors after 2-3 days idle (worker hangs, stale connections)
+- Bulk Processor UI enhancements
+  - Hidden Merge Similar, Copy Pattern, Apply Pattern buttons (temporarily disabled)
+  - Added processing progress indicator showing "Processing X of Y..." during bulk upload
+  - Made company selector and merge toolbar sticky header in Bulk Distribute tab
+  - Fixed manager lookup to use `/api/manager` API endpoint (same as single invoice page)
+  - Manager now correctly updates when company/department/brand/subdepartment dropdowns change
+- Accounting Dashboard search improvements
+  - Added explicit search button (replaces auto-search on input change)
+  - Added clear button (X) to reset search and show all invoices
+  - Added Enter key support for search input
+  - Removed debounced auto-search for better UX and reduced unnecessary API calls
 
 ## Connector Infrastructure (DISABLED)
 

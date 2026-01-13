@@ -1861,17 +1861,39 @@ def check_invoice_number_exists(invoice_number: str, exclude_id: int = None) -> 
 
 
 def search_invoices(query: str) -> list[dict]:
-    """Search invoices by supplier or invoice number."""
+    """Search invoices by supplier or invoice number (Elasticsearch-like).
+
+    Splits query into words and matches ALL words against supplier OR invoice_number.
+    Each word can match anywhere in the fields (partial matching).
+    Case-insensitive.
+    """
     conn = get_db()
     cursor = get_cursor(conn)
 
-    search_term = f'%{query}%'
-    cursor.execute('''
+    # Split query into words and filter empty strings
+    words = [w.strip() for w in query.split() if w.strip()]
+
+    if not words:
+        release_db(conn)
+        return []
+
+    # Build WHERE clause: each word must match somewhere in supplier OR invoice_number
+    # (word1 in supplier OR word1 in invoice_number) AND (word2 in supplier OR word2 in invoice_number) ...
+    conditions = []
+    params = []
+    for word in words:
+        term = f'%{word}%'
+        conditions.append('(supplier ILIKE %s OR invoice_number ILIKE %s)')
+        params.extend([term, term])
+
+    where_clause = ' AND '.join(conditions)
+
+    cursor.execute(f'''
         SELECT * FROM invoices
-        WHERE supplier LIKE %s OR invoice_number LIKE %s
+        WHERE {where_clause}
         ORDER BY created_at DESC
         LIMIT 50
-    ''', (search_term, search_term))
+    ''', params)
 
     results = [dict_from_row(row) for row in cursor.fetchall()]
     release_db(conn)
