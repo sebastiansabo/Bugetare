@@ -393,6 +393,18 @@ The `process_invoices()` function returns:
 ```
 
 ## Recent Changes
+- Fixed manager-by-brand selection: manager now correctly updates when brand is changed in allocation dropdowns
+  - `get_responsable_for_allocation()` now accepts brand parameter and filters by brand when provided
+  - `models.py` and `database.py` updated to pass brand through department structure lookup
+- Fixed VAT handling in `update_invoice_allocations()` - now uses `base_value` (net value when VAT subtraction enabled) for allocation value calculations instead of `invoice_value`
+- Fixed Status "Eronata" row color not updating dynamically when status is changed via dropdown
+  - Added `status-row-eronata` to classList.remove() in status change handler
+- Enhanced Invoice Details modal:
+  - Removed Template row from Invoice Information
+  - Added VAT rate and amount row (shows when VAT subtraction enabled)
+  - Added Net Value (excl. VAT) row (shows when VAT subtraction enabled)
+  - Added total summary at bottom of Cost Allocations with allocation count and sum
+  - Total summary shows "excl. VAT" indicator when VAT subtraction is enabled
 - Added Invoice Status and Payment Status filters to Accounting dashboard
   - Status filter: New / Processed / Incomplete
   - Payment filter: Not Paid / Paid
