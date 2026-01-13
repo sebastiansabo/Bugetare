@@ -202,8 +202,15 @@ def parse_meta_invoice(text: str) -> dict:
         next_line = lines[i + 1].strip() if i + 1 < len(lines) else ''
 
         # Check if next line looks like a date range + value pattern
-        # Pattern: contains date range (XX xxx. 2025, HH:MM) ending with VALUE RON
-        date_value_match = re.search(r'\d{1,2}\s+\w+\.?\s+202\d.*\d{2}:\d{2}([\d.,]+)\s*RON', next_line)
+        # Supports multiple formats:
+        # - Romanian: "15 nov. 2025, 00:00 - 18 nov. 2025, 23:59306,23 RON"
+        # - English: "From 6 Dec 2025, 00:00 to 9 Dec 2025, 23:59RON50.53"
+        # Pattern 1: HH:MMVALUE RON (value after time, RON after value)
+        # Pattern 2: HH:MMRONVALUE (RON between time and value)
+        date_value_match = re.search(
+            r'\d{1,2}\s+\w+\.?,?\s*202\d.*\d{2}:\d{2}\s*(?:RON\s*)?([\d.,]+)\s*(?:RON)?',
+            next_line
+        )
 
         if date_value_match:
             # This line might be an item name

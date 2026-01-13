@@ -446,13 +446,14 @@
                                                 <span class="badge ms-2" id="allocationStatusBadge" style="display:none;">0%</span>
                                             </div>
                                             <div class="d-flex gap-2">
-                                                <button type="button" class="btn btn-outline-info btn-sm" id="mergeSimilarBtn" onclick="mergeSimilarItems()" disabled title="Automatically merge items with same/similar names">
+                                                <!-- Hidden for now: Merge Similar, Copy Pattern, Apply Pattern -->
+                                                <button type="button" class="btn btn-outline-info btn-sm" id="mergeSimilarBtn" onclick="mergeSimilarItems()" disabled title="Automatically merge items with same/similar names" style="display:none;">
                                                     <i class="bi bi-union"></i> Merge Similar
                                                 </button>
-                                                <button type="button" class="btn btn-outline-primary btn-sm" id="copyPatternBtn" onclick="copyAllocationPattern()" disabled title="Copy allocation pattern from this invoice">
+                                                <button type="button" class="btn btn-outline-primary btn-sm" id="copyPatternBtn" onclick="copyAllocationPattern()" disabled title="Copy allocation pattern from this invoice" style="display:none;">
                                                     <i class="bi bi-clipboard"></i> Copy Pattern
                                                 </button>
-                                                <button type="button" class="btn btn-outline-secondary btn-sm" id="applyPatternBtn" onclick="applyAllocationPattern()" disabled title="Apply saved pattern to this invoice">
+                                                <button type="button" class="btn btn-outline-secondary btn-sm" id="applyPatternBtn" onclick="applyAllocationPattern()" disabled title="Apply saved pattern to this invoice" style="display:none;">
                                                     <i class="bi bi-clipboard-check"></i> Apply Pattern
                                                 </button>
                                                 <button type="button" class="btn btn-success btn-sm" id="transferBtn" onclick="saveToAccounting()" disabled>
@@ -715,32 +716,87 @@
             if (uploadedFiles.length === 0) return;
 
             const loadingOverlay = document.getElementById('loadingOverlay');
+            const progressText = loadingOverlay.querySelector('.progress-text');
             loadingOverlay.classList.add('show');
 
-            const formData = new FormData();
-            uploadedFiles.forEach(file => {
-                formData.append('files[]', file);
-            });
+            const totalFiles = uploadedFiles.length;
+            let allInvoices = [];
+            let byItem = {};
+            let byCampaign = {};
+            let byMonth = {};
+            let bySupplier = {};
+            let total = 0;
+            let currency = 'RON';
 
             try {
-                const response = await fetch('/api/bulk/process', {
-                    method: 'POST',
-                    body: formData
-                });
+                // Process files one at a time for progress display
+                for (let i = 0; i < uploadedFiles.length; i++) {
+                    const file = uploadedFiles[i];
+                    progressText.textContent = `Processing ${i + 1} of ${totalFiles}...`;
 
-                const data = await response.json();
+                    const formData = new FormData();
+                    formData.append('files[]', file);
 
-                if (data.success) {
-                    reportData = data.report;
-                    displayResults(data.report);
-                    document.getElementById('exportBtn').disabled = false;
-                } else {
-                    showModal('Error processing invoices: ' + data.error, 'error');
+                    const response = await fetch('/api/bulk/process', {
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success && data.report) {
+                        const report = data.report;
+                        // Aggregate results
+                        if (report.invoices) allInvoices.push(...report.invoices);
+                        if (report.currency) currency = report.currency;
+                        if (report.total) total += report.total;
+
+                        // Merge by_item
+                        if (report.by_item) {
+                            for (const [key, val] of Object.entries(report.by_item)) {
+                                byItem[key] = (byItem[key] || 0) + val;
+                            }
+                        }
+                        // Merge by_campaign
+                        if (report.by_campaign) {
+                            for (const [key, val] of Object.entries(report.by_campaign)) {
+                                byCampaign[key] = (byCampaign[key] || 0) + val;
+                            }
+                        }
+                        // Merge by_month
+                        if (report.by_month) {
+                            for (const [key, val] of Object.entries(report.by_month)) {
+                                byMonth[key] = (byMonth[key] || 0) + val;
+                            }
+                        }
+                        // Merge by_supplier
+                        if (report.by_supplier) {
+                            for (const [key, val] of Object.entries(report.by_supplier)) {
+                                bySupplier[key] = (bySupplier[key] || 0) + val;
+                            }
+                        }
+                    }
                 }
+
+                // Build combined report
+                reportData = {
+                    invoices: allInvoices,
+                    count: allInvoices.length,
+                    total: total,
+                    currency: currency,
+                    by_item: byItem,
+                    by_campaign: byCampaign,
+                    by_month: byMonth,
+                    by_supplier: bySupplier
+                };
+
+                displayResults(reportData);
+                document.getElementById('exportBtn').disabled = false;
             } catch (error) {
                 showModal('Error: ' + error.message, 'error');
             } finally {
                 loadingOverlay.classList.remove('show');
+                progressText.textContent = 'Processing invoices...';
             }
         }
 
@@ -1212,7 +1268,7 @@
                 // Update subdepartment if department is set
                 if (patternAlloc.department) {
                     populateCampaignSubdepts(key, pattern.company, patternAlloc.department, patternAlloc.subdepartment);
-                    updateCampaignManager(key, pattern.company, patternAlloc.department, patternAlloc.brand);
+                    updateCampaignManager(key, pattern.company, patternAlloc.department, patternAlloc.brand, patternAlloc.subdepartment);
                 }
 
                 // Handle reinvoice section
@@ -2018,43 +2074,45 @@
 
             const companies = [...new Set(structureData.map(s => s.company))];
 
-            // Build master company selector at the top
+            // Build master company selector at the top (sticky header)
             let masterCompanyHtml = `
-                <div class="card mb-3 border-primary">
-                    <div class="card-body py-2">
-                        <div class="row align-items-center">
-                            <div class="col-md-3">
-                                <label class="form-label small mb-1 fw-bold">Dedicated To (Company) *</label>
-                                <select class="form-select form-select-sm" id="masterCompanySelect">
-                                    <option value="">Select Company...</option>
-                                    ${companies.map(c => `<option value="${c}" ${selectedMasterCompany === c ? 'selected' : ''}>${c}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="col-md-4">
-                                <small class="text-muted d-block mt-3">
-                                    <i class="bi bi-info-circle"></i>
-                                    Customer VAT: <code>${inv.customer_vat || 'N/A'}</code>
-                                    ${selectedMasterCompany ? `<span class="badge bg-success ms-2">Auto-matched</span>` : ''}
-                                </small>
+                <div class="sticky-panel-header" style="position: sticky; top: 0; z-index: 10; background: #fff;">
+                    <div class="card mb-2 border-primary">
+                        <div class="card-body py-2">
+                            <div class="row align-items-center">
+                                <div class="col-md-3">
+                                    <label class="form-label small mb-1 fw-bold">Dedicated To (Company) *</label>
+                                    <select class="form-select form-select-sm" id="masterCompanySelect">
+                                        <option value="">Select Company...</option>
+                                        ${companies.map(c => `<option value="${c}" ${selectedMasterCompany === c ? 'selected' : ''}>${c}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <small class="text-muted d-block mt-3">
+                                        <i class="bi bi-info-circle"></i>
+                                        Customer VAT: <code>${inv.customer_vat || 'N/A'}</code>
+                                        ${selectedMasterCompany ? `<span class="badge bg-success ms-2">Auto-matched</span>` : ''}
+                                    </small>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
-                <!-- Merge Toolbar -->
-                <div class="card mb-3 bg-light border-warning" id="mergeToolbar" style="display: none;">
-                    <div class="card-body py-2">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div>
-                                <i class="bi bi-collection text-warning me-2"></i>
-                                <span id="mergeSelectionCount">0</span> items selected
-                            </div>
-                            <div class="d-flex gap-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" id="clearMergeSelection">
-                                    <i class="bi bi-x-circle"></i> Clear Selection
-                                </button>
-                                <button type="button" class="btn btn-sm btn-warning" id="mergeCampaignsBtn">
-                                    <i class="bi bi-union"></i> Merge Selected
-                                </button>
+                    <!-- Merge Toolbar -->
+                    <div class="card mb-2 bg-light border-warning" id="mergeToolbar" style="display: none;">
+                        <div class="card-body py-2">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div>
+                                    <i class="bi bi-collection text-warning me-2"></i>
+                                    <span id="mergeSelectionCount">0</span> items selected
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="clearMergeSelection">
+                                        <i class="bi bi-x-circle"></i> Clear Selection
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-warning" id="mergeCampaignsBtn">
+                                        <i class="bi bi-union"></i> Merge Selected
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -2386,6 +2444,17 @@
                 campaignAllocations[key] = {};
             }
             campaignAllocations[key][field] = value;
+
+            // Update manager when brand or subdepartment changes
+            if (field === 'brand' || field === 'subdepartment') {
+                const company = selectedMasterCompany;
+                const department = campaignAllocations[key]?.department;
+                const brand = campaignAllocations[key]?.brand;
+                const subdepartment = campaignAllocations[key]?.subdepartment;
+                if (company && department) {
+                    updateCampaignManager(key, company, department, brand, subdepartment);
+                }
+            }
         }
 
         function populateReinvoiceDeptDropdown(key, company) {
@@ -2445,7 +2514,7 @@
             // If existing department, populate subdepartments
             else if (existing?.department) {
                 populateCampaignSubdepts(key, company, existing.department, existing.subdepartment);
-                updateCampaignManager(key, company, existing.department, existing?.brand);
+                updateCampaignManager(key, company, existing.department, existing?.brand, existing?.subdepartment);
             }
         }
 
@@ -2460,7 +2529,7 @@
             const company = selectedMasterCompany;
             const brand = campaignAllocations[key]?.brand;
             populateCampaignSubdepts(key, company, department, null);
-            updateCampaignManager(key, company, department, brand);
+            updateCampaignManager(key, company, department, brand, null);
             updateAllocationSummary();
         }
 
@@ -2490,19 +2559,29 @@
             }
         }
 
-        function updateCampaignManager(key, company, department, brand = null) {
+        async function updateCampaignManager(key, company, department, brand = null, subdepartment = null) {
             const item = document.querySelector(`.distribute-item[data-campaign-key="${key}"]`);
             if (!item) return;
 
             const managerDisplay = item.querySelector('.campaign-manager-display');
-            // Find matching structure entry, including brand if provided
-            const deptUnit = structureData.find(s =>
-                s.company === company &&
-                s.department === department &&
-                (!brand || s.brand === brand)
-            );
-            const manager = deptUnit?.responsible || '--';
-            managerDisplay.textContent = `Manager: ${manager}`;
+
+            if (!company || !department) {
+                managerDisplay.textContent = 'Manager: --';
+                return;
+            }
+
+            // Call the same API as single invoice input page
+            const params = new URLSearchParams({ company, department });
+            if (brand) params.append('brand', brand);
+            if (subdepartment) params.append('subdepartment', subdepartment);
+
+            try {
+                const res = await fetch(`/api/manager?${params}`);
+                const data = await res.json();
+                managerDisplay.textContent = `Manager: ${data.manager || '--'}`;
+            } catch (e) {
+                managerDisplay.textContent = 'Manager: --';
+            }
         }
 
         // ============== Multi-Destination Reinvoice Functions ==============
