@@ -1,5 +1,11 @@
 # Changelog
 
+## 2025-01-14
+- TikTok invoice template support in bulk processor
+- Clickable sort arrows on Date and Value columns in Accounting dashboard
+- Sort options: Date (Newest/Oldest), Value (Highest/Lowest)
+- Fixed date sorting to compare full dates (year-month-day)
+
 ## 2025-01-13
 - Elasticsearch-like search for invoices (AND logic, partial matching)
 - Added search button and clear button to Accounting dashboard
