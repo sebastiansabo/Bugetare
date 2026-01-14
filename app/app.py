@@ -33,7 +33,7 @@ from database import (
     log_user_event, get_user_events, get_event_types,
     update_allocation_comment,
     get_vat_rates, add_vat_rate, update_vat_rate, delete_vat_rate,
-    refresh_connection_pool, ping_db
+    refresh_connection_pool, ping_db, cleanup_expired_caches
 )
 
 # Google Drive integration (optional)
@@ -377,8 +377,10 @@ def health_check():
 
     This endpoint is lightweight and doesn't require authentication.
     Use an external service (UptimeRobot, Pingdom) to ping every 5 minutes.
+    Also performs cache cleanup to prevent memory growth.
     """
-    return jsonify({'status': 'ok', 'service': 'bugetare', 'version': '2025-01-12-conn-refresh'})
+    cleanup_expired_caches()
+    return jsonify({'status': 'ok', 'service': 'bugetare', 'version': '2025-01-14-cache-cleanup'})
 
 
 # ============== Main Routes ==============

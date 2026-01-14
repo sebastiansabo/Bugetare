@@ -29,4 +29,7 @@ EXPOSE 8080
 #   --timeout: Kill worker if no response in 120s
 #   --graceful-timeout: Allow 30s for graceful shutdown
 #   --keep-alive: Keep HTTP connections open for 5s (reduces reconnects)
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "2", "--worker-class", "gthread", "--timeout", "120", "--graceful-timeout", "30", "--keep-alive", "5", "app:app"]
+# Worker recycling prevents memory accumulation:
+#   --max-requests: Recycle worker after N requests
+#   --max-requests-jitter: Stagger recycling to avoid simultaneous restarts
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--threads", "2", "--worker-class", "gthread", "--timeout", "120", "--graceful-timeout", "30", "--keep-alive", "5", "--max-requests", "500", "--max-requests-jitter", "50", "app:app"]

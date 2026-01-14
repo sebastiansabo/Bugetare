@@ -5,6 +5,9 @@
 - Clickable sort arrows on Date and Value columns in Accounting dashboard
 - Sort options: Date (Newest/Oldest), Value (Highest/Lowest)
 - Fixed date sorting to compare full dates (year-month-day)
+- Memory optimization: Gunicorn worker recycling (--max-requests 500)
+- Memory optimization: Summary cache size limit (50 entries max per type)
+- Memory optimization: Expired cache cleanup on health check endpoint
 
 ## 2025-01-13
 - Elasticsearch-like search for invoices (AND logic, partial matching)

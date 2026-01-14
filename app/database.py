@@ -51,6 +51,9 @@ _summary_cache = {
     'ttl': 60  # 1 minute TTL
 }
 
+# Maximum entries per summary cache type to prevent unbounded growth
+MAX_SUMMARY_CACHE_ENTRIES = 50
+
 
 def _is_cache_valid(cache_entry: dict) -> bool:
     """Check if a cache entry is still valid."""
@@ -89,6 +92,31 @@ def clear_summary_cache():
     """Clear the summary cache only. Call this for summary-specific invalidation."""
     global _summary_cache
     _summary_cache = {'company': {}, 'department': {}, 'brand': {}, 'ttl': 60}
+
+
+def _enforce_summary_cache_limit(cache_type: str):
+    """Remove oldest entries if cache exceeds MAX_SUMMARY_CACHE_ENTRIES."""
+    global _summary_cache
+    cache = _summary_cache.get(cache_type, {})
+    if len(cache) > MAX_SUMMARY_CACHE_ENTRIES:
+        # Sort by timestamp and remove oldest entries
+        sorted_keys = sorted(cache.keys(), key=lambda k: cache[k].get('timestamp', 0))
+        entries_to_remove = len(cache) - MAX_SUMMARY_CACHE_ENTRIES
+        for key in sorted_keys[:entries_to_remove]:
+            del cache[key]
+
+
+def cleanup_expired_caches():
+    """Remove expired entries from summary caches. Call periodically to prevent memory growth."""
+    global _summary_cache
+    now = time.time()
+    ttl = _summary_cache.get('ttl', 60)
+
+    for cache_type in ['company', 'department', 'brand']:
+        cache = _summary_cache.get(cache_type, {})
+        expired_keys = [k for k, v in cache.items() if (now - v.get('timestamp', 0)) > ttl]
+        for key in expired_keys:
+            del cache[key]
 
 
 if not DATABASE_URL:
@@ -1448,8 +1476,9 @@ def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[
         cursor.execute(query, params)
         results = [dict_from_row(row) for row in cursor.fetchall()]
 
-        # Cache results
+        # Cache results and enforce size limit
         _summary_cache['company'][cache_key] = {'data': results, 'timestamp': time.time()}
+        _enforce_summary_cache_limit('company')
 
         return results
     finally:
@@ -1524,8 +1553,9 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
         cursor.execute(query, params)
         results = [dict_from_row(row) for row in cursor.fetchall()]
 
-        # Cache results
+        # Cache results and enforce size limit
         _summary_cache['department'][cache_key] = {'data': results, 'timestamp': time.time()}
+        _enforce_summary_cache_limit('department')
 
         return results
     finally:
@@ -1616,8 +1646,9 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
         cursor.execute(query, params)
         results = [dict_from_row(row) for row in cursor.fetchall()]
 
-        # Cache results
+        # Cache results and enforce size limit
         _summary_cache['brand'][cache_key] = {'data': results, 'timestamp': time.time()}
+        _enforce_summary_cache_limit('brand')
 
         return results
     finally:
