@@ -1449,6 +1449,7 @@ def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[
                 AVG(COALESCE(i.exchange_rate, 5.0)) as avg_exchange_rate
             FROM allocations a
             JOIN invoices i ON a.invoice_id = i.id
+            WHERE i.deleted_at IS NULL
         '''
         params = []
         conditions = []
@@ -1470,7 +1471,7 @@ def get_summary_by_company(start_date: Optional[str] = None, end_date: Optional[
             params.append(brand)
 
         if conditions:
-            query += ' WHERE ' + ' AND '.join(conditions)
+            query += ' AND ' + ' AND '.join(conditions)
 
         query += ' GROUP BY a.company ORDER BY total_value_ron DESC'
 
@@ -1523,6 +1524,7 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
                 AVG(COALESCE(i.exchange_rate, 5.0)) as avg_exchange_rate
             FROM allocations a
             JOIN invoices i ON a.invoice_id = i.id
+            WHERE i.deleted_at IS NULL
         '''
         params = []
         conditions = []
@@ -1547,7 +1549,7 @@ def get_summary_by_department(company: Optional[str] = None, start_date: Optiona
             params.append(brand)
 
         if conditions:
-            query += ' WHERE ' + ' AND '.join(conditions)
+            query += ' AND ' + ' AND '.join(conditions)
 
         query += ' GROUP BY a.company, a.department, a.subdepartment ORDER BY total_value_ron DESC'
 
@@ -1616,6 +1618,7 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
                    )) as split_values
             FROM allocations a
             JOIN invoices i ON a.invoice_id = i.id
+            WHERE i.deleted_at IS NULL
         '''
         params = []
         conditions = []
@@ -1640,7 +1643,7 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
             params.append(brand)
 
         if conditions:
-            query += ' WHERE ' + ' AND '.join(conditions)
+            query += ' AND ' + ' AND '.join(conditions)
 
         query += ' GROUP BY a.brand ORDER BY total_value_ron DESC'
 
@@ -1659,8 +1662,10 @@ def get_summary_by_brand(company: Optional[str] = None, start_date: Optional[str
 def get_summary_by_supplier(company: Optional[str] = None, start_date: Optional[str] = None, end_date: Optional[str] = None,
                             department: Optional[str] = None, subdepartment: Optional[str] = None,
                             brand: Optional[str] = None) -> list[dict]:
-    """Get invoice values grouped by supplier.
+    """Get allocation values grouped by supplier.
 
+    Uses allocation values (not invoice values) so filters by company/department/brand
+    correctly show only the portion of invoices allocated to those entities.
     Results are cached for 60 seconds to reduce DB load on dashboard tab switches.
     """
     global _summary_cache
@@ -1677,16 +1682,21 @@ def get_summary_by_supplier(company: Optional[str] = None, start_date: Optional[
     try:
         cursor = get_cursor(conn)
 
-        # Group invoices by supplier, with RON and EUR totals
+        # Calculate allocation values in RON and EUR based on invoice conversion rates
+        # Same pattern as get_summary_by_company but grouped by supplier
         query = '''
             SELECT
                 i.supplier,
-                SUM(COALESCE(i.value_ron, i.invoice_value)) as total_value_ron,
-                SUM(COALESCE(i.value_eur, i.invoice_value / COALESCE(i.exchange_rate, 5.0))) as total_value_eur,
-                COUNT(DISTINCT i.id) as invoice_count,
+                SUM(CASE WHEN i.invoice_value > 0 AND i.value_ron IS NOT NULL
+                    THEN a.allocation_value * i.value_ron / i.invoice_value
+                    ELSE a.allocation_value END) as total_value_ron,
+                SUM(CASE WHEN i.invoice_value > 0 AND i.value_eur IS NOT NULL
+                    THEN a.allocation_value * i.value_eur / i.invoice_value
+                    ELSE a.allocation_value / COALESCE(i.exchange_rate, 5.0) END) as total_value_eur,
+                COUNT(DISTINCT a.invoice_id) as invoice_count,
                 AVG(COALESCE(i.exchange_rate, 5.0)) as avg_exchange_rate
-            FROM invoices i
-            LEFT JOIN allocations a ON i.id = a.invoice_id
+            FROM allocations a
+            JOIN invoices i ON a.invoice_id = i.id
             WHERE i.deleted_at IS NULL
         '''
         params = []

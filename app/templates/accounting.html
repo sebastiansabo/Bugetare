@@ -2534,6 +2534,14 @@
                 return;
             }
 
+            // Calculate totals
+            let totalValueSum = 0;
+            let totalInvoices = 0;
+            data.forEach(row => {
+                totalValueSum += currency === 'EUR' ? (row.total_value_eur || 0) : (row.total_value_ron || 0);
+                totalInvoices += row.invoice_count || 0;
+            });
+
             tbody.innerHTML = data.map(row => {
                 // Use RON or EUR value based on toggle
                 const totalValue = currency === 'EUR' ? row.total_value_eur : row.total_value_ron;
@@ -2554,6 +2562,21 @@
                 }).join('');
                 return `<tr>${cells}</tr>`;
             }).join('');
+
+            // Add summary row
+            const summaryRow = visibleCols.map(col => {
+                if (col.id === 'company') {
+                    return `<td><strong>TOTAL (${data.length} companies)</strong></td>`;
+                } else if (col.id === 'total_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum)} ${currency}</strong></td>`;
+                } else if (col.id === 'invoice_count') {
+                    return `<td><strong>${totalInvoices}</strong></td>`;
+                } else if (col.id === 'avg_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum / totalInvoices)} ${currency}</strong></td>`;
+                }
+                return `<td></td>`;
+            }).join('');
+            tbody.innerHTML += `<tr class="table-info" style="font-weight: bold; border-top: 2px solid #000;">${summaryRow}</tr>`;
         }
 
         function renderDepartmentTable(data) {
@@ -2575,6 +2598,14 @@
                 return;
             }
 
+            // Calculate totals
+            let totalValueSum = 0;
+            let totalInvoices = 0;
+            data.forEach(row => {
+                totalValueSum += currency === 'EUR' ? (row.total_value_eur || 0) : (row.total_value_ron || 0);
+                totalInvoices += row.invoice_count || 0;
+            });
+
             tbody.innerHTML = data.map(row => {
                 // Use RON or EUR value based on toggle
                 const totalValue = currency === 'EUR' ? row.total_value_eur : row.total_value_ron;
@@ -2595,6 +2626,21 @@
                 }).join('');
                 return `<tr>${cells}</tr>`;
             }).join('');
+
+            // Add summary row
+            const summaryRow = visibleCols.map(col => {
+                if (col.id === 'department') {
+                    return `<td><strong>TOTAL (${data.length} departments)</strong></td>`;
+                } else if (col.id === 'total_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum)} ${currency}</strong></td>`;
+                } else if (col.id === 'invoice_count') {
+                    return `<td><strong>${totalInvoices}</strong></td>`;
+                } else if (col.id === 'avg_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum / totalInvoices)} ${currency}</strong></td>`;
+                }
+                return `<td></td>`;
+            }).join('');
+            tbody.innerHTML += `<tr class="table-info" style="font-weight: bold; border-top: 2px solid #000;">${summaryRow}</tr>`;
         }
 
         function renderBrandTable(data) {
@@ -2615,6 +2661,14 @@
                 tbody.innerHTML = `<tr><td colspan="${visibleCols.length}" class="text-center text-muted">No data</td></tr>`;
                 return;
             }
+
+            // Calculate totals
+            let totalValueSum = 0;
+            let totalInvoices = 0;
+            data.forEach(row => {
+                totalValueSum += currency === 'EUR' ? (row.total_value_eur || 0) : (row.total_value_ron || 0);
+                totalInvoices += row.invoice_count || 0;
+            });
 
             tbody.innerHTML = data.map(row => {
                 // Use RON or EUR value based on toggle
@@ -2639,6 +2693,21 @@
                 }).join('');
                 return `<tr>${cells}</tr>`;
             }).join('');
+
+            // Add summary row
+            const summaryRow = visibleCols.map(col => {
+                if (col.id === 'brand') {
+                    return `<td><strong>TOTAL (${data.length} brands)</strong></td>`;
+                } else if (col.id === 'total_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum)} ${currency}</strong></td>`;
+                } else if (col.id === 'invoice_count') {
+                    return `<td><strong>${totalInvoices}</strong></td>`;
+                } else if (col.id === 'avg_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum / totalInvoices)} ${currency}</strong></td>`;
+                }
+                return `<td></td>`;
+            }).join('');
+            tbody.innerHTML += `<tr class="table-info" style="font-weight: bold; border-top: 2px solid #000;">${summaryRow}</tr>`;
         }
 
         function renderSupplierTable(data) {
@@ -2660,6 +2729,14 @@
                 return;
             }
 
+            // Calculate totals
+            let totalValueSum = 0;
+            let totalInvoices = 0;
+            data.forEach(row => {
+                totalValueSum += currency === 'EUR' ? (row.total_value_eur || 0) : (row.total_value_ron || 0);
+                totalInvoices += row.invoice_count || 0;
+            });
+
             tbody.innerHTML = data.map(row => {
                 // Use RON or EUR value based on toggle
                 const totalValue = currency === 'EUR' ? row.total_value_eur : row.total_value_ron;
@@ -2680,6 +2757,21 @@
                 }).join('');
                 return `<tr>${cells}</tr>`;
             }).join('');
+
+            // Add summary row
+            const summaryRow = visibleCols.map(col => {
+                if (col.id === 'supplier') {
+                    return `<td><strong>TOTAL (${data.length} suppliers)</strong></td>`;
+                } else if (col.id === 'total_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum)} ${currency}</strong></td>`;
+                } else if (col.id === 'invoice_count') {
+                    return `<td><strong>${totalInvoices}</strong></td>`;
+                } else if (col.id === 'avg_value') {
+                    return `<td><strong>${formatCurrency(totalValueSum / totalInvoices)} ${currency}</strong></td>`;
+                }
+                return `<td></td>`;
+            }).join('');
+            tbody.innerHTML += `<tr class="table-info" style="font-weight: bold; border-top: 2px solid #000;">${summaryRow}</tr>`;
         }
 
         async function openDriveFolder(driveLink) {
