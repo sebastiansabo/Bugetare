@@ -2,6 +2,8 @@
 
 ## 2025-01-14
 - Added "By Supplier" tab to Accounting dashboard (cost summary per supplier)
+- Summary total row at bottom of all summary tables (By Company, Department, Brand, Supplier)
+- Fixed deleted_at filter for summary queries (excluded soft-deleted invoices)
 - TikTok invoice template support in bulk processor
 - Clickable sort arrows on Date and Value columns in Accounting dashboard
 - Sort options: Date (Newest/Oldest), Value (Highest/Lowest)
