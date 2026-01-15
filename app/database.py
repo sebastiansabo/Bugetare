@@ -470,7 +470,7 @@ def init_db():
         )
     ''')
 
-    # Add password_hash and last_login columns if they don't exist (migration)
+    # Add password_hash, last_login, and last_seen columns if they don't exist (migration)
     cursor.execute('''
         DO $$
         BEGIN
@@ -479,6 +479,9 @@ def init_db():
             END IF;
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'last_login') THEN
                 ALTER TABLE users ADD COLUMN last_login TIMESTAMP;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'last_seen') THEN
+                ALTER TABLE users ADD COLUMN last_seen TIMESTAMP;
             END IF;
         END $$;
     ''')
@@ -3832,6 +3835,51 @@ def update_user_last_login(user_id: int) -> bool:
     conn.commit()
     release_db(conn)
     return updated
+
+
+def update_user_last_seen(user_id: int) -> bool:
+    """Update the last seen timestamp for a user (called on activity/heartbeat)."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        UPDATE users SET last_seen = CURRENT_TIMESTAMP
+        WHERE id = %s
+    ''', (user_id,))
+
+    updated = cursor.rowcount > 0
+    conn.commit()
+    release_db(conn)
+    return updated
+
+
+def get_online_users_count(minutes: int = 5) -> dict:
+    """Get count of users who have been active in the last N minutes.
+
+    Returns dict with:
+        - count: number of online users
+        - users: list of online user names (for display)
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT id, name, email, last_seen
+        FROM users
+        WHERE last_seen IS NOT NULL
+          AND last_seen > CURRENT_TIMESTAMP - INTERVAL '%s minutes'
+        ORDER BY last_seen DESC
+    ''', (minutes,))
+
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    users = [{'id': row[0], 'name': row[1], 'email': row[2]} for row in rows]
+
+    return {
+        'count': len(users),
+        'users': users
+    }
 
 
 def set_default_password_for_users(default_password: str = 'changeme123') -> int:

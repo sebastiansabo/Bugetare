@@ -29,7 +29,7 @@ from database import (
     get_all_companies, get_company, save_company, update_company, delete_company as delete_company_db,
     get_all_department_structures, get_department_structure, save_department_structure,
     update_department_structure, delete_department_structure, get_unique_departments, get_unique_brands,
-    authenticate_user, set_user_password, update_user_last_login, set_default_password_for_users,
+    authenticate_user, set_user_password, update_user_last_login, update_user_last_seen, get_online_users_count, set_default_password_for_users,
     log_user_event, get_user_events, get_event_types,
     update_allocation_comment,
     get_vat_rates, add_vat_rate, update_vat_rate, delete_vat_rate,
@@ -380,7 +380,23 @@ def health_check():
     Also performs cache cleanup to prevent memory growth.
     """
     cleanup_expired_caches()
-    return jsonify({'status': 'ok', 'service': 'bugetare', 'version': '2025-01-14-cache-cleanup'})
+    return jsonify({'status': 'ok', 'service': 'bugetare', 'version': '2025-01-15-online-users'})
+
+
+@app.route('/api/heartbeat', methods=['POST'])
+@login_required
+def api_heartbeat():
+    """Update user's last_seen timestamp (called periodically by frontend)."""
+    update_user_last_seen(current_user.id)
+    return jsonify({'success': True})
+
+
+@app.route('/api/online-users')
+@login_required
+def api_online_users():
+    """Get count and list of currently online users (active in last 5 minutes)."""
+    result = get_online_users_count(minutes=5)
+    return jsonify(result)
 
 
 # ============== Main Routes ==============
