@@ -3874,7 +3874,7 @@ def get_online_users_count(minutes: int = 5) -> dict:
     rows = cursor.fetchall()
     release_db(conn)
 
-    users = [{'id': row[0], 'name': row[1], 'email': row[2]} for row in rows]
+    users = [{'id': row['id'], 'name': row['name'], 'email': row['email']} for row in rows]
 
     return {
         'count': len(users),
