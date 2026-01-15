@@ -1058,6 +1058,10 @@
         // Summary card totals for currency toggle
         let summaryTotalRon = 0;
         let summaryTotalEur = 0;
+        let summaryGrossRon = 0;
+        let summaryGrossEur = 0;
+        let summaryVatRon = 0;
+        let summaryVatEur = 0;
         let currentEurRate = 5.0; // Default EUR/RON rate, will be fetched from API
 
         // Selection state
@@ -4083,8 +4087,10 @@
             summaryTotalEur = 0;
 
             // Calculate Gross and VAT totals directly from invoice fields
-            let grossTotalRon = 0;
-            let vatTotalRon = 0;
+            summaryGrossRon = 0;
+            summaryGrossEur = 0;
+            summaryVatRon = 0;
+            summaryVatEur = 0;
 
             // Count unique companies and departments
             const uniqueCompanies = new Set();
@@ -4094,15 +4100,18 @@
                 const invoiceValue = inv.invoice_value || 0;
                 const exchangeRate = inv.exchange_rate || currentEurRate;
 
-                // Gross Value = value_ron (already converted to RON in database)
-                grossTotalRon += inv.value_ron || invoiceValue;
+                // Gross Value = value_ron/value_eur (already converted in database)
+                summaryGrossRon += inv.value_ron || invoiceValue;
+                summaryGrossEur += inv.value_eur || (invoiceValue / exchangeRate);
 
-                // VAT Value = (invoice_value - net_value) converted to RON
+                // VAT Value = (invoice_value - net_value) converted to RON/EUR
                 if (inv.subtract_vat && inv.net_value && invoiceValue > 0) {
                     const vatInOriginalCurrency = invoiceValue - inv.net_value;
                     // Convert to RON using same ratio as value_ron
-                    const conversionRatio = (inv.value_ron || invoiceValue) / invoiceValue;
-                    vatTotalRon += vatInOriginalCurrency * conversionRatio;
+                    const conversionRatioRon = (inv.value_ron || invoiceValue) / invoiceValue;
+                    const conversionRatioEur = (inv.value_eur || (invoiceValue / exchangeRate)) / invoiceValue;
+                    summaryVatRon += vatInOriginalCurrency * conversionRatioRon;
+                    summaryVatEur += vatInOriginalCurrency * conversionRatioEur;
                 }
 
                 // Sum allocation values and convert to RON/EUR
@@ -4146,10 +4155,6 @@
             const showEur = document.getElementById('currencyToggle').checked;
             updateTotalValueDisplay(showEur);
 
-            // Display Gross and VAT values
-            document.getElementById('grossValue').textContent = formatCurrency(grossTotalRon) + ' RON';
-            document.getElementById('vatValue').textContent = formatCurrency(vatTotalRon) + ' RON';
-
             document.getElementById('totalCompanies').textContent = uniqueCompanies.size;
             document.getElementById('totalDepartments').textContent = uniqueDepartments.size;
 
@@ -4159,13 +4164,19 @@
 
         function updateTotalValueDisplay(showEur) {
             const totalValueEl = document.getElementById('totalValue');
+            const grossValueEl = document.getElementById('grossValue');
+            const vatValueEl = document.getElementById('vatValue');
             const toggleLabel = document.getElementById('currencyToggleLabel');
 
             if (showEur) {
                 totalValueEl.textContent = formatCurrency(summaryTotalEur) + ' EUR';
+                grossValueEl.textContent = formatCurrency(summaryGrossEur) + ' EUR';
+                vatValueEl.textContent = formatCurrency(summaryVatEur) + ' EUR';
                 toggleLabel.textContent = 'RON';
             } else {
                 totalValueEl.textContent = formatCurrency(summaryTotalRon) + ' RON';
+                grossValueEl.textContent = formatCurrency(summaryGrossRon) + ' RON';
+                vatValueEl.textContent = formatCurrency(summaryVatRon) + ' RON';
                 toggleLabel.textContent = 'EUR';
             }
             updateCompactSummary();
