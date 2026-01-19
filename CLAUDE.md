@@ -251,7 +251,30 @@ Templates define how to extract data from invoices:
 3. **Google Ads** (ID 3) - Google advertising invoices
 
 ### Company VAT Matching
-When customer_vat is extracted, it's matched against `companies` table to auto-select company in UI.
+When customer_vat is extracted from an invoice, it's matched against the `companies` table to auto-populate the "Dedicated To (Company)" dropdown.
+
+**Matching Algorithm** (`services.py`):
+
+1. **Normalization** (`normalize_vat()` in services.py):
+   - Removes prefixes: `CUI:`, `CUI`, `CIF:`, `CIF`, `VAT:`, etc.
+   - Removes separators: spaces, dashes, dots, slashes
+   - Returns cleaned VAT string
+
+2. **Two-Pass Matching** (`match_company_by_vat()`):
+   - **First pass**: Exact match after normalization
+     - `RO 225615` normalized → `RO225615` matches `RO225615`
+   - **Second pass**: Numeric-only comparison (if first pass fails)
+     - `CUI 225615` → extracts `225615` → matches `RO 225615` (which also extracts to `225615`)
+
+**VAT Number Normalization** (`invoice_parser.py`):
+
+The `normalize_vat_number()` function handles various VAT formats:
+```python
+'RO 225615'     → 'RO225615'      # Country code preserved
+'CUI 225615'    → '225615'        # Prefix removed, numbers only
+'CIF: RO 225615'→ 'RO225615'      # Multiple prefixes handled
+'IE9692928F'    → 'IE9692928F'    # Irish VAT with trailing letter preserved
+```
 
 ## MCP Server Setup
 To enable DigitalOcean integration in Claude Code, add the MCP server:

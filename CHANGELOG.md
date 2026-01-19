@@ -1,5 +1,19 @@
 # Changelog
 
+## 2025-01-19
+### Invoice Parser Improvements
+- Fixed `normalize_vat_number()` to handle Irish VAT format with trailing letters (e.g., `IE9692928F`)
+- Regex updated from `^([A-Z]{2})(\d+)$` to `^([A-Z]{2})(\d+[A-Z]?)$`
+
+### Company VAT Matching
+- Two-pass matching algorithm in `services.py`:
+  1. First pass: Exact match after normalization (removes spaces, prefixes like CUI/CIF)
+  2. Second pass: Numeric-only comparison (e.g., `CUI 225615` matches `RO 225615`)
+- Auto-populate "Dedicated To (Company)" dropdown based on customer VAT extracted from invoice
+
+### HR Module Data
+- Synced HR data to staging database (113 employees, 25 events, 204 event_bonuses)
+
 ## 2025-01-16
 ### Architecture Refactoring - J.A.R.V.I.S. Platform
 - **Renamed `app/` folder to `jarvis/`** - reflects platform branding

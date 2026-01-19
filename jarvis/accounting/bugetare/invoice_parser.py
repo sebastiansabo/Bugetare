@@ -12,14 +12,15 @@ import tempfile
 
 def normalize_vat_number(vat: str) -> str:
     """
-    Normalize VAT number to a consistent format: COUNTRYCODE + NUMBERS (no spaces).
+    Normalize VAT number to a consistent format: COUNTRYCODE + NUMBERS[LETTER] (no spaces).
     Examples:
         'RO 225615' -> 'RO225615'
         'RO225615' -> 'RO225615'
-        'CUI 225615' -> 'RO225615'
+        'CUI 225615' -> '225615'
         'CIF: RO 225615' -> 'RO225615'
         '225615' -> '225615'
         'RO-225-615' -> 'RO225615'
+        'IE9692928F' -> 'IE9692928F' (Irish VAT with trailing letter)
     """
     if not vat:
         return None
@@ -36,12 +37,12 @@ def normalize_vat_number(vat: str) -> str:
     # Remove all spaces, dashes, dots, and other separators
     vat = re.sub(r'[\s\-\./:]+', '', vat)
 
-    # Extract country code (2 letters at start) and numbers
-    match = re.match(r'^([A-Z]{2})(\d+)$', vat)
+    # Extract country code (2 letters at start), numbers, and optional trailing letter (e.g., Irish VAT)
+    match = re.match(r'^([A-Z]{2})(\d+[A-Z]?)$', vat)
     if match:
         country_code = match.group(1)
-        numbers = match.group(2)
-        return f"{country_code}{numbers}"
+        numbers_and_suffix = match.group(2)
+        return f"{country_code}{numbers_and_suffix}"
 
     # If no country code, just return the cleaned number
     # But if it looks like a Romanian VAT (starts with digits), assume RO
