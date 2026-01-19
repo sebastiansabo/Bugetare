@@ -108,6 +108,10 @@ app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 from hr import hr_bp
 app.register_blueprint(hr_bp, url_prefix='/hr')
 
+# Register Statements Module Blueprint (bank statement parsing)
+from accounting.statements import statements_bp
+app.register_blueprint(statements_bp, url_prefix='/statements')
+
 # Cache-Control headers for API responses
 # NOTE: Browser caching disabled for all Settings-related endpoints to avoid stale data
 # after edits. Performance impact is minimal (<50ms per request for these simple queries).
@@ -1298,6 +1302,30 @@ def api_db_search():
         return jsonify([])
     results = search_invoices(query)
     return jsonify(results)
+
+
+@app.route('/api/invoices/search')
+@login_required
+def api_invoices_search():
+    """Search invoices by supplier, invoice number, or ID. Returns structured response."""
+    if not current_user.can_view_invoices:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    query = request.args.get('q', '').strip()
+    limit = min(int(request.args.get('limit', 20)), 50)  # Max 50 results
+
+    if len(query) < 2:
+        return jsonify({'success': True, 'invoices': [], 'message': 'Query too short'})
+
+    # Check if query is a numeric ID
+    if query.isdigit():
+        invoice = get_invoice_with_allocations(int(query))
+        if invoice:
+            return jsonify({'success': True, 'invoices': [invoice]})
+        # Fall through to text search if not found by ID
+
+    results = search_invoices(query)[:limit]
+    return jsonify({'success': True, 'invoices': results})
 
 
 @app.route('/api/db/check-invoice-number')

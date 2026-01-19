@@ -27,7 +27,7 @@ git push origin main
 
 ## Project Overview
 J.A.R.V.I.S. is a modular enterprise platform with multiple sections:
-- **Accounting** → Bugetare (Invoice Budget Allocation)
+- **Accounting** → Bugetare (Invoice Budget Allocation), Statements (Bank Statement Parsing)
 - **HR** → Events (Employee Event Bonus Management)
 - **Future**: AFS, Sales, etc.
 
@@ -67,11 +67,17 @@ jarvis/                           # Main application folder
 │
 ├── accounting/                   # Accounting Section
 │   ├── __init__.py               # Section blueprint
-│   └── bugetare/                 # Bugetare App
+│   ├── bugetare/                 # Bugetare App
+│   │   ├── __init__.py           # App blueprint
+│   │   ├── routes.py             # Invoice routes
+│   │   ├── invoice_parser.py     # AI invoice parsing
+│   │   └── bulk_processor.py     # Bulk processing
+│   └── statements/               # Bank Statement Parsing App
 │       ├── __init__.py           # App blueprint
-│       ├── routes.py             # Invoice routes
-│       ├── invoice_parser.py     # AI invoice parsing
-│       └── bulk_processor.py     # Bulk processing
+│       ├── routes.py             # Statement API routes
+│       ├── parser.py             # PDF parsing logic
+│       ├── vendors.py            # Vendor pattern matching
+│       └── database.py           # Statement DB functions
 │
 ├── hr/                           # HR Section
 │   ├── __init__.py               # Section blueprint
@@ -92,11 +98,13 @@ jarvis/                           # Main application folder
     │   ├── apps.html
     │   └── guide.html
     ├── accounting/
-    │   └── bugetare/
-    │       ├── index.html        # Add Invoice
-    │       ├── accounting.html   # Dashboard
-    │       ├── templates.html    # Template management
-    │       └── bulk.html         # Bulk processing
+    │   ├── bugetare/
+    │   │   ├── index.html        # Add Invoice
+    │   │   ├── accounting.html   # Dashboard
+    │   │   ├── templates.html    # Template management
+    │   │   └── bulk.html         # Bulk processing
+    │   └── statements/
+    │       └── index.html        # Bank statement upload & review
     └── hr/
         └── events/
             ├── event_bonuses.html
@@ -114,6 +122,8 @@ jarvis/                           # Main application folder
 | `/accounting` | Accounting | Bugetare | Dashboard |
 | `/templates` | Accounting | Bugetare | Templates |
 | `/bulk` | Accounting | Bugetare | Bulk processor |
+| `/statements/` | Accounting | Statements | Bank statement upload |
+| `/statements/mappings` | Accounting | Statements | Vendor mappings |
 | `/hr/events/` | HR | Events | Event bonuses |
 | `/hr/events/events` | HR | Events | Events list |
 | `/hr/events/employees` | HR | Events | Employees |
@@ -174,6 +184,8 @@ docker run -p 8080:8080 -e DATABASE_URL="..." -e ANTHROPIC_API_KEY="..." bugetar
 - `user_events` - Activity log for user actions (login, invoice operations)
 - `vat_rates` - VAT rate definitions (id, name, rate)
 - `connectors` - External service connectors (Google Ads, Anthropic) - DISABLED
+- `vendor_mappings` - Regex patterns to match bank transactions to suppliers
+- `bank_statement_transactions` - Parsed transactions from bank statements
 
 ### HR Schema (`hr.`)
 The HR module uses a separate PostgreSQL schema for data isolation:
@@ -187,6 +199,55 @@ The HR module uses a separate PostgreSQL schema for data isolation:
   - bonus_days, hours_free, bonus_net, details, allocation_month, created_by, created_at, updated_at
 
 **Note**: HR schema auto-creates on app startup via `init_db()` in `jarvis/database.py`
+
+## Bank Statement Module
+
+### Overview
+The Statements module (`jarvis/accounting/statements/`) parses UniCredit bank statement PDFs, extracts card transactions, matches them to known vendors, and generates invoice records.
+
+### API Routes
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| GET | `/statements/` | Statement upload page |
+| POST | `/statements/api/upload` | Upload & parse statement PDFs |
+| GET | `/statements/api/transactions` | List transactions (with filters) |
+| PUT | `/statements/api/transactions/<id>` | Update transaction |
+| POST | `/statements/api/transactions/bulk-ignore` | Bulk ignore transactions |
+| POST | `/statements/api/create-invoices` | Generate invoices from transactions |
+| GET | `/statements/api/mappings` | List vendor mappings |
+| POST | `/statements/api/mappings` | Create vendor mapping |
+| PUT | `/statements/api/mappings/<id>` | Update vendor mapping |
+| DELETE | `/statements/api/mappings/<id>` | Delete vendor mapping |
+| GET | `/statements/api/summary` | Transaction statistics |
+
+### Vendor Mappings
+Vendor mappings use regex patterns to match bank transaction descriptions to suppliers:
+
+| Pattern | Supplier | Notes |
+|---------|----------|-------|
+| `FACEBK\s*\*` | Meta | Facebook/Instagram Ads |
+| `GOOGLE\s*\*\s*ADS` | Google Ads | Advertising |
+| `GOOGLE\s*CLOUD` | Google Cloud | Infrastructure |
+| `CLAUDE\.AI` | Anthropic | AI subscription |
+| `OPENAI\s*\*\s*CHATGPT` | OpenAI | AI subscription |
+| `DIGITALOCEAN` | DigitalOcean | Infrastructure |
+| `DREAMSTIME` | Dreamstime | Stock photos |
+| `SHOPIFY\s*\*` | Shopify | E-commerce |
+
+### Transaction Status
+- `pending` - Newly parsed, awaiting review
+- `matched` - Vendor matched via pattern
+- `ignored` - Excluded (internal transfers, etc.)
+- `invoiced` - Invoice record created
+
+### Workflow
+1. Upload UniCredit PDF statements
+2. Parser extracts transactions (date, amount, description)
+3. Vendor matching identifies known suppliers
+4. Internal transfers auto-ignored ("alim card")
+5. Review transactions, add mappings for unmatched vendors
+6. Select matched transactions → Create invoices
 
 ## Deployment
 Configured via `.do/app.yaml` for DigitalOcean App Platform with auto-deploy on push to main branch.

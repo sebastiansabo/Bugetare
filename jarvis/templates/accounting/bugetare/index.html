@@ -45,6 +45,9 @@
                 <a href="/bulk" class="btn btn-outline-light btn-sm me-2">
                     <i class="bi bi-stack"></i> Bulk
                 </a>
+                <a href="/statements/" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-bank"></i> Statements
+                </a>
                 {% endif %}
                 {% if current_user.can_access_hr %}
                 <a href="/hr" class="btn btn-outline-light btn-sm me-2">
@@ -224,6 +227,19 @@
                                     <option value="paid">Paid</option>
                                 </select>
                             </div>
+
+                            <!-- Bank Transaction Link (optional) -->
+                            <div class="mb-3" id="bankTransactionSection">
+                                <label class="form-label">
+                                    <i class="bi bi-link-45deg"></i> Link to Bank Transaction
+                                    <span class="badge bg-secondary ms-1">Optional</span>
+                                </label>
+                                <select class="form-select form-select-sm" id="bankTransactionSelect">
+                                    <option value="">-- No transaction link --</option>
+                                </select>
+                                <small class="text-muted">Link this invoice to a pending bank statement transaction</small>
+                            </div>
+                            <input type="hidden" id="bankTransactionId">
                             <input type="hidden" id="driveLink">
                             <input type="hidden" id="valueRon">
                             <input type="hidden" id="valueEur">
@@ -395,6 +411,7 @@
                 await loadCompaniesWithVat();
                 await loadInvoiceTemplates();
                 await loadVatRates();
+                await loadPendingBankTransactions();
                 addAllocationRow();
                 setupEventListeners();
 
@@ -698,6 +715,122 @@
             // Pre-select default rate if exists
             if (defaultRateId) {
                 select.value = defaultRateId;
+            }
+        }
+
+        // Bank Transaction Linking
+        let pendingBankTransactions = [];
+
+        async function loadPendingBankTransactions() {
+            try {
+                // Load transactions with status pending or matched (not yet linked to invoice)
+                const res = await fetch('/statements/api/transactions?status=pending&limit=200');
+                const data = await res.json();
+
+                if (data.success) {
+                    pendingBankTransactions = data.transactions.filter(t => !t.invoice_id);
+
+                    // Also load matched transactions
+                    const res2 = await fetch('/statements/api/transactions?status=matched&limit=200');
+                    const data2 = await res2.json();
+                    if (data2.success) {
+                        const matchedWithoutInvoice = data2.transactions.filter(t => !t.invoice_id);
+                        pendingBankTransactions = [...pendingBankTransactions, ...matchedWithoutInvoice];
+                    }
+
+                    renderBankTransactionSelect();
+                }
+            } catch (e) {
+                console.error('Error loading bank transactions:', e);
+                // Hide the section if bank statements module is not available
+                const section = document.getElementById('bankTransactionSection');
+                if (section) section.style.display = 'none';
+            }
+        }
+
+        function renderBankTransactionSelect() {
+            const select = document.getElementById('bankTransactionSelect');
+            if (!select) return;
+
+            select.innerHTML = '<option value="">-- No transaction link --</option>';
+
+            if (pendingBankTransactions.length === 0) {
+                const opt = document.createElement('option');
+                opt.disabled = true;
+                opt.textContent = '(No pending transactions available)';
+                select.appendChild(opt);
+                return;
+            }
+
+            // Sort by date descending
+            pendingBankTransactions.sort((a, b) => {
+                return new Date(b.transaction_date) - new Date(a.transaction_date);
+            });
+
+            pendingBankTransactions.forEach(txn => {
+                const opt = document.createElement('option');
+                opt.value = txn.id;
+                const date = formatDateShort(txn.transaction_date);
+                const amount = formatCurrency(Math.abs(txn.amount), txn.currency);
+                const vendor = txn.matched_supplier || txn.vendor_name || 'Unknown';
+                opt.textContent = `${date} | ${amount} | ${vendor}`;
+                opt.title = txn.description?.substring(0, 100) || '';
+                select.appendChild(opt);
+            });
+
+            // Set up change listener
+            select.addEventListener('change', onBankTransactionChange);
+        }
+
+        function formatDateShort(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        }
+
+        function formatCurrency(value, currency = 'RON') {
+            if (value == null) return '-';
+            return value.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + currency;
+        }
+
+        function onBankTransactionChange() {
+            const select = document.getElementById('bankTransactionSelect');
+            const hidden = document.getElementById('bankTransactionId');
+            const txnId = select.value;
+
+            hidden.value = txnId || '';
+
+            // If transaction selected, optionally pre-fill some fields
+            if (txnId) {
+                const txn = pendingBankTransactions.find(t => t.id == txnId);
+                if (txn) {
+                    // Auto-fill supplier if not already filled
+                    const supplierInput = document.getElementById('supplier');
+                    if (!supplierInput.value && txn.matched_supplier) {
+                        supplierInput.value = txn.matched_supplier;
+                    }
+
+                    // Auto-fill amount if not already filled
+                    const valueInput = document.getElementById('invoiceValue');
+                    if (!valueInput.value && txn.amount) {
+                        valueInput.value = Math.abs(txn.amount).toFixed(2);
+                    }
+
+                    // Auto-fill date if not already filled
+                    const dateInput = document.getElementById('invoiceDate');
+                    if (!dateInput.value && txn.transaction_date) {
+                        dateInput.value = txn.transaction_date;
+                    }
+
+                    // Auto-fill currency
+                    const currencySelect = document.getElementById('currency');
+                    if (txn.currency) {
+                        currencySelect.value = txn.currency;
+                    }
+
+                    // Set payment status to paid (bank transactions are already paid)
+                    document.getElementById('paymentStatus').value = 'paid';
+                }
             }
         }
 
@@ -1115,6 +1248,13 @@
             document.getElementById('netValue').value = '';
             document.getElementById('vatRateId').value = '';
             document.getElementById('netValueDisplay').value = '';
+
+            // Reset bank transaction link
+            const bankTxnSelect = document.getElementById('bankTransactionSelect');
+            if (bankTxnSelect) {
+                bankTxnSelect.value = '';
+            }
+            document.getElementById('bankTransactionId').value = '';
 
             // Hide currency conversion display
             document.getElementById('conversionDisplay').style.display = 'none';
@@ -2177,8 +2317,33 @@
                         }
                     }
 
+                    // Link to bank transaction if selected
+                    const bankTransactionId = document.getElementById('bankTransactionId').value;
+                    let transactionLinked = false;
+                    if (bankTransactionId && result.invoice_id) {
+                        try {
+                            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Linking transaction...';
+                            const linkRes = await fetch('/statements/api/transactions/link-invoice', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    transaction_id: parseInt(bankTransactionId),
+                                    invoice_id: result.invoice_id
+                                })
+                            });
+                            const linkResult = await linkRes.json();
+                            transactionLinked = linkResult.success;
+                            if (!transactionLinked) {
+                                console.warn('Failed to link transaction:', linkResult.error);
+                            }
+                        } catch (linkError) {
+                            console.error('Error linking transaction:', linkError);
+                        }
+                    }
+
                     let successMsg = 'Successfully saved ' + result.allocations + ' allocation(s)!';
                     if (driveLink) successMsg += '\nUploaded to Drive!';
+                    if (transactionLinked) successMsg += '\nLinked to bank transaction!';
                     if (attachmentsUploaded > 0) successMsg += `\n${attachmentsUploaded} attachment(s) uploaded.`;
                     alert(successMsg);
                     // Reset form

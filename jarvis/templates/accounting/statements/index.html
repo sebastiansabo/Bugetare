@@ -1,0 +1,1730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S. - Bank Statements</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/jarvis-icon.svg') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
+    <style>
+        .transaction-row.ignored { opacity: 0.5; }
+        .transaction-row.invoiced { background-color: #d1e7dd !important; }  /* Strong green for matched rows */
+        .transaction-row.invoiced td { background-color: #d1e7dd !important; }  /* Override striped table */
+        .transaction-row.matched { background-color: var(--bs-info-bg-subtle); }
+        .badge-internal { background-color: var(--bs-secondary); }
+        .badge-card_purchase { background-color: var(--bs-primary); }
+        .badge-refund { background-color: var(--bs-warning); }
+        .amount-negative { color: var(--bs-danger); }
+        .amount-positive { color: var(--bs-success); }
+        .summary-card { min-width: 150px; }
+        .filter-section { background: var(--bs-tertiary-bg); padding: 1rem; border-radius: 0.5rem; }
+        /* Invoice popover styles */
+        .invoice-popover-content { min-width: 200px; font-size: 0.875rem; }
+        .invoice-popover-content div { line-height: 1.5; }
+        .popover { max-width: 320px; }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="progress-text">Processing statements...</div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer" style="z-index: 1100;"></div>
+
+    <nav class="navbar navbar-dark bg-primary mb-4">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
+                <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
+            </a>
+            <span class="navbar-text text-white me-auto ms-3">
+                <i class="bi bi-bank"></i> Bank Statements
+            </span>
+            <div class="d-flex align-items-center">
+                <!-- Theme Toggle -->
+                <div class="theme-switch">
+                    <i class="bi bi-sun-fill"></i>
+                    <input type="checkbox" id="themeToggle" title="Toggle Dark/Light Theme">
+                    <i class="bi bi-moon-fill"></i>
+                </div>
+                {% if current_user.can_add_invoices %}
+                <a href="/add-invoice" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-plus-circle"></i> New Invoice
+                </a>
+                {% endif %}
+                {% if current_user.can_access_accounting %}
+                <a href="/accounting" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-calculator"></i> Accounting
+                </a>
+                {% endif %}
+                <div class="dropdown">
+                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-person-circle"></i> {{ current_user.name }}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="/statements/mappings"><i class="bi bi-diagram-3"></i> Vendor Mappings</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid px-4">
+        <!-- Uploaded Statements Section -->
+        <div class="row mb-4" id="statementsSection" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleStatementsSection()">
+                        <h5 class="mb-0"><i class="bi bi-folder2-open"></i> Uploaded Statements</h5>
+                        <i class="bi bi-chevron-down" id="statementsToggleIcon"></i>
+                    </div>
+                    <div class="card-body p-0" id="statementsBody-wrapper">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-sm mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Company</th>
+                                        <th>Period</th>
+                                        <th class="text-center">Total</th>
+                                        <th class="text-center">New</th>
+                                        <th class="text-center">Duplicates</th>
+                                        <th>Uploaded</th>
+                                        <th>By</th>
+                                        <th style="width: 60px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="statementsBody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="row mb-4" id="summarySection" style="display: none;">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <small class="text-muted">Summary</small>
+                    <button type="button" class="btn btn-sm btn-link text-muted p-0" onclick="toggleSummaryCards()" title="Toggle summary cards">
+                        <i class="bi" id="summaryToggleIcon"></i>
+                    </button>
+                </div>
+                <div id="summaryCardsWrapper">
+                    <div class="d-flex flex-wrap gap-3 justify-content-center">
+                        <div class="card summary-card">
+                            <div class="card-body text-center">
+                                <h6 class="text-muted mb-1">Total</h6>
+                                <h4 id="totalCount">0</h4>
+                            </div>
+                        </div>
+                        <div class="card summary-card">
+                            <div class="card-body text-center">
+                                <h6 class="text-muted mb-1">Matched</h6>
+                                <h4 class="text-info" id="matchedCount">0</h4>
+                            </div>
+                        </div>
+                        <div class="card summary-card">
+                            <div class="card-body text-center">
+                                <h6 class="text-muted mb-1">Pending</h6>
+                                <h4 class="text-warning" id="pendingCount">0</h4>
+                            </div>
+                        </div>
+                        <div class="card summary-card">
+                            <div class="card-body text-center">
+                                <h6 class="text-muted mb-1">Ignored</h6>
+                                <h4 class="text-secondary" id="ignoredCount">0</h4>
+                            </div>
+                        </div>
+                        <div class="card summary-card">
+                            <div class="card-body text-center">
+                                <h6 class="text-muted mb-1">Invoiced</h6>
+                                <h4 class="text-success" id="invoicedCount">0</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="row mb-3" id="filterSection" style="display: none;">
+            <div class="col-12">
+                <div class="filter-section">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-2">
+                            <label class="form-label small">Status</label>
+                            <select class="form-select form-select-sm" id="filterStatus" onchange="loadTransactions()">
+                                <option value="">All</option>
+                                <option value="pending">Pending</option>
+                                <option value="matched">Matched</option>
+                                <option value="ignored">Ignored</option>
+                                <option value="invoiced">Invoiced</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Company</label>
+                            <select class="form-select form-select-sm" id="filterCompany" onchange="loadTransactions()">
+                                <option value="">All Companies</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Supplier</label>
+                            <select class="form-select form-select-sm" id="filterSupplier" onchange="loadTransactions()">
+                                <option value="">All Suppliers</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Date From</label>
+                            <input type="date" class="form-control form-control-sm" id="filterDateFrom" onchange="loadTransactions()">
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label small">Date To</label>
+                            <input type="date" class="form-control form-control-sm" id="filterDateTo" onchange="loadTransactions()">
+                        </div>
+                        <div class="col-md-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm w-100" onclick="clearFilters()">
+                                <i class="bi bi-x-lg"></i> Clear Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions Bar -->
+        <div class="row mb-3" id="actionsSection" style="display: none;">
+            <div class="col-12">
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAll()">
+                        <i class="bi bi-check-all"></i> Select All
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectNone()">
+                        <i class="bi bi-x-lg"></i> Select None
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectMatched()">
+                        <i class="bi bi-check2-circle"></i> Select Matched
+                    </button>
+                    <div class="vr"></div>
+                    <button type="button" class="btn btn-sm btn-warning" onclick="bulkIgnore()" id="bulkIgnoreBtn" disabled>
+                        <i class="bi bi-eye-slash"></i> Ignore Selected
+                    </button>
+                    <button type="button" class="btn btn-sm btn-success" onclick="linkInvoice()" id="linkInvoiceBtn" disabled>
+                        <i class="bi bi-link-45deg"></i> Link Invoice
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-info" onclick="autoMatchInvoices()" title="Auto-match pending transactions to invoices">
+                        <i class="bi bi-magic"></i> Auto-Match
+                    </button>
+                    <div class="vr"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportCSV()">
+                        <i class="bi bi-download"></i> Export CSV
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                        <i class="bi bi-cloud-upload"></i> Upload Statement
+                    </button>
+                    <div class="vr"></div>
+                    <button type="button" class="btn btn-sm" id="hideIgnoredBtn" onclick="toggleHideIgnored()" title="Toggle ignored transactions">
+                        <i class="bi" id="hideIgnoredIcon"></i> <span id="hideIgnoredText">Hide Ignored</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transactions Table -->
+        <div class="row" id="transactionsSection" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-striped mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th style="width: 40px;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"></th>
+                                        <th>Date</th>
+                                        <th>Company</th>
+                                        <th>Vendor</th>
+                                        <th>Supplier</th>
+                                        <th>Description</th>
+                                        <th class="text-end">Amount</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Invoice</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactionsBody">
+                                    <tr>
+                                        <td colspan="10" class="text-center text-muted py-4">
+                                            Upload bank statements to see transactions
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <!-- Pagination Controls -->
+                    <div class="card-footer d-flex justify-content-between align-items-center" id="paginationFooter">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="text-muted">Show</span>
+                            <select class="form-select form-select-sm" id="pageSize" onchange="changePageSize()" style="width: auto;">
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                                <option value="250">250</option>
+                                <option value="500">500</option>
+                            </select>
+                            <span class="text-muted">per page</span>
+                        </div>
+                        <div class="text-muted" id="paginationInfo">
+                            Showing 0-0 of 0 transactions
+                        </div>
+                        <nav aria-label="Transaction pagination">
+                            <ul class="pagination pagination-sm mb-0" id="paginationControls">
+                                <li class="page-item disabled" id="prevPage">
+                                    <a class="page-link" href="#" onclick="goToPage(currentPage - 1); return false;">Previous</a>
+                                </li>
+                                <li class="page-item disabled" id="nextPage">
+                                    <a class="page-link" href="#" onclick="goToPage(currentPage + 1); return false;">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Link Invoice Modal -->
+    <div class="modal fade" id="linkInvoiceModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-link-45deg"></i> Link Invoice to Transaction</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-info py-2 mb-3">
+                        <i class="bi bi-info-circle"></i> Select an existing invoice to link to this transaction.
+                    </div>
+
+                    <!-- Selected Transaction Info -->
+                    <div class="card mb-3 bg-light">
+                        <div class="card-body py-2">
+                            <h6 class="card-title mb-1">Selected Transaction:</h6>
+                            <div class="row small">
+                                <div class="col-md-4">
+                                    <strong>Date:</strong> <span id="linkTxnDate">-</span>
+                                </div>
+                                <div class="col-md-4">
+                                    <strong>Amount:</strong> <span id="linkTxnAmount">-</span>
+                                </div>
+                                <div class="col-md-4">
+                                    <strong>Vendor:</strong> <span id="linkTxnVendor">-</span>
+                                </div>
+                            </div>
+                            <div class="mt-1 small text-muted" id="linkTxnDescription"></div>
+                        </div>
+                    </div>
+
+                    <!-- Invoice Search -->
+                    <div class="mb-3">
+                        <label class="form-label">Search Invoice</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="invoiceSearchInput"
+                                   placeholder="Search by invoice number, supplier, value, or ID...">
+                            <button class="btn btn-outline-primary" type="button" onclick="searchInvoices()">
+                                <i class="bi bi-search"></i> Search
+                            </button>
+                        </div>
+                        <small class="text-muted">Enter invoice number, supplier name, or amount (e.g., 380.30)</small>
+                    </div>
+
+                    <!-- Search Results -->
+                    <div id="invoiceSearchResults" style="max-height: 300px; overflow-y: auto;">
+                        <div class="text-center text-muted py-4">
+                            <i class="bi bi-search fs-3"></i>
+                            <p class="mb-0">Search for an invoice above</p>
+                        </div>
+                    </div>
+
+                    <input type="hidden" id="selectedInvoiceId">
+                    <input type="hidden" id="selectedTransactionId">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-success" onclick="confirmLinkInvoice()" id="confirmLinkBtn" disabled>
+                        <i class="bi bi-link-45deg"></i> Link Invoice
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Upload Statement Modal -->
+    <div class="modal fade" id="uploadModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-cloud-upload"></i> Upload Bank Statements</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="drag-drop-zone mb-3" id="dropZone">
+                        <i class="bi bi-file-earmark-pdf fs-1 text-muted"></i>
+                        <p class="mb-1 mt-2 fs-5">Drag & drop UniCredit PDF statements here</p>
+                        <p class="mb-0 text-muted">or click to select files</p>
+                        <small class="text-muted">Supports multiple PDF files (max 10MB each, 50MB total)</small>
+                        <input type="file" id="fileInput" class="d-none" accept=".pdf" multiple>
+                    </div>
+
+                    <!-- File List -->
+                    <div id="fileListContainer" class="mb-3" style="display: none;">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <strong><span id="fileCount">0</span> files selected</strong>
+                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearFiles()">
+                                <i class="bi bi-x-circle"></i> Clear All
+                            </button>
+                        </div>
+                        <div class="file-list" id="fileList" style="max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="uploadBtn" onclick="uploadStatements()" disabled>
+                        <i class="bi bi-upload"></i> Upload & Parse
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script>
+        // Constants
+        const MAX_FILE_SIZE = 10 * 1024 * 1024;  // 10MB per file
+        const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB total
+
+        // State
+        let selectedFiles = [];
+        let transactions = [];
+        let selectedTransactionIds = new Set();
+        let departmentStructure = {};
+
+        // Pagination state
+        let currentPage = 1;
+        let pageSize = parseInt(localStorage.getItem('statementsPageSize') || '100');
+        let totalTransactions = 0;
+
+        // Summary cards visibility state
+        let summaryCardsVisible = localStorage.getItem('statementsSummaryVisible') !== 'false';
+
+        // Hide ignored transactions state
+        let hideIgnored = localStorage.getItem('statementsHideIgnored') === 'true';
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            setupDragDrop();
+            // Set page size dropdown from localStorage
+            document.getElementById('pageSize').value = pageSize;
+            // Initialize summary cards toggle state
+            initSummaryCardsToggle();
+            // Initialize hide ignored toggle state
+            initHideIgnoredToggle();
+            loadFilterOptions();
+            loadTransactions();
+            loadStatements();
+        });
+
+        function initSummaryCardsToggle() {
+            const wrapper = document.getElementById('summaryCardsWrapper');
+            const icon = document.getElementById('summaryToggleIcon');
+            if (summaryCardsVisible) {
+                wrapper.style.display = 'block';
+                icon.classList.add('bi-eye-slash');
+            } else {
+                wrapper.style.display = 'none';
+                icon.classList.add('bi-eye');
+            }
+        }
+
+        function toggleSummaryCards() {
+            const wrapper = document.getElementById('summaryCardsWrapper');
+            const icon = document.getElementById('summaryToggleIcon');
+            summaryCardsVisible = !summaryCardsVisible;
+            localStorage.setItem('statementsSummaryVisible', summaryCardsVisible);
+
+            if (summaryCardsVisible) {
+                wrapper.style.display = 'block';
+                icon.classList.remove('bi-eye');
+                icon.classList.add('bi-eye-slash');
+            } else {
+                wrapper.style.display = 'none';
+                icon.classList.remove('bi-eye-slash');
+                icon.classList.add('bi-eye');
+            }
+        }
+
+        function initHideIgnoredToggle() {
+            const btn = document.getElementById('hideIgnoredBtn');
+            const icon = document.getElementById('hideIgnoredIcon');
+            const text = document.getElementById('hideIgnoredText');
+            if (hideIgnored) {
+                btn.classList.add('btn-outline-warning');
+                btn.classList.remove('btn-outline-secondary');
+                icon.classList.add('bi-eye-slash-fill');
+                icon.classList.remove('bi-eye');
+                text.textContent = 'Hiding Ignored';
+            } else {
+                btn.classList.add('btn-outline-secondary');
+                btn.classList.remove('btn-outline-warning');
+                icon.classList.add('bi-eye');
+                icon.classList.remove('bi-eye-slash-fill');
+                text.textContent = 'Hide Ignored';
+            }
+        }
+
+        function toggleHideIgnored() {
+            hideIgnored = !hideIgnored;
+            localStorage.setItem('statementsHideIgnored', hideIgnored);
+            initHideIgnoredToggle();
+            // Re-render transactions to apply the filter
+            renderTransactions();
+            // Update pagination to reflect filtered count
+            updatePagination();
+        }
+
+        // Load filter dropdown options
+        async function loadFilterOptions() {
+            try {
+                const response = await fetch('/statements/api/filters');
+                const data = await response.json();
+
+                if (data.success) {
+                    // Populate company dropdown
+                    const companySelect = document.getElementById('filterCompany');
+                    const currentCompany = companySelect.value;
+                    companySelect.innerHTML = '<option value="">All Companies</option>';
+                    data.companies.forEach(c => {
+                        const opt = document.createElement('option');
+                        opt.value = c.company_cui;
+                        opt.textContent = c.company_name;
+                        companySelect.appendChild(opt);
+                    });
+                    if (currentCompany) companySelect.value = currentCompany;
+
+                    // Populate supplier dropdown
+                    const supplierSelect = document.getElementById('filterSupplier');
+                    const currentSupplier = supplierSelect.value;
+                    supplierSelect.innerHTML = '<option value="">All Suppliers</option>';
+                    data.suppliers.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s;
+                        opt.textContent = s;
+                        supplierSelect.appendChild(opt);
+                    });
+                    if (currentSupplier) supplierSelect.value = currentSupplier;
+                }
+            } catch (error) {
+                console.error('Error loading filter options:', error);
+            }
+        }
+
+        // Drag & Drop Setup
+        function setupDragDrop() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+
+            dropZone.addEventListener('click', () => fileInput.click());
+
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('drag-over');
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('drag-over');
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('drag-over');
+                handleFiles(e.dataTransfer.files);
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+
+        function handleFiles(files) {
+            const pdfFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+
+            // Validate file sizes
+            const oversizedFiles = [];
+            const validFiles = [];
+
+            for (const file of pdfFiles) {
+                if (file.size > MAX_FILE_SIZE) {
+                    oversizedFiles.push(file.name);
+                } else {
+                    validFiles.push(file);
+                }
+            }
+
+            if (oversizedFiles.length > 0) {
+                showToast(`The following files exceed the maximum size of 10MB and were not added:\n\n${oversizedFiles.join('\n')}`, 'warning');
+            }
+
+            // Check total size
+            const currentTotalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
+            const newTotalSize = validFiles.reduce((sum, f) => sum + f.size, 0);
+
+            if (currentTotalSize + newTotalSize > MAX_TOTAL_SIZE) {
+                showToast('Total upload size would exceed the maximum of 50MB. Some files were not added.', 'warning');
+                // Add files until we hit the limit
+                let addedSize = currentTotalSize;
+                for (const file of validFiles) {
+                    if (addedSize + file.size <= MAX_TOTAL_SIZE) {
+                        selectedFiles.push(file);
+                        addedSize += file.size;
+                    }
+                }
+            } else {
+                selectedFiles = [...selectedFiles, ...validFiles];
+            }
+
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const container = document.getElementById('fileListContainer');
+            const list = document.getElementById('fileList');
+            const count = document.getElementById('fileCount');
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            if (selectedFiles.length === 0) {
+                container.style.display = 'none';
+                uploadBtn.disabled = true;
+                return;
+            }
+
+            container.style.display = 'block';
+            count.textContent = selectedFiles.length;
+            uploadBtn.disabled = false;
+
+            list.innerHTML = selectedFiles.map((file, i) => `
+                <div class="file-item d-flex justify-content-between align-items-center p-2 border rounded mb-1">
+                    <span><i class="bi bi-file-earmark-pdf text-danger"></i> ${file.name}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeFile(${i})">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearFiles() {
+            selectedFiles = [];
+            document.getElementById('fileInput').value = '';
+            updateFileList();
+        }
+
+        function toggleStatementsSection() {
+            const body = document.getElementById('statementsBody-wrapper');
+            const icon = document.getElementById('statementsToggleIcon');
+            if (body.style.display === 'none') {
+                body.style.display = 'block';
+                icon.classList.remove('bi-chevron-right');
+                icon.classList.add('bi-chevron-down');
+            } else {
+                body.style.display = 'none';
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-right');
+            }
+        }
+
+        // Upload Statements
+        async function uploadStatements() {
+            if (selectedFiles.length === 0) return;
+
+            showLoading('Parsing bank statements...');
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => formData.append('files', file));
+
+            try {
+                const response = await fetch('/statements/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Close the modal
+                    bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
+                    clearFiles();
+                    loadTransactions();
+                    loadStatements();
+                    loadFilterOptions();
+
+                    // Build detailed upload summary
+                    const added = data.statements.filter(s => !s.skipped && !s.error);
+                    const skipped = data.statements.filter(s => s.skipped);
+                    const errors = data.statements.filter(s => s.error && !s.skipped);
+
+                    let message = '';
+                    if (added.length > 0) {
+                        message += `✓ Added ${added.length} statement${added.length > 1 ? 's' : ''}:\n`;
+                        added.forEach(s => {
+                            message += `  • ${s.filename} (${s.new_transactions} txns)\n`;
+                        });
+                    }
+                    if (skipped.length > 0) {
+                        message += `⊘ Skipped ${skipped.length} duplicate${skipped.length > 1 ? 's' : ''}:\n`;
+                        skipped.forEach(s => {
+                            message += `  • ${s.filename}\n`;
+                        });
+                    }
+                    if (errors.length > 0) {
+                        message += `✗ Failed ${errors.length}:\n`;
+                        errors.forEach(s => {
+                            message += `  • ${s.filename}: ${s.error}\n`;
+                        });
+                    }
+                    message += `\nTotal: ${data.total_new} new, ${data.total_duplicates} duplicate txns`;
+
+                    showToast(message, added.length > 0 ? 'success' : (skipped.length > 0 ? 'warning' : 'error'), 8000);
+                } else {
+                    showToast('Error: ' + (data.error || 'Upload failed'), 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showToast('Upload failed: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Load Transactions
+        async function loadTransactions(resetPage = true) {
+            if (resetPage) currentPage = 1;
+
+            const params = new URLSearchParams();
+
+            const status = document.getElementById('filterStatus').value;
+            const company = document.getElementById('filterCompany').value;
+            const supplier = document.getElementById('filterSupplier').value;
+            const dateFrom = document.getElementById('filterDateFrom').value;
+            const dateTo = document.getElementById('filterDateTo').value;
+
+            if (status) params.append('status', status);
+            if (company) params.append('company_cui', company);
+            if (supplier) params.append('supplier', supplier);
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+
+            // Add pagination params
+            params.append('limit', pageSize);
+            params.append('offset', (currentPage - 1) * pageSize);
+
+            try {
+                const response = await fetch('/statements/api/transactions?' + params.toString());
+                const data = await response.json();
+
+                if (data.success) {
+                    transactions = data.transactions;
+                    renderTransactions();
+                    loadSummary();
+                    updateFilterOptions();
+                    updatePagination();
+
+                    // Always show sections (even when empty, so user can upload)
+                    document.getElementById('summarySection').style.display = 'block';
+                    document.getElementById('filterSection').style.display = 'block';
+                    document.getElementById('actionsSection').style.display = 'block';
+                    document.getElementById('transactionsSection').style.display = 'block';
+                }
+            } catch (error) {
+                console.error('Load transactions error:', error);
+            }
+        }
+
+        // Pagination Functions
+        function changePageSize() {
+            pageSize = parseInt(document.getElementById('pageSize').value);
+            localStorage.setItem('statementsPageSize', pageSize);
+            currentPage = 1;
+            loadTransactions(false);
+        }
+
+        function goToPage(page) {
+            const totalPages = Math.ceil(totalTransactions / pageSize);
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            loadTransactions(false);
+        }
+
+        function updatePagination() {
+            const statusFilter = document.getElementById('filterStatus').value;
+
+            // Calculate displayed count (accounting for hideIgnored filter)
+            let displayedTotal = totalTransactions;
+            let hiddenCount = 0;
+            if (hideIgnored && statusFilter !== 'ignored') {
+                const ignoredInPage = transactions.filter(t => t.status === 'ignored').length;
+                const displayedInPage = transactions.filter(t => t.status !== 'ignored').length;
+                // For display purposes, show the actual filtered count from current page
+                displayedTotal = displayedInPage;
+                hiddenCount = ignoredInPage;
+            } else {
+                displayedTotal = transactions.length;
+            }
+
+            const start = displayedTotal > 0 ? 1 : 0;
+            const end = displayedTotal;
+            const totalPages = Math.ceil(totalTransactions / pageSize);
+
+            let paginationText = '';
+            if (displayedTotal > 0) {
+                paginationText = `Showing ${start}-${end} of ${displayedTotal} transactions`;
+                if (hiddenCount > 0) {
+                    paginationText += ` (${hiddenCount} ignored hidden)`;
+                }
+            } else {
+                paginationText = hideIgnored ? 'All transactions hidden (ignored)' : 'No transactions';
+            }
+            document.getElementById('paginationInfo').textContent = paginationText;
+
+            // Update prev/next buttons
+            const prevPage = document.getElementById('prevPage');
+            const nextPage = document.getElementById('nextPage');
+
+            if (currentPage <= 1) {
+                prevPage.classList.add('disabled');
+            } else {
+                prevPage.classList.remove('disabled');
+            }
+
+            if (currentPage >= totalPages) {
+                nextPage.classList.add('disabled');
+            } else {
+                nextPage.classList.remove('disabled');
+            }
+        }
+
+        async function loadSummary() {
+            try {
+                const response = await fetch('/statements/api/summary');
+                const data = await response.json();
+
+                if (data.success) {
+                    const s = data.summary.by_status;
+                    const total = Object.values(s).reduce((acc, v) => acc + v.count, 0);
+                    totalTransactions = total;  // Update pagination total
+                    document.getElementById('totalCount').textContent = total;
+                    document.getElementById('matchedCount').textContent = s.matched?.count || 0;
+                    document.getElementById('pendingCount').textContent = s.pending?.count || 0;
+                    document.getElementById('ignoredCount').textContent = s.ignored?.count || 0;
+                    document.getElementById('invoicedCount').textContent = s.invoiced?.count || 0;
+
+                    // Update filter dropdowns
+                    updateCompanyFilter(data.summary.by_company);
+                    updateSupplierFilter(data.summary.by_supplier);
+
+                    // Update pagination info
+                    updatePagination();
+                }
+            } catch (error) {
+                console.error('Load summary error:', error);
+            }
+        }
+
+        function updateCompanyFilter(companies) {
+            const select = document.getElementById('filterCompany');
+            const current = select.value;
+            select.innerHTML = '<option value="">All Companies</option>';
+            companies.forEach(c => {
+                select.innerHTML += `<option value="${c.company_cui}">${c.company_name} (${c.count})</option>`;
+            });
+            select.value = current;
+        }
+
+        function updateSupplierFilter(suppliers) {
+            const select = document.getElementById('filterSupplier');
+            const current = select.value;
+            select.innerHTML = '<option value="">All Suppliers</option>';
+            suppliers.forEach(s => {
+                select.innerHTML += `<option value="${s.matched_supplier}">${s.matched_supplier} (${s.count})</option>`;
+            });
+            select.value = current;
+        }
+
+        function updateFilterOptions() {
+            // Additional filter updates if needed
+        }
+
+        function clearFilters() {
+            document.getElementById('filterStatus').value = '';
+            document.getElementById('filterCompany').value = '';
+            document.getElementById('filterSupplier').value = '';
+            document.getElementById('filterDateFrom').value = '';
+            document.getElementById('filterDateTo').value = '';
+            loadTransactions();
+        }
+
+        function exportCSV() {
+            // Build URL with current filters
+            const params = new URLSearchParams();
+
+            const status = document.getElementById('filterStatus').value;
+            const company = document.getElementById('filterCompany').value;
+            const supplier = document.getElementById('filterSupplier').value;
+            const dateFrom = document.getElementById('filterDateFrom').value;
+            const dateTo = document.getElementById('filterDateTo').value;
+
+            if (status) params.append('status', status);
+            if (company) params.append('company_cui', company);
+            if (supplier) params.append('supplier', supplier);
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+
+            // Trigger download
+            window.location.href = '/statements/api/export/csv?' + params.toString();
+        }
+
+        // Statement Management
+        let statements = [];
+
+        async function loadStatements() {
+            try {
+                const response = await fetch('/statements/api/statements?limit=50');
+                const data = await response.json();
+
+                if (data.success) {
+                    statements = data.statements;
+                    renderStatements();
+                }
+            } catch (error) {
+                console.error('Error loading statements:', error);
+            }
+        }
+
+        function renderStatements() {
+            const tbody = document.getElementById('statementsBody');
+            const section = document.getElementById('statementsSection');
+
+            if (statements.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+
+            section.style.display = 'block';
+
+            tbody.innerHTML = statements.map(stmt => `
+                <tr>
+                    <td>
+                        <i class="bi bi-file-earmark-pdf text-danger"></i>
+                        ${escapeHtml(stmt.filename)}
+                    </td>
+                    <td>${escapeHtml(stmt.company_name || '-')}</td>
+                    <td>${stmt.period_from ? formatDate(stmt.period_from) + ' - ' + formatDate(stmt.period_to) : '-'}</td>
+                    <td class="text-center">
+                        <span class="badge bg-primary">${stmt.total_transactions}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-success">${stmt.new_transactions}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-secondary">${stmt.duplicate_transactions}</span>
+                    </td>
+                    <td>${formatDateTime(stmt.uploaded_at)}</td>
+                    <td>${escapeHtml(stmt.uploaded_by_name || '-')}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteStatement(${stmt.id}, '${escapeHtml(stmt.filename)}')" title="Delete statement and its transactions">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function deleteStatement(statementId, filename) {
+            if (!confirm(`Remove "${filename}" from the upload list?\n\nNote: Transaction data will be preserved.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/statements/api/statements/${statementId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Statement deleted successfully', 'success');
+                    loadStatements();
+                    loadTransactions();
+                    loadFilterOptions();
+                } else {
+                    showToast('Error: ' + (data.error || 'Failed to delete statement'), 'error');
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                showToast('Failed to delete statement: ' + error.message, 'error');
+            }
+        }
+
+        function formatDateTime(dateStr) {
+            if (!dateStr) return '-';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('ro-RO') + ' ' + date.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function renderTransactions() {
+            const tbody = document.getElementById('transactionsBody');
+            const statusFilter = document.getElementById('filterStatus').value;
+
+            // Filter out ignored transactions if hideIgnored is true
+            // (unless user explicitly filtered by "ignored" status)
+            let displayTransactions = transactions;
+            if (hideIgnored && statusFilter !== 'ignored') {
+                displayTransactions = transactions.filter(txn => txn.status !== 'ignored');
+            }
+
+            if (displayTransactions.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="11" class="text-center text-muted py-4">
+                            ${hideIgnored && transactions.length > 0
+                                ? 'All transactions are ignored. Toggle "Hide Ignored" to see them.'
+                                : 'No transactions found. Upload bank statements to get started.'}
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = displayTransactions.map(txn => {
+                const isSelected = selectedTransactionIds.has(txn.id);
+                const amountClass = txn.amount < 0 ? 'amount-negative' : 'amount-positive';
+                const typeClass = `badge-${txn.transaction_type}`;
+
+                return `
+                    <tr class="transaction-row ${txn.status}" data-id="${txn.id}">
+                        <td>
+                            <input type="checkbox" class="txn-checkbox" value="${txn.id}"
+                                   ${isSelected ? 'checked' : ''} onchange="toggleSelection(${txn.id})">
+                        </td>
+                        <td>${formatDate(txn.transaction_date)}</td>
+                        <td title="${txn.company_name}">${txn.company_cui}</td>
+                        <td>${txn.vendor_name || '-'}</td>
+                        <td>
+                            ${txn.matched_supplier ?
+                                `<span class="badge bg-info">${txn.matched_supplier}</span>` :
+                                '<span class="text-muted">-</span>'}
+                        </td>
+                        <td class="small" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                            title="${escapeHtml(txn.description)}">
+                            ${escapeHtml(txn.description?.substring(0, 80) || '')}...
+                        </td>
+                        <td class="text-end ${amountClass}">
+                            ${formatNumber(txn.amount)} ${txn.currency}
+                            ${txn.original_currency && txn.original_currency !== txn.currency ?
+                                `<br><small class="text-muted">${formatNumber(txn.original_amount)} ${txn.original_currency}</small>` : ''}
+                        </td>
+                        <td><span class="badge ${typeClass}">${txn.transaction_type}</span></td>
+                        <td>
+                            <select class="form-select form-select-sm status-select"
+                                    data-id="${txn.id}"
+                                    data-original="${txn.status}"
+                                    onchange="handleStatusChange(this)"
+                                    style="width: 110px; padding: 2px 6px; font-size: 0.75rem;">
+                                <option value="pending" ${txn.status === 'pending' ? 'selected' : ''}>Pending</option>
+                                <option value="matched" ${txn.status === 'matched' ? 'selected' : ''}>Matched</option>
+                                <option value="ignored" ${txn.status === 'ignored' ? 'selected' : ''}>Ignored</option>
+                                <option value="invoiced" ${txn.status === 'invoiced' ? 'selected' : ''}>Invoiced</option>
+                            </select>
+                        </td>
+                        <td>
+                            ${txn.invoice_id ?
+                                `<div class="d-flex flex-column">
+                                    <a href="/accounting?invoice=${txn.invoice_id}"
+                                       class="text-success fw-bold text-decoration-none invoice-popover"
+                                       data-txn-id="${txn.id}">
+                                        <i class="bi bi-receipt-cutoff"></i> ${txn.invoice_number || '#' + txn.invoice_id}
+                                    </a>
+                                    ${txn.linked_invoice_date ? `<small class="text-muted">${formatDate(txn.linked_invoice_date)}</small>` : ''}
+                                </div>` :
+                                (txn.suggested_invoice_id ?
+                                    `<div class="d-flex align-items-center gap-1">
+                                        <a href="/accounting?invoice=${txn.suggested_invoice_id}" class="badge bg-warning text-dark text-decoration-none suggested-invoice-popover"
+                                           data-txn-id="${txn.id}">
+                                            <i class="bi bi-question-circle"></i> ${txn.suggested_invoice_number || '#' + txn.suggested_invoice_id}
+                                        </a>
+                                        <button class="btn btn-sm btn-outline-success p-0 px-1" onclick="acceptSuggestedMatch(${txn.id})" title="Accept match">
+                                            <i class="bi bi-check"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger p-0 px-1" onclick="rejectSuggestedMatch(${txn.id})" title="Reject">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </div>` :
+                                    '<span class="text-muted">-</span>')}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                ${txn.invoice_id ?
+                                    `<button class="btn btn-outline-warning" onclick="unlinkInvoice(${txn.id})" title="Unlink Invoice">
+                                        <i class="bi bi-link-45deg"></i>
+                                    </button>` :
+                                    (txn.status !== 'ignored' ?
+                                        `<button class="btn btn-outline-secondary" onclick="ignoreTransaction(${txn.id})" title="Ignore">
+                                            <i class="bi bi-eye-slash"></i>
+                                        </button>` :
+                                        `<button class="btn btn-outline-secondary" onclick="unignoreTransaction(${txn.id})" title="Restore">
+                                            <i class="bi bi-eye"></i>
+                                        </button>`)}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            updateSelectionButtons();
+            // Initialize popovers for invoice links
+            initPopovers();
+        }
+
+        function getStatusColor(status) {
+            const colors = {
+                'pending': 'warning',
+                'matched': 'info',
+                'ignored': 'secondary',
+                'invoiced': 'success'
+            };
+            return colors[status] || 'secondary';
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            return d.toLocaleDateString('ro-RO');
+        }
+
+        function formatNumber(num) {
+            if (num == null) return '-';
+            return num.toLocaleString('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function buildInvoicePopoverContent(txn) {
+            // Build HTML content for invoice details popover
+            let content = '<div class="invoice-popover-content">';
+            content += `<div class="mb-1"><strong>Invoice #:</strong> ${escapeHtml(txn.invoice_number || '#' + txn.invoice_id)}</div>`;
+            if (txn.linked_invoice_supplier) {
+                content += `<div class="mb-1"><strong>Supplier:</strong> ${escapeHtml(txn.linked_invoice_supplier)}</div>`;
+            }
+            if (txn.linked_invoice_company) {
+                content += `<div class="mb-1"><strong>To:</strong> ${escapeHtml(txn.linked_invoice_company)}</div>`;
+            }
+            if (txn.linked_invoice_value) {
+                content += `<div class="mb-1"><strong>Value:</strong> ${formatNumber(txn.linked_invoice_value)} ${txn.linked_invoice_currency || 'RON'}`;
+                if (txn.linked_invoice_value_ron && txn.linked_invoice_currency !== 'RON') {
+                    content += ` <small class="text-muted">(${formatNumber(txn.linked_invoice_value_ron)} RON)</small>`;
+                }
+                content += '</div>';
+            }
+            if (txn.linked_invoice_date) {
+                content += `<div class="mb-1"><strong>Date:</strong> ${formatDate(txn.linked_invoice_date)}</div>`;
+            }
+            content += '</div>';
+            return content;
+        }
+
+        function buildSuggestedInvoicePopoverContent(txn) {
+            // Build HTML content for suggested invoice details popover
+            let content = '<div class="invoice-popover-content">';
+            content += `<div class="mb-1"><strong>Invoice #:</strong> ${escapeHtml(txn.suggested_invoice_number || '#' + txn.suggested_invoice_id)}</div>`;
+            if (txn.suggested_invoice_supplier) {
+                content += `<div class="mb-1"><strong>Supplier:</strong> ${escapeHtml(txn.suggested_invoice_supplier)}</div>`;
+            }
+            if (txn.suggested_invoice_company) {
+                content += `<div class="mb-1"><strong>To:</strong> ${escapeHtml(txn.suggested_invoice_company)}</div>`;
+            }
+            if (txn.suggested_invoice_value) {
+                content += `<div class="mb-1"><strong>Value:</strong> ${formatNumber(txn.suggested_invoice_value)} ${txn.suggested_invoice_currency || 'RON'}`;
+                if (txn.suggested_invoice_value_ron && txn.suggested_invoice_currency !== 'RON') {
+                    content += ` <small class="text-muted">(${formatNumber(txn.suggested_invoice_value_ron)} RON)</small>`;
+                }
+                content += '</div>';
+            }
+            if (txn.suggested_invoice_date) {
+                content += `<div class="mb-1"><strong>Date:</strong> ${formatDate(txn.suggested_invoice_date)}</div>`;
+            }
+            if (txn.match_confidence) {
+                const confidencePercent = Math.round(txn.match_confidence * 100);
+                const confidenceColor = confidencePercent >= 80 ? 'success' : (confidencePercent >= 60 ? 'warning' : 'danger');
+                content += `<div class="mb-1"><strong>Confidence:</strong> <span class="badge bg-${confidenceColor}">${confidencePercent}%</span></div>`;
+            }
+            if (txn.match_method) {
+                content += `<div class="mb-1"><strong>Method:</strong> ${txn.match_method}</div>`;
+            }
+            content += '</div>';
+            return content;
+        }
+
+        function initPopovers() {
+            // Dispose existing popovers first (both linked and suggested)
+            document.querySelectorAll('.invoice-popover, .suggested-invoice-popover').forEach(el => {
+                const existingPopover = bootstrap.Popover.getInstance(el);
+                if (existingPopover) {
+                    existingPopover.dispose();
+                }
+            });
+
+            // Initialize popovers for linked invoices
+            document.querySelectorAll('.invoice-popover').forEach(el => {
+                const txnId = parseInt(el.dataset.txnId);
+                const txn = transactions.find(t => t.id === txnId);
+                if (txn) {
+                    const content = buildInvoicePopoverContent(txn);
+                    new bootstrap.Popover(el, {
+                        container: 'body',
+                        placement: 'left',
+                        trigger: 'hover focus',
+                        html: true,
+                        title: '<i class="bi bi-receipt-cutoff"></i> Invoice Details',
+                        content: content
+                    });
+                }
+            });
+
+            // Initialize popovers for suggested invoices
+            document.querySelectorAll('.suggested-invoice-popover').forEach(el => {
+                const txnId = parseInt(el.dataset.txnId);
+                const txn = transactions.find(t => t.id === txnId);
+                if (txn) {
+                    const content = buildSuggestedInvoicePopoverContent(txn);
+                    new bootstrap.Popover(el, {
+                        container: 'body',
+                        placement: 'left',
+                        trigger: 'hover focus',
+                        html: true,
+                        title: '<i class="bi bi-question-circle text-warning"></i> Suggested Match',
+                        content: content
+                    });
+                }
+            });
+        }
+
+        // Selection
+        function toggleSelection(id) {
+            if (selectedTransactionIds.has(id)) {
+                selectedTransactionIds.delete(id);
+            } else {
+                selectedTransactionIds.add(id);
+            }
+            updateSelectionButtons();
+        }
+
+        function toggleSelectAll() {
+            const checkbox = document.getElementById('selectAllCheckbox');
+            if (checkbox.checked) {
+                transactions.forEach(t => selectedTransactionIds.add(t.id));
+            } else {
+                selectedTransactionIds.clear();
+            }
+            renderTransactions();
+        }
+
+        function selectAll() {
+            transactions.forEach(t => selectedTransactionIds.add(t.id));
+            renderTransactions();
+        }
+
+        function selectNone() {
+            selectedTransactionIds.clear();
+            renderTransactions();
+        }
+
+        function selectMatched() {
+            selectedTransactionIds.clear();
+            transactions.filter(t => t.status === 'matched').forEach(t => selectedTransactionIds.add(t.id));
+            renderTransactions();
+        }
+
+        function updateSelectionButtons() {
+            const count = selectedTransactionIds.size;
+            document.getElementById('bulkIgnoreBtn').disabled = count === 0;
+            // Link Invoice requires exactly 1 transaction selected
+            document.getElementById('linkInvoiceBtn').disabled = count !== 1;
+        }
+
+        // Actions
+        async function ignoreTransaction(id) {
+            await updateTransactionStatus(id, 'ignored');
+        }
+
+        async function unignoreTransaction(id) {
+            await updateTransactionStatus(id, 'pending');
+        }
+
+        async function unlinkInvoice(transactionId) {
+            if (!confirm('Are you sure you want to unlink this invoice from the transaction?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/statements/api/transactions/${transactionId}/unlink`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Invoice unlinked successfully', 'success');
+                    loadTransactions(false);
+                } else {
+                    showToast('Error: ' + (data.error || 'Failed to unlink invoice'), 'error');
+                }
+            } catch (error) {
+                console.error('Unlink error:', error);
+                showToast('Failed to unlink invoice: ' + error.message, 'error');
+            }
+        }
+
+        async function updateTransactionStatus(id, status) {
+            try {
+                const response = await fetch(`/statements/api/transactions/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status })
+                });
+
+                if (response.ok) {
+                    loadTransactions();
+                }
+            } catch (error) {
+                console.error('Update error:', error);
+            }
+        }
+
+        // Inline Status Editing
+        let statusChangeTimeout = null;
+
+        function handleStatusChange(selectElement) {
+            const id = parseInt(selectElement.dataset.id);
+            const newStatus = selectElement.value;
+            const originalStatus = selectElement.dataset.original;
+
+            // Clear any pending save
+            if (statusChangeTimeout) {
+                clearTimeout(statusChangeTimeout);
+            }
+
+            // Add loading indicator
+            selectElement.classList.add('opacity-50');
+            selectElement.disabled = true;
+
+            // Debounce: save after 300ms
+            statusChangeTimeout = setTimeout(async () => {
+                try {
+                    const response = await fetch(`/statements/api/transactions/${id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: newStatus })
+                    });
+
+                    const data = await response.json();
+
+                    if (data.success) {
+                        // Update the original value
+                        selectElement.dataset.original = newStatus;
+                        // Update the row class
+                        const row = selectElement.closest('tr');
+                        row.className = `transaction-row ${newStatus}`;
+                        // Update local state
+                        const txn = transactions.find(t => t.id === id);
+                        if (txn) txn.status = newStatus;
+                        showToast(`Status updated to ${newStatus}`, 'success', 2000);
+                        // Refresh summary counts
+                        loadSummary();
+                    } else {
+                        // Revert on failure
+                        selectElement.value = originalStatus;
+                        showToast('Failed to update status: ' + (data.error || 'Unknown error'), 'error');
+                    }
+                } catch (error) {
+                    console.error('Status update error:', error);
+                    // Revert on error
+                    selectElement.value = originalStatus;
+                    showToast('Failed to update status: ' + error.message, 'error');
+                } finally {
+                    selectElement.classList.remove('opacity-50');
+                    selectElement.disabled = false;
+                }
+            }, 300);
+        }
+
+        async function bulkIgnore() {
+            if (selectedTransactionIds.size === 0) return;
+
+            if (!confirm(`Ignore ${selectedTransactionIds.size} transactions?`)) return;
+
+            try {
+                const response = await fetch('/statements/api/transactions/bulk-ignore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ transaction_ids: Array.from(selectedTransactionIds) })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    selectedTransactionIds.clear();
+                    loadTransactions();
+                }
+            } catch (error) {
+                console.error('Bulk ignore error:', error);
+            }
+        }
+
+        // Link Invoice Functions
+        function linkInvoice() {
+            if (selectedTransactionIds.size !== 1) {
+                showToast('Please select exactly one transaction to link', 'warning');
+                return;
+            }
+
+            const txnId = Array.from(selectedTransactionIds)[0];
+            const txn = transactions.find(t => t.id === txnId);
+
+            if (!txn) {
+                showToast('Transaction not found', 'error');
+                return;
+            }
+
+            if (txn.status === 'invoiced') {
+                showToast('This transaction is already linked to an invoice', 'warning');
+                return;
+            }
+
+            // Populate modal with transaction info
+            document.getElementById('linkTxnDate').textContent = formatDate(txn.transaction_date);
+            document.getElementById('linkTxnAmount').textContent = `${formatNumber(txn.amount)} ${txn.currency}`;
+            document.getElementById('linkTxnVendor').textContent = txn.matched_supplier || txn.vendor_name || '-';
+            document.getElementById('linkTxnDescription').textContent = txn.description?.substring(0, 100) || '';
+
+            // Store transaction ID
+            document.getElementById('selectedTransactionId').value = txnId;
+            document.getElementById('selectedInvoiceId').value = '';
+            document.getElementById('invoiceSearchInput').value = '';
+            document.getElementById('invoiceSearchResults').innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-search fs-3"></i>
+                    <p class="mb-0">Search for an invoice above</p>
+                </div>
+            `;
+            document.getElementById('confirmLinkBtn').disabled = true;
+
+            new bootstrap.Modal(document.getElementById('linkInvoiceModal')).show();
+        }
+
+        async function searchInvoices() {
+            const query = document.getElementById('invoiceSearchInput').value.trim();
+            if (query.length < 2) {
+                showToast('Please enter at least 2 characters to search', 'warning');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('invoiceSearchResults');
+            resultsDiv.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm"></span> Searching...</div>';
+
+            try {
+                const response = await fetch(`/api/invoices/search?q=${encodeURIComponent(query)}&limit=20`);
+                const data = await response.json();
+
+                if (!data.success || !data.invoices || data.invoices.length === 0) {
+                    resultsDiv.innerHTML = `
+                        <div class="text-center text-muted py-4">
+                            <i class="bi bi-search fs-3"></i>
+                            <p class="mb-0">No invoices found matching "${escapeHtml(query)}"</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                resultsDiv.innerHTML = data.invoices.map(inv => `
+                    <div class="invoice-result-item p-2 border-bottom ${document.getElementById('selectedInvoiceId').value == inv.id ? 'bg-primary-subtle' : ''}"
+                         style="cursor: pointer;"
+                         onclick="selectInvoiceForLink(${inv.id}, '${escapeHtml(inv.invoice_number)}', '${escapeHtml(inv.supplier)}')">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <strong>${escapeHtml(inv.invoice_number)}</strong>
+                                <span class="badge bg-secondary ms-2">#${inv.id}</span>
+                            </div>
+                            <span class="text-primary fw-bold">${formatNumber(inv.invoice_value)} ${inv.currency}</span>
+                        </div>
+                        <div class="small text-muted">
+                            <span>${escapeHtml(inv.supplier)}</span> •
+                            <span>${formatDate(inv.invoice_date)}</span>
+                        </div>
+                    </div>
+                `).join('');
+
+            } catch (error) {
+                console.error('Search error:', error);
+                resultsDiv.innerHTML = `
+                    <div class="text-center text-danger py-4">
+                        <i class="bi bi-exclamation-triangle fs-3"></i>
+                        <p class="mb-0">Search failed: ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function selectInvoiceForLink(invoiceId, invoiceNumber, supplier) {
+            document.getElementById('selectedInvoiceId').value = invoiceId;
+            document.getElementById('confirmLinkBtn').disabled = false;
+
+            // Highlight selected invoice
+            document.querySelectorAll('.invoice-result-item').forEach(item => {
+                item.classList.remove('bg-primary-subtle');
+            });
+            event.currentTarget.classList.add('bg-primary-subtle');
+
+            showToast(`Selected: ${invoiceNumber} (${supplier})`, 'info', 2000);
+        }
+
+        async function confirmLinkInvoice() {
+            const transactionId = document.getElementById('selectedTransactionId').value;
+            const invoiceId = document.getElementById('selectedInvoiceId').value;
+
+            if (!transactionId || !invoiceId) {
+                showToast('Please select an invoice to link', 'warning');
+                return;
+            }
+
+            showLoading('Linking invoice...');
+
+            try {
+                const response = await fetch('/statements/api/transactions/link-invoice', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        transaction_id: parseInt(transactionId),
+                        invoice_id: parseInt(invoiceId)
+                    })
+                });
+
+                const data = await response.json();
+
+                bootstrap.Modal.getInstance(document.getElementById('linkInvoiceModal')).hide();
+
+                if (data.success) {
+                    showToast('Invoice linked successfully!', 'success');
+                    selectedTransactionIds.clear();
+                    loadTransactions();
+                } else {
+                    showToast('Error: ' + (data.error || 'Failed to link invoice'), 'error');
+                }
+            } catch (error) {
+                console.error('Link invoice error:', error);
+                showToast('Failed to link invoice: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Enter key to search in modal
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('invoiceSearchInput');
+            if (searchInput) {
+                searchInput.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        searchInvoices();
+                    }
+                });
+            }
+        });
+
+        // Loading
+        function showLoading(text) {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+            document.querySelector('.progress-text').textContent = text || 'Processing...';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        // Auto-Match Invoices
+        async function autoMatchInvoices() {
+            // Get selected transactions or fall back to all pending/matched if none selected
+            let txnIds = [];
+            let message = '';
+
+            if (selectedTransactionIds.size > 0) {
+                // Use selected transactions only
+                txnIds = Array.from(selectedTransactionIds);
+                message = `Auto-match ${txnIds.length} selected transaction(s) with existing invoices?\n\nMatching by exact amount first.`;
+            } else {
+                showToast('Please select transactions to auto-match', 'warning');
+                return;
+            }
+
+            if (!confirm(message)) {
+                return;
+            }
+
+            showLoading('Running auto-match...');
+
+            try {
+                const response = await fetch('/statements/api/transactions/auto-match', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        transaction_ids: txnIds,
+                        use_ai: false,  // Disable AI, use exact amount matching
+                        min_confidence: 0.5  // Lower threshold since we prioritize exact amount
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    let message = `Auto-Match Results:\n`;
+                    message += `✓ Auto-linked: ${data.matched} transactions\n`;
+                    message += `? Suggested: ${data.suggested} (need review)\n`;
+                    message += `✗ Unmatched: ${data.unmatched}`;
+
+                    showToast(message, data.matched > 0 ? 'success' : 'info', 8000);
+                    loadTransactions(false);
+                    loadSummary();
+                } else {
+                    showToast('Auto-match failed: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Auto-match error:', error);
+                showToast('Auto-match failed: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Accept suggested invoice match
+        async function acceptSuggestedMatch(transactionId) {
+            showLoading('Accepting match...');
+            try {
+                const response = await fetch(`/statements/api/transactions/${transactionId}/accept-match`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Match accepted!', 'success', 2000);
+                    loadTransactions(false);
+                    loadSummary();
+                } else {
+                    showToast('Failed to accept match: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Accept match error:', error);
+                showToast('Failed to accept match: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // Reject suggested invoice match
+        async function rejectSuggestedMatch(transactionId) {
+            try {
+                const response = await fetch(`/statements/api/transactions/${transactionId}/reject-match`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Suggestion rejected', 'info', 2000);
+                    loadTransactions(false);
+                } else {
+                    showToast('Failed to reject: ' + (data.error || 'Unknown error'), 'error');
+                }
+            } catch (error) {
+                console.error('Reject match error:', error);
+                showToast('Failed to reject: ' + error.message, 'error');
+            }
+        }
+
+        // Toast Notifications
+        function showToast(message, type = 'info', duration = 5000) {
+            const container = document.getElementById('toastContainer');
+            const toastId = 'toast-' + Date.now();
+
+            const bgClass = {
+                'success': 'bg-success',
+                'error': 'bg-danger',
+                'warning': 'bg-warning',
+                'info': 'bg-info'
+            }[type] || 'bg-info';
+
+            const iconClass = {
+                'success': 'bi-check-circle',
+                'error': 'bi-x-circle',
+                'warning': 'bi-exclamation-triangle',
+                'info': 'bi-info-circle'
+            }[type] || 'bi-info-circle';
+
+            const textClass = type === 'warning' ? 'text-dark' : 'text-white';
+
+            const toastHtml = `
+                <div id="${toastId}" class="toast ${bgClass} ${textClass}" role="alert" aria-live="assertive" aria-atomic="true">
+                    <div class="toast-header ${bgClass} ${textClass}">
+                        <i class="bi ${iconClass} me-2"></i>
+                        <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
+                        <button type="button" class="btn-close ${type === 'warning' ? '' : 'btn-close-white'}" data-bs-dismiss="toast" aria-label="Close"></button>
+                    </div>
+                    <div class="toast-body">
+                        ${message.replace(/\n/g, '<br>')}
+                    </div>
+                </div>
+            `;
+
+            container.insertAdjacentHTML('beforeend', toastHtml);
+
+            const toastElement = document.getElementById(toastId);
+            const toast = new bootstrap.Toast(toastElement, { delay: duration });
+            toast.show();
+
+            // Remove from DOM after hidden
+            toastElement.addEventListener('hidden.bs.toast', () => {
+                toastElement.remove();
+            });
+        }
+    </script>
+</body>
+</html>
