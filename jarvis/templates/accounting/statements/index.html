@@ -12,6 +12,11 @@
         .transaction-row.ignored { opacity: 0.5; }
         .transaction-row.resolved { background-color: #d1e7dd !important; }  /* Green for resolved rows */
         .transaction-row.resolved td { background-color: #d1e7dd !important; }  /* Override striped table */
+        .transaction-row.merged { opacity: 0.5; text-decoration: line-through; }  /* Strikethrough for merged source rows */
+        .transaction-row.merged-result { background-color: #cff4fc !important; }  /* Light blue for merged result */
+        .transaction-row.merged-result td { background-color: #cff4fc !important; }
+        .merged-source-row { font-size: 0.85rem; }  /* Slightly smaller for source rows */
+        .merged-source-row td { background-color: #f0f9ff !important; border-top: none !important; }
         .badge-internal { background-color: var(--bs-secondary); }
         .badge-card_purchase { background-color: var(--bs-primary); }
         .badge-refund { background-color: var(--bs-warning); }
@@ -35,7 +40,7 @@
     <!-- Toast Container -->
     <div class="toast-container position-fixed top-0 end-0 p-3" id="toastContainer" style="z-index: 1100;"></div>
 
-    <nav class="navbar navbar-dark bg-primary mb-4">
+    <nav class="navbar navbar-dark bg-primary">
         <div class="container-fluid px-4">
             <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
                 <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
@@ -76,76 +81,66 @@
         </div>
     </nav>
 
-    <div class="container-fluid px-4">
-        <!-- Uploaded Statements Section -->
-        <div class="row mb-4" id="statementsSection" style="display: none;">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleStatementsSection()">
-                        <h5 class="mb-0"><i class="bi bi-folder2-open"></i> Uploaded Statements</h5>
-                        <i class="bi bi-chevron-down" id="statementsToggleIcon"></i>
-                    </div>
-                    <div class="card-body p-0" id="statementsBody-wrapper">
-                        <div class="table-responsive">
-                            <table class="table table-hover table-sm mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Filename</th>
-                                        <th>Company</th>
-                                        <th>CUI</th>
-                                        <th>Period</th>
-                                        <th class="text-center">Total</th>
-                                        <th class="text-center">New</th>
-                                        <th class="text-center">Duplicates</th>
-                                        <th>Uploaded</th>
-                                        <th>By</th>
-                                        <th style="width: 60px;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="statementsBody">
-                                </tbody>
-                            </table>
-                        </div>
+    <!-- Breadcrumb -->
+    <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
+        <div class="d-flex justify-content-between align-items-center">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0 small">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/accounting">Accounting</a></li>
+                    <li class="breadcrumb-item active">Statements</li>
+                </ol>
+            </nav>
+            <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <div class="container-fluid px-4 mt-3">
+        <!-- Summary Cards Toggle -->
+        <div class="d-flex justify-content-between align-items-center mb-2" id="summaryToggleSection" style="display: none;">
+            <button class="btn btn-sm btn-outline-secondary" id="toggleSummary" onclick="toggleSummaryCards()">
+                <i class="bi bi-chevron-down" id="toggleSummaryIcon"></i> <span id="toggleSummaryText">Show Summary</span>
+            </button>
+            <div id="summaryCollapsed">
+                <span class="badge bg-primary me-1"><i class="bi bi-list-ul"></i> <span id="totalCountCompact">0</span></span>
+                <span class="badge bg-warning text-dark me-1"><i class="bi bi-hourglass-split"></i> <span id="pendingCountCompact">0</span></span>
+                <span class="badge bg-success me-1"><i class="bi bi-check-circle"></i> <span id="resolvedCountCompact">0</span></span>
+                <span class="badge bg-secondary"><i class="bi bi-eye-slash"></i> <span id="ignoredCountCompact">0</span></span>
+            </div>
+        </div>
+        <!-- Summary Cards -->
+        <div class="row mb-3 d-none" id="summaryCards">
+            <div class="col-md-3">
+                <div class="card summary-card bg-primary text-white">
+                    <div class="card-body py-2">
+                        <h6 class="card-title small mb-1"><i class="bi bi-list-ul"></i> Total Transactions</h6>
+                        <h4 id="totalCount" class="mb-0">0</h4>
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Summary Cards -->
-        <div class="row mb-4" id="summarySection" style="display: none;">
-            <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <small class="text-muted">Summary</small>
-                    <button type="button" class="btn btn-sm btn-link text-muted p-0" onclick="toggleSummaryCards()" title="Toggle summary cards">
-                        <i class="bi" id="summaryToggleIcon"></i>
-                    </button>
+            <div class="col-md-3">
+                <div class="card summary-card bg-warning text-white">
+                    <div class="card-body py-2">
+                        <h6 class="card-title small mb-1"><i class="bi bi-hourglass-split"></i> Pending</h6>
+                        <h4 class="mb-0"><span id="pendingCount">0</span> <small id="pendingPct"></small></h4>
+                    </div>
                 </div>
-                <div id="summaryCardsWrapper">
-                    <div class="d-flex flex-wrap gap-3 justify-content-center">
-                        <div class="card summary-card">
-                            <div class="card-body text-center">
-                                <h6 class="text-muted mb-1">Total</h6>
-                                <h4 id="totalCount">0</h4>
-                            </div>
-                        </div>
-                        <div class="card summary-card">
-                            <div class="card-body text-center">
-                                <h6 class="text-muted mb-1">Pending</h6>
-                                <h4 class="text-warning"><span id="pendingCount">0</span> <small class="text-muted" id="pendingPct"></small></h4>
-                            </div>
-                        </div>
-                        <div class="card summary-card">
-                            <div class="card-body text-center">
-                                <h6 class="text-muted mb-1">Resolved</h6>
-                                <h4 class="text-success"><span id="resolvedCount">0</span> <small class="text-muted" id="resolvedPct"></small></h4>
-                            </div>
-                        </div>
-                        <div class="card summary-card">
-                            <div class="card-body text-center">
-                                <h6 class="text-muted mb-1">Ignored</h6>
-                                <h4 class="text-secondary"><span id="ignoredCount">0</span> <small class="text-muted" id="ignoredPct"></small></h4>
-                            </div>
-                        </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card bg-success text-white">
+                    <div class="card-body py-2">
+                        <h6 class="card-title small mb-1"><i class="bi bi-check-circle"></i> Resolved</h6>
+                        <h4 class="mb-0"><span id="resolvedCount">0</span> <small id="resolvedPct"></small></h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card summary-card bg-secondary text-white">
+                    <div class="card-body py-2">
+                        <h6 class="card-title small mb-1"><i class="bi bi-eye-slash"></i> Ignored</h6>
+                        <h4 class="mb-0"><span id="ignoredCount">0</span></h4>
                     </div>
                 </div>
             </div>
@@ -212,6 +207,9 @@
                     <button type="button" class="btn btn-sm btn-warning" onclick="bulkIgnore()" id="bulkIgnoreBtn" disabled>
                         <i class="bi bi-eye-slash"></i> Ignore Selected
                     </button>
+                    <button type="button" class="btn btn-sm btn-info" onclick="showMergeModal()" id="mergeSelectedBtn" disabled title="Merge selected transactions into one">
+                        <i class="bi bi-union"></i> Merge
+                    </button>
                     <button type="button" class="btn btn-sm btn-success" onclick="linkInvoice()" id="linkInvoiceBtn" disabled>
                         <i class="bi bi-link-45deg"></i> Link Invoice
                     </button>
@@ -222,13 +220,17 @@
                     <button type="button" class="btn btn-sm btn-outline-primary" onclick="exportCSV()">
                         <i class="bi bi-download"></i> Export CSV
                     </button>
-                    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#uploadModal">
-                        <i class="bi bi-cloud-upload"></i> Upload Statement
-                    </button>
-                    <div class="vr"></div>
-                    <button type="button" class="btn btn-sm" id="hideIgnoredBtn" onclick="toggleHideIgnored()" title="Toggle ignored transactions">
-                        <i class="bi" id="hideIgnoredIcon"></i> <span id="hideIgnoredText">Hide Ignored</span>
-                    </button>
+                    <a href="/statements/files" class="btn btn-sm btn-primary">
+                        <i class="bi bi-files"></i> Manage Files
+                    </a>
+                    <div class="ms-auto d-flex gap-2">
+                        <button type="button" class="btn btn-sm" id="hideIgnoredBtn" onclick="toggleHideIgnored()" title="Toggle ignored transactions">
+                            <i class="bi" id="hideIgnoredIcon"></i> <span id="hideIgnoredText">Hide Ignored</span>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openColumnConfig()" title="Configure columns">
+                            <i class="bi bi-layout-three-columns"></i> Columns
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -239,21 +241,10 @@
                 <div class="card">
                     <div class="card-body p-0">
                         <div class="table-responsive">
-                            <table class="table table-hover table-striped mb-0">
+                            <table class="table table-hover table-striped mb-0" id="transactionsTable">
                                 <thead class="table-light">
-                                    <tr>
-                                        <th style="width: 40px;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"></th>
-                                        <th>Date</th>
-                                        <th>Company</th>
-                                        <th>CUI</th>
-                                        <th>Vendor</th>
-                                        <th>Supplier</th>
-                                        <th>Description</th>
-                                        <th class="text-end">Amount</th>
-                                        <th>Type</th>
-                                        <th>Status</th>
-                                        <th>Invoice</th>
-                                        <th>Actions</th>
+                                    <tr id="transactionsHeader">
+                                        <!-- Columns rendered dynamically by JavaScript -->
                                     </tr>
                                 </thead>
                                 <tbody id="transactionsBody">
@@ -363,39 +354,79 @@
         </div>
     </div>
 
-    <!-- Upload Statement Modal -->
-    <div class="modal fade" id="uploadModal" tabindex="-1">
-        <div class="modal-dialog modal-lg">
+    <!-- Merge Transactions Modal -->
+    <div class="modal fade" id="mergeModal" tabindex="-1">
+        <div class="modal-dialog">
             <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-cloud-upload"></i> Upload Bank Statements</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title"><i class="bi bi-union"></i> Merge Transactions</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="drag-drop-zone mb-3" id="dropZone">
-                        <i class="bi bi-file-earmark-pdf fs-1 text-muted"></i>
-                        <p class="mb-1 mt-2 fs-5">Drag & drop UniCredit PDF statements here</p>
-                        <p class="mb-0 text-muted">or click to select files</p>
-                        <small class="text-muted">Supports multiple PDF files (max 10MB each, 50MB total)</small>
-                        <input type="file" id="fileInput" class="d-none" accept=".pdf" multiple>
+                    <div class="alert alert-warning py-2 mb-3">
+                        <i class="bi bi-exclamation-triangle"></i> This will create a new merged transaction and mark the originals as "merged".
                     </div>
 
-                    <!-- File List -->
-                    <div id="fileListContainer" class="mb-3" style="display: none;">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <strong><span id="fileCount">0</span> files selected</strong>
-                            <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearFiles()">
-                                <i class="bi bi-x-circle"></i> Clear All
-                            </button>
+                    <p class="mb-2">Merging <strong><span id="mergeCount">0</span> transactions</strong>:</p>
+
+                    <div class="list-group list-group-flush mb-3" id="mergePreviewList" style="max-height: 200px; overflow-y: auto;">
+                        <!-- Preview items will be inserted here -->
+                    </div>
+
+                    <hr>
+
+                    <div class="card bg-light">
+                        <div class="card-body py-2">
+                            <h6 class="card-title mb-2"><i class="bi bi-arrow-right-circle"></i> Result:</h6>
+                            <div class="row small">
+                                <div class="col-6">
+                                    <strong>Total Amount:</strong><br>
+                                    <span id="mergeTotal" class="fs-5">0.00</span> <span id="mergeCurrency">RON</span>
+                                </div>
+                                <div class="col-6">
+                                    <strong>Date:</strong><br>
+                                    <span id="mergeDate">-</span>
+                                </div>
+                            </div>
+                            <div class="mt-2 small">
+                                <strong>Supplier:</strong> <span id="mergeSupplier">-</span>
+                            </div>
                         </div>
-                        <div class="file-list" id="fileList" style="max-height: 200px; overflow-y: auto;"></div>
+                    </div>
+
+                    <div id="mergeError" class="alert alert-danger mt-3 py-2 d-none">
+                        <i class="bi bi-x-circle"></i> <span id="mergeErrorText"></span>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" id="uploadBtn" onclick="uploadStatements()" disabled>
-                        <i class="bi bi-upload"></i> Upload & Parse
+                    <button type="button" class="btn btn-info" onclick="confirmMerge()" id="confirmMergeBtn">
+                        <i class="bi bi-union"></i> Merge Transactions
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Column Configuration Modal -->
+    <div class="modal fade" id="columnConfigModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-layout-three-columns"></i> Configure Columns</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small mb-2">Drag to reorder, check/uncheck to show/hide columns.</p>
+                    <div class="list-group" id="columnList">
+                        <!-- Column items will be populated dynamically -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" onclick="resetColumnConfig()">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
+                    </button>
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
                 </div>
             </div>
         </div>
@@ -404,12 +435,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script>
-        // Constants
-        const MAX_FILE_SIZE = 10 * 1024 * 1024;  // 10MB per file
-        const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB total
-
         // State
-        let selectedFiles = [];
         let transactions = [];
         let selectedTransactionIds = new Set();
         let departmentStructure = {};
@@ -425,9 +451,290 @@
         // Hide ignored transactions state
         let hideIgnored = localStorage.getItem('statementsHideIgnored') === 'true';
 
+        // Expanded merged transactions state (track which merged results are expanded)
+        let expandedMergedIds = new Set();
+        // Cache for merged source transactions
+        let mergedSourcesCache = {};
+
+        // Column configuration
+        const DEFAULT_COLUMNS = [
+            { id: 'select', name: '', source: 'special.select', format: 'special', visible: true },
+            { id: 'date', name: 'Date', source: 'transaction_date', format: 'date', visible: true },
+            { id: 'company', name: 'Company', source: 'company_name', format: 'text', visible: true },
+            { id: 'cui', name: 'CUI', source: 'company_cui', format: 'text', visible: true },
+            { id: 'vendor', name: 'Vendor', source: 'vendor_name', format: 'text', visible: true },
+            { id: 'supplier', name: 'Supplier', source: 'matched_supplier', format: 'badge', visible: true },
+            { id: 'description', name: 'Description', source: 'description', format: 'description', visible: true },
+            { id: 'amount', name: 'Amount', source: 'amount', format: 'amount', visible: true },
+            { id: 'type', name: 'Type', source: 'transaction_type', format: 'type', visible: true },
+            { id: 'status', name: 'Status', source: 'status', format: 'status', visible: true },
+            { id: 'invoice', name: 'Invoice', source: 'special.invoice', format: 'special', visible: true },
+            { id: 'actions', name: 'Actions', source: 'special.actions', format: 'special', visible: true }
+        ];
+        let columnConfig = [];
+
+        function loadColumnConfig() {
+            const saved = localStorage.getItem('statementsColumnConfig');
+            if (saved) {
+                try {
+                    columnConfig = JSON.parse(saved);
+                    // Ensure all default columns exist
+                    DEFAULT_COLUMNS.forEach(defCol => {
+                        if (!columnConfig.find(c => c.id === defCol.id)) {
+                            columnConfig.push({ ...defCol });
+                        }
+                    });
+                } catch (e) {
+                    columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
+                }
+            } else {
+                columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
+            }
+        }
+
+        function saveColumnConfig() {
+            localStorage.setItem('statementsColumnConfig', JSON.stringify(columnConfig));
+            renderTableHeader();
+            renderTransactions();
+        }
+
+        function resetColumnConfig() {
+            columnConfig = JSON.parse(JSON.stringify(DEFAULT_COLUMNS));
+            saveColumnConfig();
+            renderColumnList();
+        }
+
+        function renderColumnList() {
+            const container = document.getElementById('columnList');
+            if (!container) return;
+
+            container.innerHTML = columnConfig.map((col, idx) => `
+                <div class="list-group-item d-flex align-items-center" draggable="true" data-idx="${idx}">
+                    <i class="bi bi-grip-vertical text-muted me-2" style="cursor: grab;"></i>
+                    <div class="form-check me-auto">
+                        <input class="form-check-input" type="checkbox" id="col-${col.id}"
+                               ${col.visible ? 'checked' : ''} ${col.id === 'select' || col.id === 'actions' ? 'disabled' : ''}
+                               onchange="toggleColumnVisibility(${idx}, this.checked)">
+                        <label class="form-check-label" for="col-${col.id}">${col.name || '(Select)'}</label>
+                    </div>
+                </div>
+            `).join('');
+
+            // Setup drag and drop
+            setupColumnDragDrop(container);
+        }
+
+        function toggleColumnVisibility(idx, visible) {
+            columnConfig[idx].visible = visible;
+            saveColumnConfig();
+        }
+
+        function setupColumnDragDrop(container) {
+            const items = container.querySelectorAll('.list-group-item');
+            items.forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', item.dataset.idx);
+                    item.classList.add('opacity-50');
+                });
+                item.addEventListener('dragend', () => item.classList.remove('opacity-50'));
+                item.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    item.classList.add('border-primary');
+                });
+                item.addEventListener('dragleave', () => item.classList.remove('border-primary'));
+                item.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    item.classList.remove('border-primary');
+                    const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIdx = parseInt(item.dataset.idx);
+                    if (fromIdx !== toIdx) {
+                        const [moved] = columnConfig.splice(fromIdx, 1);
+                        columnConfig.splice(toIdx, 0, moved);
+                        saveColumnConfig();
+                        renderColumnList();
+                    }
+                });
+            });
+        }
+
+        function openColumnConfig() {
+            renderColumnList();
+            new bootstrap.Modal(document.getElementById('columnConfigModal')).show();
+        }
+
+        function renderTableHeader() {
+            const headerRow = document.getElementById('transactionsHeader');
+            if (!headerRow) return;
+
+            const visibleCols = columnConfig.filter(c => c.visible);
+            headerRow.innerHTML = visibleCols.map(col => {
+                if (col.id === 'select') {
+                    return `<th style="width: 40px;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"></th>`;
+                } else if (col.id === 'amount') {
+                    return `<th class="text-end">${col.name}</th>`;
+                } else {
+                    return `<th>${col.name}</th>`;
+                }
+            }).join('');
+        }
+
+        function renderCellContent(col, txn) {
+            const isSelected = selectedTransactionIds.has(txn.id);
+            const amountClass = txn.amount < 0 ? 'amount-negative' : 'amount-positive';
+            const typeClass = `badge-${txn.transaction_type}`;
+            const isExpanded = expandedMergedIds.has(txn.id);
+
+            switch (col.id) {
+                case 'select':
+                    return `<td>
+                        <div class="d-flex align-items-center gap-1">
+                            <input type="checkbox" class="txn-checkbox" value="${txn.id}"
+                                   ${isSelected ? 'checked' : ''}
+                                   onchange="toggleSelection(${txn.id})">
+                            ${txn.is_merged_result ?
+                                `<button class="btn btn-sm btn-link p-0 text-info" onclick="toggleMergedExpand(${txn.id})" title="${isExpanded ? 'Collapse' : 'Expand'} merged transactions">
+                                    <i class="bi bi-${isExpanded ? 'dash' : 'plus'}-circle-fill"></i>
+                                </button>` : ''}
+                        </div>
+                    </td>`;
+                case 'date':
+                    return `<td>${txn.is_merged_result && txn.merged_dates_display ? txn.merged_dates_display : formatDate(txn.transaction_date)}</td>`;
+                case 'company':
+                    return `<td>${escapeHtml(txn.company_name || '-')}</td>`;
+                case 'cui':
+                    return `<td>${txn.company_cui || '-'}</td>`;
+                case 'vendor':
+                    return `<td>${txn.vendor_name || '-'}</td>`;
+                case 'supplier':
+                    return `<td>${txn.matched_supplier ?
+                        `<span class="badge bg-info">${txn.matched_supplier}</span>` :
+                        '<span class="text-muted">-</span>'}</td>`;
+                case 'description':
+                    return `<td class="small" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                        title="${escapeHtml(txn.description)}">
+                        ${txn.is_merged_result ? `<span class="badge bg-info me-1"><i class="bi bi-layers"></i> ${txn.merged_count}</span>` : ''}
+                        ${escapeHtml(txn.description?.substring(0, 80) || '')}...
+                    </td>`;
+                case 'amount':
+                    return `<td class="text-end ${amountClass}">
+                        ${formatNumber(txn.amount)} ${txn.currency}
+                        ${txn.original_currency && txn.original_currency !== txn.currency ?
+                            `<br><small class="text-muted">${formatNumber(txn.original_amount)} ${txn.original_currency}</small>` : ''}
+                    </td>`;
+                case 'type':
+                    return `<td><span class="badge ${typeClass}">${txn.transaction_type}</span></td>`;
+                case 'status':
+                    return `<td>
+                        <select class="form-select form-select-sm status-select"
+                                data-id="${txn.id}"
+                                data-original="${txn.status}"
+                                onchange="handleStatusChange(this)"
+                                style="width: 110px; padding: 2px 6px; font-size: 0.75rem;">
+                            <option value="pending" ${txn.status === 'pending' ? 'selected' : ''}>Pending</option>
+                            <option value="resolved" ${txn.status === 'resolved' ? 'selected' : ''}>Resolved</option>
+                            <option value="ignored" ${txn.status === 'ignored' ? 'selected' : ''}>Ignored</option>
+                        </select>
+                    </td>`;
+                case 'invoice':
+                    if (txn.invoice_id) {
+                        return `<td>
+                            <div class="d-flex flex-column">
+                                <a href="/accounting?invoice=${txn.invoice_id}"
+                                   class="text-success fw-bold text-decoration-none invoice-popover"
+                                   data-txn-id="${txn.id}">
+                                    <i class="bi bi-receipt-cutoff"></i> ${txn.invoice_number || '#' + txn.invoice_id}
+                                </a>
+                                ${txn.linked_invoice_date ? `<small class="text-muted">${formatDate(txn.linked_invoice_date)}</small>` : ''}
+                            </div>
+                        </td>`;
+                    } else if (txn.suggested_invoice_id) {
+                        return `<td>
+                            <div class="d-flex align-items-center gap-1">
+                                <a href="/accounting?invoice=${txn.suggested_invoice_id}" class="badge bg-warning text-dark text-decoration-none suggested-invoice-popover"
+                                   data-txn-id="${txn.id}">
+                                    <i class="bi bi-question-circle"></i> ${txn.suggested_invoice_number || '#' + txn.suggested_invoice_id}
+                                </a>
+                                <button class="btn btn-sm btn-outline-success p-0 px-1" onclick="acceptSuggestedMatch(${txn.id})" title="Accept match">
+                                    <i class="bi bi-check"></i>
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger p-0 px-1" onclick="rejectSuggestedMatch(${txn.id})" title="Reject">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </div>
+                        </td>`;
+                    } else {
+                        return `<td><span class="text-muted">-</span></td>`;
+                    }
+                case 'actions':
+                    let actionsHtml = `<td><div class="btn-group btn-group-sm">`;
+                    if (txn.invoice_id) {
+                        actionsHtml += `<button class="btn btn-linked" onclick="unlinkInvoice(${txn.id})" title="Unlink Invoice">
+                            <i class="bi bi-link-45deg"></i>
+                        </button>`;
+                    } else if (txn.status !== 'ignored') {
+                        actionsHtml += `<button class="btn btn-link-action" onclick="linkSingleTransaction(${txn.id})" title="Link Invoice">
+                            <i class="bi bi-link-45deg"></i>
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="ignoreTransaction(${txn.id})" title="Ignore">
+                            <i class="bi bi-eye-slash"></i>
+                        </button>`;
+                    } else {
+                        actionsHtml += `<button class="btn btn-outline-secondary" onclick="unignoreTransaction(${txn.id})" title="Restore">
+                            <i class="bi bi-eye"></i>
+                        </button>`;
+                    }
+                    if (txn.is_merged_result) {
+                        actionsHtml += `<button class="btn btn-outline-info" onclick="unmergeTransaction(${txn.id})" title="Unmerge back to ${txn.merged_count || 0} original transactions">
+                            <i class="bi bi-layers-half"></i>
+                        </button>`;
+                    }
+                    actionsHtml += `</div></td>`;
+                    return actionsHtml;
+                default:
+                    // Generic text column
+                    const value = txn[col.source] || '-';
+                    return `<td>${escapeHtml(String(value))}</td>`;
+            }
+        }
+
+        function renderMergedSourceCells(src) {
+            const visibleCols = columnConfig.filter(c => c.visible);
+            const srcAmountClass = src.amount < 0 ? 'amount-negative' : 'amount-positive';
+
+            return visibleCols.map(col => {
+                switch (col.id) {
+                    case 'select':
+                        return `<td class="ps-4 text-muted"><i class="bi bi-arrow-return-right"></i></td>`;
+                    case 'date':
+                        return `<td class="text-muted">${formatDate(src.transaction_date)}</td>`;
+                    case 'company':
+                        return `<td class="text-muted">${escapeHtml(src.company_name || '-')}</td>`;
+                    case 'cui':
+                        return `<td class="text-muted">${src.company_cui || '-'}</td>`;
+                    case 'vendor':
+                        return `<td class="text-muted">${escapeHtml(src.vendor_name || '-')}</td>`;
+                    case 'supplier':
+                        return `<td class="text-muted">${src.matched_supplier ?
+                            `<span class="badge bg-info">${src.matched_supplier}</span>` : '-'}</td>`;
+                    case 'description':
+                        return `<td class="small text-muted" style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                            title="${escapeHtml(src.description)}">
+                            ${escapeHtml(src.description?.substring(0, 60) || '')}...
+                        </td>`;
+                    case 'amount':
+                        return `<td class="text-end ${srcAmountClass}">${formatNumber(src.amount)} ${src.currency}</td>`;
+                    default:
+                        return `<td></td>`;
+                }
+            }).join('');
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            setupDragDrop();
+            // Load column configuration
+            loadColumnConfig();
+            // Render table header based on column config
+            renderTableHeader();
             // Set page size dropdown from localStorage
             document.getElementById('pageSize').value = pageSize;
             // Initialize summary cards toggle state
@@ -436,36 +743,33 @@
             initHideIgnoredToggle();
             loadFilterOptions();
             loadTransactions();
-            loadStatements();
         });
 
         function initSummaryCardsToggle() {
-            const wrapper = document.getElementById('summaryCardsWrapper');
-            const icon = document.getElementById('summaryToggleIcon');
+            const cards = document.getElementById('summaryCards');
+            const icon = document.getElementById('toggleSummaryIcon');
+            const text = document.getElementById('toggleSummaryText');
+            const collapsed = document.getElementById('summaryCollapsed');
+
             if (summaryCardsVisible) {
-                wrapper.style.display = 'block';
-                icon.classList.add('bi-eye-slash');
+                cards.classList.remove('d-none');
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-up');
+                text.textContent = 'Hide Summary';
+                collapsed.style.display = 'none';
             } else {
-                wrapper.style.display = 'none';
-                icon.classList.add('bi-eye');
+                cards.classList.add('d-none');
+                icon.classList.remove('bi-chevron-up');
+                icon.classList.add('bi-chevron-down');
+                text.textContent = 'Show Summary';
+                collapsed.style.display = 'block';
             }
         }
 
         function toggleSummaryCards() {
-            const wrapper = document.getElementById('summaryCardsWrapper');
-            const icon = document.getElementById('summaryToggleIcon');
             summaryCardsVisible = !summaryCardsVisible;
             localStorage.setItem('statementsSummaryVisible', summaryCardsVisible);
-
-            if (summaryCardsVisible) {
-                wrapper.style.display = 'block';
-                icon.classList.remove('bi-eye');
-                icon.classList.add('bi-eye-slash');
-            } else {
-                wrapper.style.display = 'none';
-                icon.classList.remove('bi-eye-slash');
-                icon.classList.add('bi-eye');
-            }
+            initSummaryCardsToggle();
         }
 
         function initHideIgnoredToggle() {
@@ -533,187 +837,6 @@
             }
         }
 
-        // Drag & Drop Setup
-        function setupDragDrop() {
-            const dropZone = document.getElementById('dropZone');
-            const fileInput = document.getElementById('fileInput');
-
-            dropZone.addEventListener('click', () => fileInput.click());
-
-            dropZone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropZone.classList.add('drag-over');
-            });
-
-            dropZone.addEventListener('dragleave', () => {
-                dropZone.classList.remove('drag-over');
-            });
-
-            dropZone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropZone.classList.remove('drag-over');
-                handleFiles(e.dataTransfer.files);
-            });
-
-            fileInput.addEventListener('change', (e) => {
-                handleFiles(e.target.files);
-            });
-        }
-
-        function handleFiles(files) {
-            const pdfFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
-
-            // Validate file sizes
-            const oversizedFiles = [];
-            const validFiles = [];
-
-            for (const file of pdfFiles) {
-                if (file.size > MAX_FILE_SIZE) {
-                    oversizedFiles.push(file.name);
-                } else {
-                    validFiles.push(file);
-                }
-            }
-
-            if (oversizedFiles.length > 0) {
-                showToast(`The following files exceed the maximum size of 10MB and were not added:\n\n${oversizedFiles.join('\n')}`, 'warning');
-            }
-
-            // Check total size
-            const currentTotalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
-            const newTotalSize = validFiles.reduce((sum, f) => sum + f.size, 0);
-
-            if (currentTotalSize + newTotalSize > MAX_TOTAL_SIZE) {
-                showToast('Total upload size would exceed the maximum of 50MB. Some files were not added.', 'warning');
-                // Add files until we hit the limit
-                let addedSize = currentTotalSize;
-                for (const file of validFiles) {
-                    if (addedSize + file.size <= MAX_TOTAL_SIZE) {
-                        selectedFiles.push(file);
-                        addedSize += file.size;
-                    }
-                }
-            } else {
-                selectedFiles = [...selectedFiles, ...validFiles];
-            }
-
-            updateFileList();
-        }
-
-        function updateFileList() {
-            const container = document.getElementById('fileListContainer');
-            const list = document.getElementById('fileList');
-            const count = document.getElementById('fileCount');
-            const uploadBtn = document.getElementById('uploadBtn');
-
-            if (selectedFiles.length === 0) {
-                container.style.display = 'none';
-                uploadBtn.disabled = true;
-                return;
-            }
-
-            container.style.display = 'block';
-            count.textContent = selectedFiles.length;
-            uploadBtn.disabled = false;
-
-            list.innerHTML = selectedFiles.map((file, i) => `
-                <div class="file-item d-flex justify-content-between align-items-center p-2 border rounded mb-1">
-                    <span><i class="bi bi-file-earmark-pdf text-danger"></i> ${file.name}</span>
-                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeFile(${i})">
-                        <i class="bi bi-x"></i>
-                    </button>
-                </div>
-            `).join('');
-        }
-
-        function removeFile(index) {
-            selectedFiles.splice(index, 1);
-            updateFileList();
-        }
-
-        function clearFiles() {
-            selectedFiles = [];
-            document.getElementById('fileInput').value = '';
-            updateFileList();
-        }
-
-        function toggleStatementsSection() {
-            const body = document.getElementById('statementsBody-wrapper');
-            const icon = document.getElementById('statementsToggleIcon');
-            if (body.style.display === 'none') {
-                body.style.display = 'block';
-                icon.classList.remove('bi-chevron-right');
-                icon.classList.add('bi-chevron-down');
-            } else {
-                body.style.display = 'none';
-                icon.classList.remove('bi-chevron-down');
-                icon.classList.add('bi-chevron-right');
-            }
-        }
-
-        // Upload Statements
-        async function uploadStatements() {
-            if (selectedFiles.length === 0) return;
-
-            showLoading('Parsing bank statements...');
-
-            const formData = new FormData();
-            selectedFiles.forEach(file => formData.append('files', file));
-
-            try {
-                const response = await fetch('/statements/api/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    // Close the modal
-                    bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
-                    clearFiles();
-                    loadTransactions();
-                    loadStatements();
-                    loadFilterOptions();
-
-                    // Build detailed upload summary
-                    const added = data.statements.filter(s => !s.skipped && !s.error);
-                    const skipped = data.statements.filter(s => s.skipped);
-                    const errors = data.statements.filter(s => s.error && !s.skipped);
-
-                    let message = '';
-                    if (added.length > 0) {
-                        message += `✓ Added ${added.length} statement${added.length > 1 ? 's' : ''}:\n`;
-                        added.forEach(s => {
-                            message += `  • ${s.filename} (${s.new_transactions} txns)\n`;
-                        });
-                    }
-                    if (skipped.length > 0) {
-                        message += `⊘ Skipped ${skipped.length} duplicate${skipped.length > 1 ? 's' : ''}:\n`;
-                        skipped.forEach(s => {
-                            message += `  • ${s.filename}\n`;
-                        });
-                    }
-                    if (errors.length > 0) {
-                        message += `✗ Failed ${errors.length}:\n`;
-                        errors.forEach(s => {
-                            message += `  • ${s.filename}: ${s.error}\n`;
-                        });
-                    }
-                    message += `\nTotal: ${data.total_new} new, ${data.total_duplicates} duplicate txns`;
-
-                    showToast(message, added.length > 0 ? 'success' : (skipped.length > 0 ? 'warning' : 'error'), 8000);
-                } else {
-                    showToast('Error: ' + (data.error || 'Upload failed'), 'error');
-                }
-            } catch (error) {
-                console.error('Upload error:', error);
-                showToast('Upload failed: ' + error.message, 'error');
-            } finally {
-                hideLoading();
-            }
-        }
-
         // Load Transactions
         async function loadTransactions(resetPage = true) {
             if (resetPage) currentPage = 1;
@@ -748,7 +871,8 @@
                     updatePagination();
 
                     // Always show sections (even when empty, so user can upload)
-                    document.getElementById('summarySection').style.display = 'block';
+                    document.getElementById('summaryToggleSection').style.display = 'flex';
+                    initSummaryCardsToggle();
                     document.getElementById('filterSection').style.display = 'block';
                     document.getElementById('actionsSection').style.display = 'block';
                     document.getElementById('transactionsSection').style.display = 'block';
@@ -830,25 +954,35 @@
                     const s = data.summary.by_status;
                     const total = Object.values(s).reduce((acc, v) => acc + v.count, 0);
                     totalTransactions = total;  // Update pagination total
-                    document.getElementById('totalCount').textContent = total;
-
-                    // Helper function to calculate and display percentage
-                    const setPctDisplay = (elementId, count) => {
-                        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
-                        document.getElementById(elementId).textContent = pct > 0 ? `(${pct}%)` : '';
-                    };
 
                     const pending = s.pending?.count || 0;
                     const resolved = s.resolved?.count || 0;
                     const ignored = s.ignored?.count || 0;
 
+                    // Base for percentage calculation excludes ignored transactions
+                    const activeTotal = pending + resolved;
+
+                    // Helper function to calculate and display percentage (excluding ignored)
+                    const setPctDisplay = (elementId, count) => {
+                        const pct = activeTotal > 0 ? Math.round((count / activeTotal) * 100) : 0;
+                        document.getElementById(elementId).textContent = pct > 0 ? `(${pct}%)` : '';
+                    };
+
+                    // Update main cards
+                    document.getElementById('totalCount').textContent = total;
                     document.getElementById('pendingCount').textContent = pending;
                     document.getElementById('resolvedCount').textContent = resolved;
                     document.getElementById('ignoredCount').textContent = ignored;
 
+                    // Update compact badges
+                    document.getElementById('totalCountCompact').textContent = total;
+                    document.getElementById('pendingCountCompact').textContent = pending;
+                    document.getElementById('resolvedCountCompact').textContent = resolved;
+                    document.getElementById('ignoredCountCompact').textContent = ignored;
+
+                    // Set percentages (only for pending/resolved, not ignored)
                     setPctDisplay('pendingPct', pending);
                     setPctDisplay('resolvedPct', resolved);
-                    setPctDisplay('ignoredPct', ignored);
 
                     // Update filter dropdowns
                     updateCompanyFilter(data.summary.by_company);
@@ -915,89 +1049,6 @@
             window.location.href = '/statements/api/export/csv?' + params.toString();
         }
 
-        // Statement Management
-        let statements = [];
-
-        async function loadStatements() {
-            try {
-                const response = await fetch('/statements/api/statements?limit=50');
-                const data = await response.json();
-
-                if (data.success) {
-                    statements = data.statements;
-                    renderStatements();
-                }
-            } catch (error) {
-                console.error('Error loading statements:', error);
-            }
-        }
-
-        function renderStatements() {
-            const tbody = document.getElementById('statementsBody');
-            const section = document.getElementById('statementsSection');
-
-            if (statements.length === 0) {
-                section.style.display = 'none';
-                return;
-            }
-
-            section.style.display = 'block';
-
-            tbody.innerHTML = statements.map(stmt => `
-                <tr>
-                    <td>
-                        <i class="bi bi-file-earmark-pdf text-danger"></i>
-                        ${escapeHtml(stmt.filename)}
-                    </td>
-                    <td>${escapeHtml(stmt.company_name || '-')}</td>
-                    <td>${escapeHtml(stmt.company_cui || '-')}</td>
-                    <td>${stmt.period_from ? formatDate(stmt.period_from) + ' - ' + formatDate(stmt.period_to) : '-'}</td>
-                    <td class="text-center">
-                        <span class="badge bg-primary">${stmt.total_transactions}</span>
-                    </td>
-                    <td class="text-center">
-                        <span class="badge bg-success">${stmt.new_transactions}</span>
-                    </td>
-                    <td class="text-center">
-                        <span class="badge bg-secondary">${stmt.duplicate_transactions}</span>
-                    </td>
-                    <td>${formatDateTime(stmt.uploaded_at)}</td>
-                    <td>${escapeHtml(stmt.uploaded_by_name || '-')}</td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteStatement(${stmt.id}, '${escapeHtml(stmt.filename)}')" title="Delete statement and its transactions">
-                            <i class="bi bi-trash"></i>
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
-        }
-
-        async function deleteStatement(statementId, filename) {
-            if (!confirm(`Remove "${filename}" from the upload list?\n\nNote: Transaction data will be preserved.`)) {
-                return;
-            }
-
-            try {
-                const response = await fetch(`/statements/api/statements/${statementId}`, {
-                    method: 'DELETE'
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    showToast('Statement deleted successfully', 'success');
-                    loadStatements();
-                    loadTransactions();
-                    loadFilterOptions();
-                } else {
-                    showToast('Error: ' + (data.error || 'Failed to delete statement'), 'error');
-                }
-            } catch (error) {
-                console.error('Delete error:', error);
-                showToast('Failed to delete statement: ' + error.message, 'error');
-            }
-        }
-
         function formatDateTime(dateStr) {
             if (!dateStr) return '-';
             const date = new Date(dateStr);
@@ -1007,6 +1058,7 @@
         function renderTransactions() {
             const tbody = document.getElementById('transactionsBody');
             const statusFilter = document.getElementById('filterStatus').value;
+            const visibleCols = columnConfig.filter(c => c.visible);
 
             // Filter out ignored transactions if hideIgnored is true
             // (unless user explicitly filtered by "ignored" status)
@@ -1015,10 +1067,13 @@
                 displayTransactions = transactions.filter(txn => txn.status !== 'ignored');
             }
 
+            // Always hide merged source transactions (they show in the expand view)
+            displayTransactions = displayTransactions.filter(txn => txn.status !== 'merged');
+
             if (displayTransactions.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="11" class="text-center text-muted py-4">
+                        <td colspan="${visibleCols.length}" class="text-center text-muted py-4">
                             ${hideIgnored && transactions.length > 0
                                 ? 'All transactions are ignored. Toggle "Hide Ignored" to see them.'
                                 : 'No transactions found. Upload bank statements to get started.'}
@@ -1028,101 +1083,70 @@
                 return;
             }
 
-            tbody.innerHTML = displayTransactions.map(txn => {
-                const isSelected = selectedTransactionIds.has(txn.id);
-                const amountClass = txn.amount < 0 ? 'amount-negative' : 'amount-positive';
-                const typeClass = `badge-${txn.transaction_type}`;
+            let html = '';
+            displayTransactions.forEach(txn => {
+                const isExpanded = expandedMergedIds.has(txn.id);
 
-                return `
-                    <tr class="transaction-row ${txn.status}" data-id="${txn.id}">
-                        <td>
-                            <input type="checkbox" class="txn-checkbox" value="${txn.id}"
-                                   ${isSelected ? 'checked' : ''} onchange="toggleSelection(${txn.id})">
-                        </td>
-                        <td>${formatDate(txn.transaction_date)}</td>
-                        <td>${escapeHtml(txn.company_name || '-')}</td>
-                        <td>${txn.company_cui || '-'}</td>
-                        <td>${txn.vendor_name || '-'}</td>
-                        <td>
-                            ${txn.matched_supplier ?
-                                `<span class="badge bg-info">${txn.matched_supplier}</span>` :
-                                '<span class="text-muted">-</span>'}
-                        </td>
-                        <td class="small" style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
-                            title="${escapeHtml(txn.description)}">
-                            ${escapeHtml(txn.description?.substring(0, 80) || '')}...
-                        </td>
-                        <td class="text-end ${amountClass}">
-                            ${formatNumber(txn.amount)} ${txn.currency}
-                            ${txn.original_currency && txn.original_currency !== txn.currency ?
-                                `<br><small class="text-muted">${formatNumber(txn.original_amount)} ${txn.original_currency}</small>` : ''}
-                        </td>
-                        <td><span class="badge ${typeClass}">${txn.transaction_type}</span></td>
-                        <td>
-                            <select class="form-select form-select-sm status-select"
-                                    data-id="${txn.id}"
-                                    data-original="${txn.status}"
-                                    onchange="handleStatusChange(this)"
-                                    style="width: 110px; padding: 2px 6px; font-size: 0.75rem;">
-                                <option value="pending" ${txn.status === 'pending' ? 'selected' : ''}>Pending</option>
-                                <option value="resolved" ${txn.status === 'resolved' ? 'selected' : ''}>Resolved</option>
-                                <option value="ignored" ${txn.status === 'ignored' ? 'selected' : ''}>Ignored</option>
-                            </select>
-                        </td>
-                        <td>
-                            ${txn.invoice_id ?
-                                `<div class="d-flex flex-column">
-                                    <a href="/accounting?invoice=${txn.invoice_id}"
-                                       class="text-success fw-bold text-decoration-none invoice-popover"
-                                       data-txn-id="${txn.id}">
-                                        <i class="bi bi-receipt-cutoff"></i> ${txn.invoice_number || '#' + txn.invoice_id}
-                                    </a>
-                                    ${txn.linked_invoice_date ? `<small class="text-muted">${formatDate(txn.linked_invoice_date)}</small>` : ''}
-                                </div>` :
-                                (txn.suggested_invoice_id ?
-                                    `<div class="d-flex align-items-center gap-1">
-                                        <a href="/accounting?invoice=${txn.suggested_invoice_id}" class="badge bg-warning text-dark text-decoration-none suggested-invoice-popover"
-                                           data-txn-id="${txn.id}">
-                                            <i class="bi bi-question-circle"></i> ${txn.suggested_invoice_number || '#' + txn.suggested_invoice_id}
-                                        </a>
-                                        <button class="btn btn-sm btn-outline-success p-0 px-1" onclick="acceptSuggestedMatch(${txn.id})" title="Accept match">
-                                            <i class="bi bi-check"></i>
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-danger p-0 px-1" onclick="rejectSuggestedMatch(${txn.id})" title="Reject">
-                                            <i class="bi bi-x"></i>
-                                        </button>
-                                    </div>` :
-                                    '<span class="text-muted">-</span>')}
-                        </td>
-                        <td>
-                            <div class="btn-group btn-group-sm">
-                                ${txn.invoice_id ?
-                                    `<button class="btn btn-outline-warning" onclick="unlinkInvoice(${txn.id})" title="Unlink Invoice">
-                                        <i class="bi bi-link-45deg"></i>
-                                    </button>` :
-                                    (txn.status !== 'ignored' ?
-                                        `<button class="btn btn-outline-secondary" onclick="ignoreTransaction(${txn.id})" title="Ignore">
-                                            <i class="bi bi-eye-slash"></i>
-                                        </button>` :
-                                        `<button class="btn btn-outline-secondary" onclick="unignoreTransaction(${txn.id})" title="Restore">
-                                            <i class="bi bi-eye"></i>
-                                        </button>`)}
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+                // Render row using column config
+                html += `<tr class="transaction-row ${txn.status}${txn.is_merged_result ? ' merged-result' : ''}" data-id="${txn.id}">`;
+                visibleCols.forEach(col => {
+                    html += renderCellContent(col, txn);
+                });
+                html += `</tr>`;
+
+                // If this is a merged result and it's expanded, show the source transactions
+                if (txn.is_merged_result && isExpanded && mergedSourcesCache[txn.id]) {
+                    const sources = mergedSourcesCache[txn.id];
+                    sources.forEach(src => {
+                        html += `<tr class="merged-source-row" style="background-color: #f0f9ff !important;">`;
+                        html += renderMergedSourceCells(src);
+                        html += `</tr>`;
+                    });
+                }
+            });
+
+            tbody.innerHTML = html;
 
             updateSelectionButtons();
             // Initialize popovers for invoice links
             initPopovers();
         }
 
+        // Toggle expand/collapse for merged transactions
+        async function toggleMergedExpand(mergedId) {
+            if (expandedMergedIds.has(mergedId)) {
+                // Collapse
+                expandedMergedIds.delete(mergedId);
+                renderTransactions();
+            } else {
+                // Expand - fetch source transactions if not cached
+                if (!mergedSourcesCache[mergedId]) {
+                    try {
+                        const response = await fetch(`/statements/api/transactions/${mergedId}/merged-sources`);
+                        const data = await response.json();
+                        if (data.success) {
+                            mergedSourcesCache[mergedId] = data.sources;
+                        } else {
+                            showToast('Failed to load merged sources', 'error');
+                            return;
+                        }
+                    } catch (error) {
+                        console.error('Error loading merged sources:', error);
+                        showToast('Failed to load merged sources', 'error');
+                        return;
+                    }
+                }
+                expandedMergedIds.add(mergedId);
+                renderTransactions();
+            }
+        }
+
         function getStatusColor(status) {
             const colors = {
                 'pending': 'warning',
                 'resolved': 'success',
-                'ignored': 'secondary'
+                'ignored': 'secondary',
+                'merged': 'secondary'
             };
             return colors[status] || 'secondary';
         }
@@ -1286,6 +1310,50 @@
             document.getElementById('bulkIgnoreBtn').disabled = count === 0;
             // Link Invoice requires exactly 1 transaction selected
             document.getElementById('linkInvoiceBtn').disabled = count !== 1;
+            // Merge requires 2+ selected transactions
+            updateMergeButtonState();
+        }
+
+        function updateMergeButtonState() {
+            const mergeBtn = document.getElementById('mergeSelectedBtn');
+            const selected = Array.from(selectedTransactionIds);
+
+            if (selected.length < 2) {
+                mergeBtn.disabled = true;
+                mergeBtn.title = 'Select at least 2 transactions to merge';
+                return;
+            }
+
+            // Get selected transactions data
+            const txns = selected.map(id => transactions.find(t => t.id === id)).filter(t => t);
+
+            // Check all are pending (not merged, resolved, ignored)
+            const nonPending = txns.filter(t => t.status !== 'pending');
+            if (nonPending.length > 0) {
+                mergeBtn.disabled = true;
+                mergeBtn.title = 'Only pending transactions can be merged';
+                return;
+            }
+
+            // Check same currency
+            const currencies = new Set(txns.map(t => t.currency || 'RON'));
+            if (currencies.size > 1) {
+                mergeBtn.disabled = true;
+                mergeBtn.title = 'Cannot merge: different currencies';
+                return;
+            }
+
+            // Check same supplier (matched_supplier or vendor_name)
+            const suppliers = new Set(txns.map(t => t.matched_supplier || t.vendor_name || '-'));
+            if (suppliers.size > 1) {
+                mergeBtn.disabled = true;
+                mergeBtn.title = 'Cannot merge: different suppliers';
+                return;
+            }
+
+            // All checks passed
+            mergeBtn.disabled = false;
+            mergeBtn.title = `Merge ${selected.length} transactions`;
         }
 
         // Actions
@@ -1417,7 +1485,164 @@
             }
         }
 
+        // Merge Transaction Functions
+        function showMergeModal() {
+            if (selectedTransactionIds.size < 2) {
+                showToast('Select at least 2 transactions to merge', 'warning');
+                return;
+            }
+
+            const txns = Array.from(selectedTransactionIds)
+                .map(id => transactions.find(t => t.id === id))
+                .filter(t => t);
+
+            // Validate same currency
+            const currencies = new Set(txns.map(t => t.currency || 'RON'));
+            if (currencies.size > 1) {
+                showToast('Cannot merge transactions with different currencies', 'error');
+                return;
+            }
+
+            // Validate same supplier
+            const suppliers = new Set(txns.map(t => t.matched_supplier || t.vendor_name || '-'));
+            if (suppliers.size > 1) {
+                showToast('Cannot merge transactions with different suppliers', 'error');
+                return;
+            }
+
+            // Calculate totals
+            const total = txns.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
+            const latestDate = txns.reduce((max, t) =>
+                t.transaction_date > max ? t.transaction_date : max,
+                txns[0].transaction_date
+            );
+
+            // Populate modal
+            document.getElementById('mergeCount').textContent = txns.length;
+            document.getElementById('mergeTotal').textContent = formatNumber(total);
+            document.getElementById('mergeCurrency').textContent = txns[0].currency || 'RON';
+            document.getElementById('mergeDate').textContent = formatDate(latestDate);
+            document.getElementById('mergeSupplier').textContent = txns[0].matched_supplier || txns[0].vendor_name || '-';
+
+            // Preview list
+            const listHtml = txns.map(t => `
+                <div class="list-group-item py-2 px-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="text-muted small">${formatDate(t.transaction_date)}</span>
+                            <span class="ms-2">${t.description?.substring(0, 40) || '-'}${(t.description?.length || 0) > 40 ? '...' : ''}</span>
+                        </div>
+                        <strong class="${t.amount < 0 ? 'text-danger' : 'text-success'}">${formatNumber(t.amount)} ${t.currency || 'RON'}</strong>
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('mergePreviewList').innerHTML = listHtml;
+
+            // Hide any previous error
+            document.getElementById('mergeError').classList.add('d-none');
+
+            new bootstrap.Modal(document.getElementById('mergeModal')).show();
+        }
+
+        async function confirmMerge() {
+            const ids = Array.from(selectedTransactionIds);
+
+            try {
+                document.getElementById('confirmMergeBtn').disabled = true;
+                document.getElementById('confirmMergeBtn').innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+
+                const response = await fetch('/statements/api/transactions/merge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ transaction_ids: ids })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    bootstrap.Modal.getInstance(document.getElementById('mergeModal')).hide();
+                    showToast(`Merged ${ids.length} transactions successfully`, 'success');
+                    selectedTransactionIds.clear();
+                    loadTransactions();
+                } else {
+                    document.getElementById('mergeError').classList.remove('d-none');
+                    document.getElementById('mergeErrorText').textContent = data.error || 'Merge failed';
+                }
+            } catch (error) {
+                console.error('Merge error:', error);
+                document.getElementById('mergeError').classList.remove('d-none');
+                document.getElementById('mergeErrorText').textContent = error.message;
+            } finally {
+                document.getElementById('confirmMergeBtn').disabled = false;
+                document.getElementById('confirmMergeBtn').innerHTML = '<i class="bi bi-union"></i> Merge Transactions';
+            }
+        }
+
+        async function unmergeTransaction(mergedId) {
+            if (!confirm('Unmerge this transaction? The original transactions will be restored.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/statements/api/transactions/${mergedId}/unmerge`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Clear cache and expanded state for this merged transaction
+                    delete mergedSourcesCache[mergedId];
+                    expandedMergedIds.delete(mergedId);
+                    showToast(`Unmerged transaction, restored ${data.restored_count} original transactions`, 'success');
+                    loadTransactions();
+                } else {
+                    showToast('Error: ' + (data.error || 'Unmerge failed'), 'error');
+                }
+            } catch (error) {
+                console.error('Unmerge error:', error);
+                showToast('Failed to unmerge: ' + error.message, 'error');
+            }
+        }
+
         // Link Invoice Functions
+        function openLinkModal(txn) {
+            // Populate modal with transaction info
+            document.getElementById('linkTxnDate').textContent = formatDate(txn.transaction_date);
+            document.getElementById('linkTxnAmount').textContent = `${formatNumber(txn.amount)} ${txn.currency}`;
+            document.getElementById('linkTxnVendor').textContent = txn.matched_supplier || txn.vendor_name || '-';
+            document.getElementById('linkTxnDescription').textContent = txn.description?.substring(0, 100) || '';
+
+            // Store transaction ID
+            document.getElementById('selectedTransactionId').value = txn.id;
+            document.getElementById('selectedInvoiceId').value = '';
+            document.getElementById('invoiceSearchInput').value = '';
+            document.getElementById('invoiceSearchResults').innerHTML = `
+                <div class="text-center text-muted py-4">
+                    <i class="bi bi-search fs-3"></i>
+                    <p class="mb-0">Search for an invoice above</p>
+                </div>
+            `;
+            document.getElementById('confirmLinkBtn').disabled = true;
+
+            new bootstrap.Modal(document.getElementById('linkInvoiceModal')).show();
+        }
+
+        function linkSingleTransaction(txnId) {
+            // Direct link for a single transaction (from action button)
+            const txn = transactions.find(t => t.id === txnId);
+            if (!txn) {
+                showToast('Transaction not found', 'error');
+                return;
+            }
+            if (txn.status === 'resolved') {
+                showToast('This transaction is already linked to an invoice', 'warning');
+                return;
+            }
+            openLinkModal(txn);
+        }
+
         function linkInvoice() {
             if (selectedTransactionIds.size !== 1) {
                 showToast('Please select exactly one transaction to link', 'warning');
@@ -1437,25 +1662,7 @@
                 return;
             }
 
-            // Populate modal with transaction info
-            document.getElementById('linkTxnDate').textContent = formatDate(txn.transaction_date);
-            document.getElementById('linkTxnAmount').textContent = `${formatNumber(txn.amount)} ${txn.currency}`;
-            document.getElementById('linkTxnVendor').textContent = txn.matched_supplier || txn.vendor_name || '-';
-            document.getElementById('linkTxnDescription').textContent = txn.description?.substring(0, 100) || '';
-
-            // Store transaction ID
-            document.getElementById('selectedTransactionId').value = txnId;
-            document.getElementById('selectedInvoiceId').value = '';
-            document.getElementById('invoiceSearchInput').value = '';
-            document.getElementById('invoiceSearchResults').innerHTML = `
-                <div class="text-center text-muted py-4">
-                    <i class="bi bi-search fs-3"></i>
-                    <p class="mb-0">Search for an invoice above</p>
-                </div>
-            `;
-            document.getElementById('confirmLinkBtn').disabled = true;
-
-            new bootstrap.Modal(document.getElementById('linkInvoiceModal')).show();
+            openLinkModal(txn);
         }
 
         async function searchInvoices() {

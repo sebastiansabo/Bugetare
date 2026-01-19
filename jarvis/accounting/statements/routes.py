@@ -151,7 +151,11 @@ from .database import (
     delete_statement,
     # Filter options
     get_distinct_companies,
-    get_distinct_suppliers
+    get_distinct_suppliers,
+    # Transaction merging
+    merge_transactions,
+    unmerge_transaction,
+    get_merged_source_transactions
 )
 
 logger = logging.getLogger('jarvis.statements.routes')
@@ -171,6 +175,13 @@ def index():
 def mappings_page():
     """Vendor mappings management page."""
     return render_template('mappings.html')
+
+
+@statements_bp.route('/files')
+@login_required
+def files_page():
+    """Statement files management page."""
+    return render_template('files.html')
 
 
 # ============== UPLOAD & PARSE ==============
@@ -1295,6 +1306,149 @@ def reject_match(transaction_id):
 
     except Exception as e:
         logger.exception(f'Error rejecting match for transaction {transaction_id}')
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+# ============== TRANSACTION MERGING ==============
+
+@statements_bp.route('/api/transactions/merge', methods=['POST'])
+@api_login_required
+def merge_transactions_route():
+    """
+    Merge multiple transactions into a single transaction.
+
+    Body: {
+        "transaction_ids": [1, 2, 3]  // At least 2 transaction IDs
+    }
+
+    Requirements:
+    - All transactions must be pending (not already merged/resolved/ignored)
+    - All transactions must have the same currency
+    - All transactions must have the same supplier
+
+    Returns:
+    {
+        "success": true,
+        "merged_transaction": {
+            "id": 123,
+            "amount": 500.00,
+            "currency": "RON",
+            "transaction_date": "2025-01-15",
+            "description": "...",
+            "merged_count": 3,
+            "merged_from_ids": [1, 2, 3]
+        }
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    transaction_ids = data.get('transaction_ids', [])
+
+    if not transaction_ids or not isinstance(transaction_ids, list):
+        return jsonify({
+            'success': False,
+            'error': 'Validation failed',
+            'details': {'transaction_ids': 'Must provide an array of transaction IDs'}
+        }), 400
+
+    if len(transaction_ids) < 2:
+        return jsonify({
+            'success': False,
+            'error': 'At least 2 transactions required for merging'
+        }), 400
+
+    try:
+        result = merge_transactions(transaction_ids)
+
+        if result.get('error'):
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 400
+
+        logger.info(f'Merged transactions {transaction_ids} into {result["id"]}')
+        return jsonify({
+            'success': True,
+            'merged_transaction': result
+        })
+
+    except Exception as e:
+        logger.exception(f'Error merging transactions {transaction_ids}')
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@statements_bp.route('/api/transactions/<int:transaction_id>/unmerge', methods=['POST'])
+@api_login_required
+def unmerge_transaction_route(transaction_id):
+    """
+    Unmerge a merged transaction, restoring the original transactions.
+
+    The merged transaction is deleted and original transactions are restored to 'pending' status.
+
+    Returns:
+    {
+        "success": true,
+        "restored_ids": [1, 2, 3],
+        "restored_count": 3
+    }
+    """
+    try:
+        result = unmerge_transaction(transaction_id)
+
+        if result.get('error'):
+            return jsonify({
+                'success': False,
+                'error': result['error']
+            }), 400
+
+        logger.info(f'Unmerged transaction {transaction_id}, restored {result["restored_count"]} transactions')
+        return jsonify({
+            'success': True,
+            'restored_ids': result['restored_ids'],
+            'restored_count': result['restored_count']
+        })
+
+    except Exception as e:
+        logger.exception(f'Error unmerging transaction {transaction_id}')
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@statements_bp.route('/api/transactions/<int:transaction_id>/merged-sources', methods=['GET'])
+@api_login_required
+def get_merged_sources(transaction_id):
+    """
+    Get the original transactions that were merged into this transaction.
+
+    Returns:
+    {
+        "success": true,
+        "sources": [
+            {"id": 1, "amount": 100, "transaction_date": "2025-01-10", ...},
+            {"id": 2, "amount": 200, "transaction_date": "2025-01-12", ...}
+        ]
+    }
+    """
+    txn = get_transaction(transaction_id)
+    if not txn:
+        return jsonify({'success': False, 'error': 'Transaction not found'}), 404
+
+    try:
+        sources = get_merged_source_transactions(transaction_id)
+        return jsonify({
+            'success': True,
+            'sources': sources
+        })
+
+    except Exception as e:
+        logger.exception(f'Error getting merged sources for transaction {transaction_id}')
         return jsonify({
             'success': False,
             'error': str(e)

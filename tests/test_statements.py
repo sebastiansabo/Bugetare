@@ -241,11 +241,14 @@ class TestMatchTransactions:
 
         result = match_transactions(transactions)
 
-        assert result[0]['status'] == 'matched'
+        # Note: 'matched' status is reserved for invoice matching, not vendor matching
+        # All non-internal transactions start as 'pending' but have matched_supplier populated
+        assert result[0]['status'] == 'pending'
         assert result[0]['matched_supplier'] == 'Meta'
-        assert result[1]['status'] == 'matched'
+        assert result[1]['status'] == 'pending'
         assert result[1]['matched_supplier'] == 'Google Ads'
         assert result[2]['status'] == 'pending'
+        assert result[2]['matched_supplier'] is None
 
     @patch('accounting.statements.vendors.get_all_vendor_mappings')
     def test_auto_ignores_internal_transfers(self, mock_get_mappings):

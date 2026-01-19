@@ -236,8 +236,9 @@ h6 {
 .text-white .card-title,
 .text-white.card .card-title,
 .summary-card.text-white .card-title,
-.summary-card.text-white h6,
-.summary-card.text-white h3 {
+.summary-card.text-white h3,
+.summary-card.text-white h4,
+.summary-card.text-white h6 {
     color: #ffffff !important;
 }
 
@@ -349,8 +350,24 @@ label, .form-label {
     transform: translateY(-2px);
     box-shadow: var(--card-shadow);
 }
-body.dark-theme .summary-card {
-    background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+/* Dark theme summary cards - preserve distinct colors */
+body.dark-theme .summary-card.bg-primary {
+    background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%) !important;
+}
+body.dark-theme .summary-card.bg-info {
+    background: linear-gradient(135deg, #0097a7 0%, #00838f 100%) !important;
+}
+body.dark-theme .summary-card.bg-warning {
+    background: linear-gradient(135deg, #f57c00 0%, #e65100 100%) !important;
+}
+body.dark-theme .summary-card.bg-success {
+    background: linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%) !important;
+}
+body.dark-theme .summary-card.bg-danger {
+    background: linear-gradient(135deg, #c62828 0%, #b71c1c 100%) !important;
+}
+body.dark-theme .summary-card.bg-secondary {
+    background: linear-gradient(135deg, #546e7a 0%, #37474f 100%) !important;
 }
 
 /* ============================================================================
@@ -560,6 +577,56 @@ body.dark-theme .btn-outline-danger {
 body.dark-theme .btn-outline-danger:hover {
     background-color: #ef5350;
     color: white;
+}
+
+/* ============================================================================
+   ACTION BUTTONS - Transaction/Record Linking
+   Solid buttons for linked status, outline for actions
+   ============================================================================ */
+/* Linked state - solid green indicating success/linked */
+.btn-linked {
+    background-color: #157347;
+    border-color: #157347;
+    color: #ffffff;
+}
+.btn-linked:hover {
+    background-color: #146c43;
+    border-color: #13653f;
+    color: #ffffff;
+}
+.btn-linked:focus {
+    box-shadow: 0 0 0 0.2rem rgba(21, 115, 71, 0.5);
+}
+body.dark-theme .btn-linked {
+    background-color: #2e7d32;
+    border-color: #2e7d32;
+    color: #ffffff;
+}
+body.dark-theme .btn-linked:hover {
+    background-color: #388e3c;
+    border-color: #388e3c;
+    color: #ffffff;
+}
+
+/* Link action - outline green for "click to link" */
+.btn-link-action {
+    color: #198754;
+    border-color: #198754;
+    background-color: transparent;
+}
+.btn-link-action:hover {
+    background-color: #198754;
+    border-color: #198754;
+    color: #ffffff;
+}
+body.dark-theme .btn-link-action {
+    color: #81c784;
+    border-color: #81c784;
+}
+body.dark-theme .btn-link-action:hover {
+    background-color: #81c784;
+    border-color: #81c784;
+    color: #1a1a2e;
 }
 
 /* ============================================================================

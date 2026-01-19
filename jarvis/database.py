@@ -587,6 +587,8 @@ def init_db():
             transaction_type TEXT,
             invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
             status TEXT DEFAULT 'pending',
+            merged_into_id INTEGER REFERENCES bank_statement_transactions(id) ON DELETE SET NULL,
+            is_merged_result BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
@@ -617,6 +619,22 @@ def init_db():
             END IF;
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bank_statement_transactions' AND column_name = 'match_method') THEN
                 ALTER TABLE bank_statement_transactions ADD COLUMN match_method TEXT;
+            END IF;
+        END $$;
+    ''')
+
+    # Add merge columns for transaction merging feature
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bank_statement_transactions' AND column_name = 'merged_into_id') THEN
+                ALTER TABLE bank_statement_transactions ADD COLUMN merged_into_id INTEGER REFERENCES bank_statement_transactions(id) ON DELETE SET NULL;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bank_statement_transactions' AND column_name = 'is_merged_result') THEN
+                ALTER TABLE bank_statement_transactions ADD COLUMN is_merged_result BOOLEAN DEFAULT FALSE;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'bank_statement_transactions' AND column_name = 'merged_dates_display') THEN
+                ALTER TABLE bank_statement_transactions ADD COLUMN merged_dates_display TEXT;
             END IF;
         END $$;
     ''')

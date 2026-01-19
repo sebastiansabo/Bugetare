@@ -558,6 +558,7 @@ def get_transactions(
                    t.original_currency, t.exchange_rate, t.auth_code, t.card_number,
                    t.transaction_type, t.invoice_id, t.status, t.created_at,
                    t.suggested_invoice_id, t.match_confidence, t.match_method,
+                   t.merged_into_id, t.is_merged_result, t.merged_dates_display,
                    i.invoice_number, i.invoice_date as linked_invoice_date,
                    i.supplier as linked_invoice_supplier, i.invoice_value as linked_invoice_value,
                    i.currency as linked_invoice_currency, i.value_ron as linked_invoice_value_ron,
@@ -565,7 +566,8 @@ def get_transactions(
                    si.invoice_number as suggested_invoice_number, si.invoice_date as suggested_invoice_date,
                    si.supplier as suggested_invoice_supplier, si.invoice_value as suggested_invoice_value,
                    si.currency as suggested_invoice_currency, si.value_ron as suggested_invoice_value_ron,
-                   (SELECT company FROM allocations WHERE invoice_id = si.id LIMIT 1) as suggested_invoice_company
+                   (SELECT company FROM allocations WHERE invoice_id = si.id LIMIT 1) as suggested_invoice_company,
+                   (SELECT COUNT(*) FROM bank_statement_transactions WHERE merged_into_id = t.id) as merged_count
             FROM bank_statement_transactions t
             LEFT JOIN invoices i ON t.invoice_id = i.id
             LEFT JOIN invoices si ON t.suggested_invoice_id = si.id
@@ -1070,5 +1072,268 @@ def reject_suggested_match(transaction_id: int) -> bool:
 
         conn.commit()
         return cursor.rowcount > 0
+    finally:
+        release_db(conn)
+
+
+# ============== TRANSACTION MERGING ==============
+
+def merge_transactions(transaction_ids: list[int]) -> dict:
+    """
+    Merge multiple transactions into a single new transaction.
+
+    Requirements:
+    - All transactions must exist and be pending (not already merged/resolved/ignored)
+    - All transactions must have the same currency
+    - All transactions must have the same matched_supplier (or vendor_name if no matched_supplier)
+
+    Creates a new "merged result" transaction with:
+    - amount = sum of all amounts
+    - transaction_date = latest transaction_date
+    - value_date = latest value_date
+    - description = concatenated descriptions with " • "
+    - status = 'pending'
+    - is_merged_result = True
+
+    Original transactions are updated with:
+    - status = 'merged'
+    - merged_into_id = new transaction id
+
+    Args:
+        transaction_ids: List of transaction IDs to merge (minimum 2)
+
+    Returns:
+        Dict with merged transaction data, or {'error': 'message'} on failure.
+    """
+    if len(transaction_ids) < 2:
+        return {'error': 'At least 2 transactions required for merging'}
+
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+
+        # Fetch all transactions
+        placeholders = ','.join(['%s'] * len(transaction_ids))
+        cursor.execute(f'''
+            SELECT id, statement_file, company_name, company_cui, account_number,
+                   transaction_date, value_date, description, vendor_name,
+                   matched_supplier, amount, currency, original_amount,
+                   original_currency, exchange_rate, auth_code, card_number,
+                   transaction_type, status, is_merged_result, merged_into_id
+            FROM bank_statement_transactions
+            WHERE id IN ({placeholders})
+        ''', tuple(transaction_ids))
+
+        rows = cursor.fetchall()
+        transactions = [dict(row) for row in rows]
+
+        # Validate all transactions exist
+        if len(transactions) != len(transaction_ids):
+            found_ids = {t['id'] for t in transactions}
+            missing = set(transaction_ids) - found_ids
+            return {'error': f'Transactions not found: {missing}'}
+
+        # Validate all are pending (not already merged/resolved/ignored)
+        for txn in transactions:
+            if txn['status'] != 'pending':
+                return {'error': f"Transaction {txn['id']} has status '{txn['status']}', only pending transactions can be merged"}
+            if txn['is_merged_result']:
+                return {'error': f"Transaction {txn['id']} is already a merged result"}
+            if txn['merged_into_id']:
+                return {'error': f"Transaction {txn['id']} is already merged into another transaction"}
+
+        # Validate same currency
+        currencies = set(t['currency'] for t in transactions)
+        if len(currencies) > 1:
+            return {'error': f'Cannot merge transactions with different currencies: {currencies}'}
+
+        # Validate same supplier (matched_supplier or vendor_name)
+        def get_supplier(t):
+            return t['matched_supplier'] or t['vendor_name'] or ''
+        suppliers = set(get_supplier(t) for t in transactions)
+        if len(suppliers) > 1:
+            return {'error': f'Cannot merge transactions with different suppliers: {suppliers}'}
+
+        # Calculate merged values
+        first_txn = transactions[0]
+        total_amount = sum(t['amount'] for t in transactions)
+        latest_txn_date = max(t['transaction_date'] for t in transactions if t['transaction_date'])
+        latest_val_date = max((t['value_date'] for t in transactions if t['value_date']), default=None)
+        merged_description = ' • '.join(t['description'][:50] + '...' if len(t['description']) > 50 else t['description']
+                                        for t in transactions if t['description'])
+
+        # Compute merged dates display: "09/12/14.01.2026" format
+        # Extract all dates, sort by day, format as "DD/DD/DD.MM.YYYY"
+        dates = sorted([t['transaction_date'] for t in transactions if t['transaction_date']])
+        if dates:
+            days = [str(d.day).zfill(2) for d in dates]
+            # Use the latest date's month and year
+            month_year = latest_txn_date.strftime('%m.%Y')
+            merged_dates_display = '/'.join(days) + '.' + month_year
+        else:
+            merged_dates_display = None
+
+        # Create merged transaction
+        cursor.execute('''
+            INSERT INTO bank_statement_transactions (
+                statement_file, company_name, company_cui, account_number,
+                transaction_date, value_date, description, vendor_name,
+                matched_supplier, amount, currency, transaction_type,
+                status, is_merged_result, merged_dates_display
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            first_txn['statement_file'],
+            first_txn['company_name'],
+            first_txn['company_cui'],
+            first_txn['account_number'],
+            latest_txn_date,
+            latest_val_date,
+            merged_description,
+            first_txn['vendor_name'],
+            first_txn['matched_supplier'],
+            total_amount,
+            first_txn['currency'],
+            first_txn['transaction_type'],
+            'pending',
+            True,
+            merged_dates_display
+        ))
+
+        merged_id = cursor.fetchone()['id']
+
+        # Update original transactions
+        cursor.execute(f'''
+            UPDATE bank_statement_transactions
+            SET status = 'merged', merged_into_id = %s
+            WHERE id IN ({placeholders})
+        ''', (merged_id, *transaction_ids))
+
+        conn.commit()
+
+        logger.info(f'Merged {len(transaction_ids)} transactions into {merged_id}')
+
+        # Return the merged transaction
+        return {
+            'id': merged_id,
+            'amount': total_amount,
+            'currency': first_txn['currency'],
+            'transaction_date': str(latest_txn_date) if latest_txn_date else None,
+            'value_date': str(latest_val_date) if latest_val_date else None,
+            'description': merged_description,
+            'vendor_name': first_txn['vendor_name'],
+            'matched_supplier': first_txn['matched_supplier'],
+            'company_name': first_txn['company_name'],
+            'company_cui': first_txn['company_cui'],
+            'status': 'pending',
+            'is_merged_result': True,
+            'merged_count': len(transaction_ids),
+            'merged_from_ids': transaction_ids,
+            'merged_dates_display': merged_dates_display
+        }
+    except Exception as e:
+        logger.error(f'Error merging transactions: {e}')
+        return {'error': str(e)}
+    finally:
+        release_db(conn)
+
+
+def unmerge_transaction(merged_id: int) -> dict:
+    """
+    Unmerge a merged transaction, restoring the original transactions.
+
+    Args:
+        merged_id: ID of the merged result transaction
+
+    Returns:
+        Dict with 'success': True and 'restored_ids', or {'error': 'message'} on failure.
+    """
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+
+        # Verify the transaction is a merged result
+        cursor.execute('''
+            SELECT id, is_merged_result FROM bank_statement_transactions
+            WHERE id = %s
+        ''', (merged_id,))
+
+        row = cursor.fetchone()
+        if not row:
+            return {'error': f'Transaction {merged_id} not found'}
+
+        if not row['is_merged_result']:
+            return {'error': f'Transaction {merged_id} is not a merged transaction'}
+
+        # Find all original transactions
+        cursor.execute('''
+            SELECT id FROM bank_statement_transactions
+            WHERE merged_into_id = %s
+        ''', (merged_id,))
+
+        original_ids = [r['id'] for r in cursor.fetchall()]
+
+        if not original_ids:
+            return {'error': f'No original transactions found for merged transaction {merged_id}'}
+
+        # Restore original transactions to pending
+        placeholders = ','.join(['%s'] * len(original_ids))
+        cursor.execute(f'''
+            UPDATE bank_statement_transactions
+            SET status = 'pending', merged_into_id = NULL
+            WHERE id IN ({placeholders})
+        ''', tuple(original_ids))
+
+        # Delete the merged transaction
+        cursor.execute('DELETE FROM bank_statement_transactions WHERE id = %s', (merged_id,))
+
+        conn.commit()
+        logger.info(f'Unmerged transaction {merged_id}, restored {len(original_ids)} transactions')
+
+        return {
+            'success': True,
+            'restored_ids': original_ids,
+            'restored_count': len(original_ids)
+        }
+    except Exception as e:
+        logger.error(f'Error unmerging transaction: {e}')
+        return {'error': str(e)}
+    finally:
+        release_db(conn)
+
+
+def get_merged_source_transactions(merged_id: int) -> list[dict]:
+    """
+    Get the original transactions that were merged into a merged transaction.
+
+    Args:
+        merged_id: ID of the merged result transaction
+
+    Returns:
+        List of original transaction dicts.
+    """
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+
+        cursor.execute('''
+            SELECT id, transaction_date, value_date, description, vendor_name,
+                   matched_supplier, amount, currency, status,
+                   company_name, company_cui
+            FROM bank_statement_transactions
+            WHERE merged_into_id = %s
+            ORDER BY transaction_date DESC
+        ''', (merged_id,))
+
+        transactions = []
+        for row in cursor.fetchall():
+            txn = dict(row)
+            if txn.get('transaction_date'):
+                txn['transaction_date'] = str(txn['transaction_date'])
+            if txn.get('value_date'):
+                txn['value_date'] = str(txn['value_date'])
+            transactions.append(txn)
+
+        return transactions
     finally:
         release_db(conn)

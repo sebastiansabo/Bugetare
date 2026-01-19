@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S. - Statement Files</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/jarvis-icon.svg') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
+    <style>
+        .drag-drop-zone {
+            border: 2px dashed var(--bs-border-color);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .drag-drop-zone:hover, .drag-drop-zone.dragover {
+            border-color: var(--bs-primary);
+            background-color: var(--bs-primary-bg-subtle);
+        }
+        .file-item {
+            background-color: var(--bs-tertiary-bg);
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="loading-spinner"></div>
+        <div class="progress-text">Processing...</div>
+    </div>
+
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
+                <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
+            </a>
+            <span class="navbar-text text-white me-auto ms-3">
+                <i class="bi bi-files"></i> Statement Files
+            </span>
+            <div class="d-flex align-items-center">
+                <!-- Theme Toggle -->
+                <div class="theme-switch">
+                    <i class="bi bi-sun-fill"></i>
+                    <input type="checkbox" id="themeToggle" title="Toggle Dark/Light Theme">
+                    <i class="bi bi-moon-fill"></i>
+                </div>
+                <a href="/statements/" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-bank"></i> Transactions
+                </a>
+                <a href="/statements/mappings" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-diagram-3"></i> Mappings
+                </a>
+                {% if current_user.can_access_accounting %}
+                <a href="/accounting" class="btn btn-outline-light btn-sm me-2">
+                    <i class="bi bi-calculator"></i> Accounting
+                </a>
+                {% endif %}
+                <div class="dropdown">
+                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-person-circle"></i> {{ current_user.name }}
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Breadcrumb -->
+    <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
+        <div class="d-flex justify-content-between align-items-center">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0 small">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/accounting">Accounting</a></li>
+                    <li class="breadcrumb-item"><a href="/statements/">Statements</a></li>
+                    <li class="breadcrumb-item active">Files</li>
+                </ol>
+            </nav>
+            <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <div class="container-fluid px-4 mt-3">
+        <!-- Upload Section -->
+        <div class="row mb-4">
+            <div class="col-lg-10 mx-auto">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleUploadSection()">
+                        <h5 class="mb-0"><i class="bi bi-cloud-upload"></i> Upload Bank Statements</h5>
+                        <i class="bi bi-chevron-down" id="uploadToggleIcon"></i>
+                    </div>
+                    <div class="card-body" id="uploadBody">
+                        <div class="drag-drop-zone mb-3" id="dropZone">
+                            <i class="bi bi-file-earmark-pdf fs-1 text-muted"></i>
+                            <p class="mb-1 mt-2 fs-5">Drag & drop UniCredit PDF statements here</p>
+                            <p class="mb-0 text-muted">or click to select files</p>
+                            <small class="text-muted">Supports multiple PDF files (max 10MB each, 50MB total)</small>
+                            <input type="file" id="fileInput" class="d-none" accept=".pdf" multiple>
+                        </div>
+
+                        <!-- File List -->
+                        <div id="fileListContainer" class="mb-3" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <strong><span id="selectedFileCount">0</span> files selected</strong>
+                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearFiles()">
+                                    <i class="bi bi-x-circle"></i> Clear All
+                                </button>
+                            </div>
+                            <div class="file-list" id="fileList" style="max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+
+                        <div class="d-flex justify-content-end">
+                            <button type="button" class="btn btn-primary" id="uploadBtn" onclick="uploadStatements()" disabled>
+                                <i class="bi bi-upload"></i> Upload & Parse
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Files Table -->
+        <div class="row">
+            <div class="col-lg-10 mx-auto">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-folder2-open"></i> Uploaded Files</h5>
+                        <span id="fileCount" class="badge bg-secondary">0 files</span>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Filename</th>
+                                        <th>Company</th>
+                                        <th>CUI</th>
+                                        <th>Account</th>
+                                        <th>Period</th>
+                                        <th class="text-center">Total</th>
+                                        <th class="text-center">New</th>
+                                        <th class="text-center">Duplicates</th>
+                                        <th>Uploaded</th>
+                                        <th>By</th>
+                                        <th style="width: 100px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="filesBody">
+                                    <tr>
+                                        <td colspan="11" class="text-center text-muted py-4">
+                                            Loading...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // File upload state
+        let selectedFiles = [];
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+        const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB
+
+        // Statements data
+        let statements = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            initTheme();
+            initDragDrop();
+            loadStatements();
+        });
+
+        // ============== THEME ==============
+        function initTheme() {
+            const toggle = document.getElementById('themeToggle');
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.body.classList.add('dark-theme');
+                toggle.checked = true;
+            }
+            toggle.addEventListener('change', function() {
+                document.body.classList.toggle('dark-theme', this.checked);
+                localStorage.setItem('theme', this.checked ? 'dark' : 'light');
+            });
+        }
+
+        // ============== DRAG & DROP ==============
+        function initDragDrop() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('fileInput');
+
+            dropZone.addEventListener('click', () => fileInput.click());
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragover');
+            });
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragover');
+            });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+
+        function handleFiles(files) {
+            let totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
+
+            for (const file of files) {
+                if (!file.name.toLowerCase().endsWith('.pdf')) {
+                    showToast(`${file.name} is not a PDF file`, 'warning');
+                    continue;
+                }
+                if (file.size > MAX_FILE_SIZE) {
+                    showToast(`${file.name} exceeds 10MB limit`, 'warning');
+                    continue;
+                }
+                if (totalSize + file.size > MAX_TOTAL_SIZE) {
+                    showToast('Total file size exceeds 50MB limit', 'warning');
+                    break;
+                }
+                if (!selectedFiles.some(f => f.name === file.name && f.size === file.size)) {
+                    selectedFiles.push(file);
+                    totalSize += file.size;
+                }
+            }
+
+            updateFileList();
+        }
+
+        function updateFileList() {
+            const container = document.getElementById('fileListContainer');
+            const list = document.getElementById('fileList');
+            const count = document.getElementById('selectedFileCount');
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            if (selectedFiles.length === 0) {
+                container.style.display = 'none';
+                uploadBtn.disabled = true;
+                return;
+            }
+
+            container.style.display = 'block';
+            count.textContent = selectedFiles.length;
+            uploadBtn.disabled = false;
+
+            list.innerHTML = selectedFiles.map((file, i) => `
+                <div class="file-item d-flex justify-content-between align-items-center p-2 border rounded mb-1">
+                    <span><i class="bi bi-file-earmark-pdf text-danger"></i> ${escapeHtml(file.name)}</span>
+                    <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeFile(${i})">
+                        <i class="bi bi-x"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function removeFile(index) {
+            selectedFiles.splice(index, 1);
+            updateFileList();
+        }
+
+        function clearFiles() {
+            selectedFiles = [];
+            document.getElementById('fileInput').value = '';
+            updateFileList();
+        }
+
+        function toggleUploadSection() {
+            const body = document.getElementById('uploadBody');
+            const icon = document.getElementById('uploadToggleIcon');
+            if (body.style.display === 'none') {
+                body.style.display = 'block';
+                icon.classList.remove('bi-chevron-right');
+                icon.classList.add('bi-chevron-down');
+            } else {
+                body.style.display = 'none';
+                icon.classList.remove('bi-chevron-down');
+                icon.classList.add('bi-chevron-right');
+            }
+        }
+
+        // ============== UPLOAD ==============
+        async function uploadStatements() {
+            if (selectedFiles.length === 0) return;
+
+            showLoading('Parsing bank statements...');
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => formData.append('files', file));
+
+            try {
+                const response = await fetch('/statements/api/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    clearFiles();
+                    loadStatements();
+
+                    // Build detailed upload summary
+                    const added = data.statements.filter(s => !s.skipped && !s.error);
+                    const skipped = data.statements.filter(s => s.skipped);
+                    const errors = data.statements.filter(s => s.error && !s.skipped);
+
+                    let message = '';
+                    if (added.length > 0) {
+                        message += `Added ${added.length} statement${added.length > 1 ? 's' : ''}:\n`;
+                        added.forEach(s => {
+                            message += `  ${s.filename} (${s.new_transactions} txns)\n`;
+                        });
+                    }
+                    if (skipped.length > 0) {
+                        message += `Skipped ${skipped.length} duplicate${skipped.length > 1 ? 's' : ''}:\n`;
+                        skipped.forEach(s => {
+                            message += `  ${s.filename}\n`;
+                        });
+                    }
+                    if (errors.length > 0) {
+                        message += `Failed ${errors.length}:\n`;
+                        errors.forEach(s => {
+                            message += `  ${s.filename}: ${s.error}\n`;
+                        });
+                    }
+                    message += `\nTotal: ${data.total_new} new, ${data.total_duplicates} duplicate txns`;
+
+                    showToast(message, added.length > 0 ? 'success' : (skipped.length > 0 ? 'warning' : 'error'), 8000);
+                } else {
+                    showToast('Error: ' + (data.error || 'Upload failed'), 'error');
+                }
+            } catch (error) {
+                console.error('Upload error:', error);
+                showToast('Upload failed: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // ============== STATEMENTS ==============
+        async function loadStatements() {
+            try {
+                const response = await fetch('/statements/api/statements?limit=100');
+                const data = await response.json();
+
+                if (data.success) {
+                    statements = data.statements;
+                    renderStatements();
+                }
+            } catch (error) {
+                console.error('Error loading statements:', error);
+                document.getElementById('filesBody').innerHTML = `
+                    <tr>
+                        <td colspan="11" class="text-center text-danger py-4">
+                            Failed to load statements
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        function renderStatements() {
+            const tbody = document.getElementById('filesBody');
+            const countBadge = document.getElementById('fileCount');
+
+            countBadge.textContent = `${statements.length} file${statements.length !== 1 ? 's' : ''}`;
+
+            if (statements.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="11" class="text-center text-muted py-4">
+                            No statements uploaded yet. Upload PDF files above.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = statements.map(stmt => `
+                <tr>
+                    <td>
+                        <i class="bi bi-file-earmark-pdf text-danger"></i>
+                        ${escapeHtml(stmt.filename)}
+                    </td>
+                    <td>${escapeHtml(stmt.company_name || '-')}</td>
+                    <td>${escapeHtml(stmt.company_cui || '-')}</td>
+                    <td>${escapeHtml(stmt.account_number || '-')}</td>
+                    <td>${stmt.period_from ? formatDate(stmt.period_from) + ' - ' + formatDate(stmt.period_to) : '-'}</td>
+                    <td class="text-center">
+                        <span class="badge bg-primary">${stmt.total_transactions}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-success">${stmt.new_transactions}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge bg-secondary">${stmt.duplicate_transactions}</span>
+                    </td>
+                    <td>${formatDateTime(stmt.uploaded_at)}</td>
+                    <td>${escapeHtml(stmt.uploaded_by_name || '-')}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary me-1" onclick="viewTransactions(${stmt.id})" title="View transactions from this statement">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteStatement(${stmt.id}, '${escapeHtml(stmt.filename)}')" title="Delete statement">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function viewTransactions(statementId) {
+            // Navigate to transactions page with statement filter
+            window.location.href = `/statements/?statement_id=${statementId}`;
+        }
+
+        async function deleteStatement(statementId, filename) {
+            if (!confirm(`Remove "${filename}" from the upload list?\n\nNote: Transaction data will be preserved.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/statements/api/statements/${statementId}`, {
+                    method: 'DELETE'
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('Statement deleted successfully', 'success');
+                    loadStatements();
+                } else {
+                    showToast('Error: ' + (data.error || 'Failed to delete statement'), 'error');
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                showToast('Failed to delete statement: ' + error.message, 'error');
+            }
+        }
+
+        // ============== UTILITIES ==============
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('ro-RO');
+        }
+
+        function formatDateTime(dateStr) {
+            if (!dateStr) return '-';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('ro-RO') + ' ' + date.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function showLoading(text = 'Processing...') {
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.querySelector('.progress-text').textContent = text;
+            overlay.style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function showToast(message, type = 'info', duration = 5000) {
+            const container = document.querySelector('.toast-container');
+            const bgClass = type === 'success' ? 'bg-success' : type === 'error' ? 'bg-danger' : type === 'warning' ? 'bg-warning text-dark' : 'bg-info';
+
+            const toast = document.createElement('div');
+            toast.className = `toast ${bgClass} text-white`;
+            toast.setAttribute('role', 'alert');
+            toast.innerHTML = `
+                <div class="toast-body d-flex justify-content-between align-items-start">
+                    <pre class="mb-0" style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(message)}</pre>
+                    <button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+
+            container.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast, { delay: duration });
+            bsToast.show();
+
+            toast.addEventListener('hidden.bs.toast', () => toast.remove());
+        }
+    </script>
+</body>
+</html>

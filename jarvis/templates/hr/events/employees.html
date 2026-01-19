@@ -10,7 +10,7 @@
     <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
 </head>
 <body>
-    <nav class="navbar navbar-dark bg-primary mb-4">
+    <nav class="navbar navbar-dark bg-primary">
         <div class="container-fluid">
             <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
                 <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
@@ -43,7 +43,23 @@
         </div>
     </nav>
 
-    <div class="container-fluid px-4">
+    <!-- Breadcrumb -->
+    <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
+        <div class="d-flex justify-content-between align-items-center">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0 small">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item"><a href="/hr">HR</a></li>
+                    <li class="breadcrumb-item active">Employees</li>
+                </ol>
+            </nav>
+            <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <div class="container-fluid px-4 mt-3">
         <div class="hr-table-container">
             <div class="hr-filter-bar d-flex justify-content-between align-items-center">
                 <div class="d-flex gap-2 align-items-center">
