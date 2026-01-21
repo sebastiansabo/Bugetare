@@ -205,6 +205,7 @@
                                     <th class="sortable" data-sort="bonus">Bonus (Net) <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
                                     {% endif %}
                                     <th>Details</th>
+                                    <th class="sortable" data-sort="created">Created <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
                                     <th style="width: 100px;">Actions</th>
                                 </tr>
                             </thead>
@@ -219,7 +220,8 @@
                             data-event="{{ bonus.event_name|lower }}"
                             data-days="{{ bonus.bonus_days or 0 }}"
                             data-hours="{{ bonus.hours_free or 0 }}"
-                            data-bonus="{{ bonus.bonus_net or 0 }}">
+                            data-bonus="{{ bonus.bonus_net or 0 }}"
+                            data-created="{{ bonus.created_at or '' }}">
                             <td><strong>{{ bonus.year }}</strong></td>
                             <td><span class="month-badge">{{ months.get(bonus.month, bonus.month) }}</span></td>
                             <td><strong>{{ bonus.employee_name }}</strong></td>
@@ -239,6 +241,7 @@
                             <td><strong>{{ '{:,.0f}'.format(bonus.bonus_net or 0) }}</strong> RON</td>
                             {% endif %}
                             <td>{{ bonus.details or '-' }}</td>
+                            <td class="text-muted small timestamp-cell">{{ bonus.created_at[:16].replace('T', ' ') if bonus.created_at else '-' }}</td>
                             <td>
                                 <button class="btn btn-sm btn-outline-primary btn-edit" data-id="{{ bonus.id }}" title="Edit">
                                     <i class="bi bi-pencil"></i>
@@ -250,7 +253,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="{{ 12 if is_hr_manager else 11 }}" class="text-center text-muted py-4">
+                            <td colspan="{{ 13 if is_hr_manager else 12 }}" class="text-center text-muted py-4">
                                 <i class="bi bi-inbox fs-1 d-block mb-2"></i>
                                 No event bonuses found. Click "Add Bonus" to create one.
                             </td>
@@ -1054,6 +1057,13 @@
                     valA = parseFloat(valA) || 0;
                     valB = parseFloat(valB) || 0;
                     return order === 'asc' ? valA - valB : valB - valA;
+                }
+
+                // Date columns (ISO format strings compare correctly)
+                if (column === 'created') {
+                    return order === 'asc'
+                        ? valA.localeCompare(valB)
+                        : valB.localeCompare(valA);
                 }
 
                 // String columns
