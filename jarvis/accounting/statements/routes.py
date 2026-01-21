@@ -161,6 +161,158 @@ from .database import (
 logger = logging.getLogger('jarvis.statements.routes')
 
 
+# ============== UPLOAD HELPER FUNCTIONS ==============
+
+def _validate_upload_files(files: list) -> tuple[bool, str, int]:
+    """
+    Validate uploaded files for size constraints.
+
+    Returns:
+        (is_valid, error_message, total_size)
+    """
+    total_size = 0
+    for file in files:
+        if not file.filename:
+            continue
+        # Get file size by seeking to end
+        file.seek(0, 2)
+        file_size = file.tell()
+        file.seek(0)  # Reset to beginning
+
+        if file_size > MAX_FILE_SIZE:
+            return False, f'File {file.filename} exceeds maximum size of 10MB', 0
+
+        total_size += file_size
+
+    if total_size > MAX_TOTAL_SIZE:
+        return False, 'Total upload size exceeds maximum of 50MB', total_size
+
+    return True, None, total_size
+
+
+def _process_single_statement(pdf_bytes: bytes, filename: str, user_id: int) -> dict:
+    """
+    Process a single PDF statement file.
+
+    Args:
+        pdf_bytes: Raw PDF content
+        filename: Original filename
+        user_id: ID of the uploading user
+
+    Returns:
+        Dict with processing result (success/error and details)
+    """
+    # Calculate file hash for duplicate detection
+    file_hash = hashlib.md5(pdf_bytes).hexdigest()
+
+    # Check if this exact file was already uploaded
+    existing = check_duplicate_statement(file_hash)
+    if existing:
+        return {
+            'filename': filename,
+            'error': f'This file was already uploaded on {existing["uploaded_at"]}',
+            'existing_statement_id': existing['id'],
+            'skipped': True
+        }
+
+    # Parse the statement
+    parsed = parse_statement(pdf_bytes, filename)
+
+    # Match transactions to vendors
+    transactions = match_transactions(parsed['transactions'])
+
+    # Create statement record
+    period = parsed.get('period', {})
+    statement_id = create_statement(
+        filename=filename,
+        file_hash=file_hash,
+        company_name=parsed.get('company_name'),
+        company_cui=parsed.get('company_cui'),
+        account_number=parsed.get('account_number'),
+        period_from=period.get('from'),
+        period_to=period.get('to'),
+        total_transactions=len(transactions),
+        uploaded_by=user_id
+    )
+
+    # Save transactions with duplicate detection
+    save_result = save_transactions_with_dedup(transactions, statement_id)
+
+    # Update statement with actual counts
+    update_statement(
+        statement_id,
+        new_transactions=save_result['new_count'],
+        duplicate_transactions=save_result['duplicate_count']
+    )
+
+    # Auto-match new transactions to invoices
+    invoice_matched_count = _auto_match_new_transactions(save_result['new_ids'])
+
+    # Count vendor-matched (has supplier) - for reporting
+    vendor_matched_count = sum(1 for t in transactions if t.get('matched_supplier'))
+
+    return {
+        'filename': filename,
+        'statement_id': statement_id,
+        'company_name': parsed.get('company_name'),
+        'company_cui': parsed.get('company_cui'),
+        'total_transactions': len(transactions),
+        'new_transactions': save_result['new_count'],
+        'duplicate_transactions': save_result['duplicate_count'],
+        'vendor_matched_count': vendor_matched_count,
+        'invoice_matched_count': invoice_matched_count,
+        'period': period,
+        'summary': parsed.get('summary')
+    }
+
+
+def _auto_match_new_transactions(new_ids: list) -> int:
+    """
+    Auto-match newly saved transactions to invoices.
+
+    Returns:
+        Number of transactions matched to invoices
+    """
+    if not new_ids:
+        return 0
+
+    try:
+        from .invoice_matcher import auto_match_transactions
+        from .database import get_candidate_invoices, bulk_update_transaction_matches
+
+        # Get the newly saved transactions for matching
+        new_txns = [get_transaction(txn_id) for txn_id in new_ids]
+        new_txns = [t for t in new_txns if t and t.get('status') not in ('ignored',)]
+
+        if not new_txns:
+            return 0
+
+        # Get candidate invoices
+        invoices = get_candidate_invoices(limit=200)
+        if not invoices:
+            return 0
+
+        # Run auto-match
+        match_results = auto_match_transactions(
+            transactions=new_txns,
+            invoices=invoices,
+            use_ai=False,
+            min_confidence=0.5
+        )
+
+        # Save match results
+        if match_results['results']:
+            bulk_update_transaction_matches(match_results['results'])
+
+        matched_count = match_results.get('matched', 0) + match_results.get('suggested', 0)
+        logger.info(f'Auto-matched {matched_count} transactions to invoices')
+        return matched_count
+
+    except Exception as e:
+        logger.warning(f'Auto-match failed: {e}')
+        return 0
+
+
 # ============== PAGE ROUTES ==============
 
 @statements_bp.route('/')
@@ -219,29 +371,10 @@ def upload_statements():
     if not files:
         return jsonify({'success': False, 'error': 'No files provided'}), 400
 
-    # Validate file sizes
-    total_size = 0
-    for file in files:
-        if not file.filename:
-            continue
-        # Get file size by seeking to end
-        file.seek(0, 2)  # Seek to end
-        file_size = file.tell()
-        file.seek(0)  # Reset to beginning
-
-        if file_size > MAX_FILE_SIZE:
-            return jsonify({
-                'success': False,
-                'error': f'File {file.filename} exceeds maximum size of 10MB'
-            }), 400
-
-        total_size += file_size
-
-    if total_size > MAX_TOTAL_SIZE:
-        return jsonify({
-            'success': False,
-            'error': f'Total upload size exceeds maximum of 50MB'
-        }), 400
+    # Validate file sizes using helper function
+    is_valid, error_msg, _ = _validate_upload_files(files)
+    if not is_valid:
+        return jsonify({'success': False, 'error': error_msg}), 400
 
     # Ensure vendor mappings are seeded
     seed_vendor_mappings()
@@ -249,6 +382,7 @@ def upload_statements():
     results = []
     total_new = 0
     total_duplicates = 0
+    user_id = current_user.id if current_user.is_authenticated else None
 
     for file in files:
         if not file.filename:
@@ -261,99 +395,15 @@ def upload_statements():
         try:
             pdf_bytes = file.read()
 
-            # Calculate file hash for duplicate detection
-            file_hash = hashlib.md5(pdf_bytes).hexdigest()
+            # Process single statement using helper function
+            result = _process_single_statement(pdf_bytes, file.filename, user_id)
 
-            # Check if this exact file was already uploaded
-            existing = check_duplicate_statement(file_hash)
-            if existing:
-                results.append({
-                    'filename': file.filename,
-                    'error': f'This file was already uploaded on {existing["uploaded_at"]}',
-                    'existing_statement_id': existing['id'],
-                    'skipped': True
-                })
-                continue
+            # Track totals (skipped files don't have these keys)
+            if not result.get('skipped'):
+                total_new += result.get('new_transactions', 0)
+                total_duplicates += result.get('duplicate_transactions', 0)
 
-            # Parse the statement
-            parsed = parse_statement(pdf_bytes, file.filename)
-
-            # Match transactions to vendors
-            transactions = match_transactions(parsed['transactions'])
-
-            # Create statement record first
-            period = parsed.get('period', {})
-            statement_id = create_statement(
-                filename=file.filename,
-                file_hash=file_hash,
-                company_name=parsed.get('company_name'),
-                company_cui=parsed.get('company_cui'),
-                account_number=parsed.get('account_number'),
-                period_from=period.get('from'),
-                period_to=period.get('to'),
-                total_transactions=len(transactions),
-                uploaded_by=current_user.id if current_user.is_authenticated else None
-            )
-
-            # Save transactions with duplicate detection
-            save_result = save_transactions_with_dedup(transactions, statement_id)
-
-            # Update statement with actual counts
-            update_statement(
-                statement_id,
-                new_transactions=save_result['new_count'],
-                duplicate_transactions=save_result['duplicate_count']
-            )
-
-            # Auto-match new transactions to invoices
-            invoice_matched_count = 0
-            if save_result['new_ids']:
-                try:
-                    from .invoice_matcher import auto_match_transactions
-                    from .database import get_candidate_invoices, bulk_update_transaction_matches
-
-                    # Get the newly saved transactions for matching
-                    new_txns = [get_transaction(txn_id) for txn_id in save_result['new_ids']]
-                    new_txns = [t for t in new_txns if t and t.get('status') not in ('ignored',)]
-
-                    if new_txns:
-                        # Get candidate invoices
-                        invoices = get_candidate_invoices(limit=200)
-                        if invoices:
-                            # Run auto-match
-                            match_results = auto_match_transactions(
-                                transactions=new_txns,
-                                invoices=invoices,
-                                use_ai=False,
-                                min_confidence=0.5
-                            )
-                            # Save match results
-                            if match_results['results']:
-                                bulk_update_transaction_matches(match_results['results'])
-                            invoice_matched_count = match_results.get('matched', 0) + match_results.get('suggested', 0)
-                            logger.info(f'Auto-matched {invoice_matched_count} transactions to invoices')
-                except Exception as e:
-                    logger.warning(f'Auto-match failed: {e}')
-
-            # Count vendor-matched (has supplier) - just for reporting
-            vendor_matched_count = sum(1 for t in transactions if t.get('matched_supplier'))
-
-            total_new += save_result['new_count']
-            total_duplicates += save_result['duplicate_count']
-
-            results.append({
-                'filename': file.filename,
-                'statement_id': statement_id,
-                'company_name': parsed.get('company_name'),
-                'company_cui': parsed.get('company_cui'),
-                'total_transactions': len(transactions),
-                'new_transactions': save_result['new_count'],
-                'duplicate_transactions': save_result['duplicate_count'],
-                'vendor_matched_count': vendor_matched_count,
-                'invoice_matched_count': invoice_matched_count,
-                'period': period,
-                'summary': parsed.get('summary')
-            })
+            results.append(result)
 
         except Exception as e:
             logger.exception(f'Error parsing {file.filename}')

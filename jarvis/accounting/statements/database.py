@@ -340,56 +340,6 @@ def seed_vendor_mappings():
 
 # ============== BANK STATEMENT TRANSACTIONS ==============
 
-def save_transactions(transactions: list[dict], statement_id: int = None) -> list[int]:
-    """
-    Save multiple transactions to the database.
-    Returns list of new transaction IDs.
-    """
-    conn = get_db()
-    try:
-        cursor = get_cursor(conn)
-
-        ids = []
-        for txn in transactions:
-            cursor.execute('''
-                INSERT INTO bank_statement_transactions (
-                    statement_id, statement_file, company_name, company_cui, account_number,
-                    transaction_date, value_date, description, vendor_name,
-                    matched_supplier, amount, currency, original_amount,
-                    original_currency, exchange_rate, auth_code, card_number,
-                    transaction_type, status
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                statement_id,
-                txn.get('statement_file'),
-                txn.get('company_name'),
-                txn.get('company_cui'),
-                txn.get('account_number'),
-                txn.get('transaction_date'),
-                txn.get('value_date'),
-                txn.get('description'),
-                txn.get('vendor_name'),
-                txn.get('matched_supplier'),
-                txn.get('amount'),
-                txn.get('currency', 'RON'),
-                txn.get('original_amount'),
-                txn.get('original_currency'),
-                txn.get('exchange_rate'),
-                txn.get('auth_code'),
-                txn.get('card_number'),
-                txn.get('transaction_type'),
-                txn.get('status', 'pending')
-            ))
-            ids.append(cursor.fetchone()['id'])
-
-        conn.commit()
-        logger.info(f'Saved {len(ids)} transactions')
-        return ids
-    finally:
-        release_db(conn)
-
-
 def save_transactions_with_dedup(
     transactions: list[dict],
     statement_id: int = None
@@ -410,17 +360,22 @@ def save_transactions_with_dedup(
 
         for txn in transactions:
             # Check for duplicate using IS NOT DISTINCT FROM for NULL-safe comparison
+            # Include account_number and currency to distinguish transactions across accounts/currencies
             cursor.execute('''
                 SELECT id FROM bank_statement_transactions
                 WHERE company_cui IS NOT DISTINCT FROM %s
+                  AND account_number IS NOT DISTINCT FROM %s
                   AND transaction_date IS NOT DISTINCT FROM %s
                   AND amount IS NOT DISTINCT FROM %s
+                  AND currency IS NOT DISTINCT FROM %s
                   AND description IS NOT DISTINCT FROM %s
                 LIMIT 1
             ''', (
                 txn.get('company_cui'),
+                txn.get('account_number'),
                 txn.get('transaction_date'),
                 txn.get('amount'),
+                txn.get('currency', 'RON'),
                 txn.get('description')
             ))
 
@@ -429,7 +384,9 @@ def save_transactions_with_dedup(
                 continue
 
             # Insert new transaction with constraint violation handling
+            # Use savepoint to allow partial rollback without losing other inserts
             try:
+                cursor.execute('SAVEPOINT txn_insert')
                 cursor.execute('''
                     INSERT INTO bank_statement_transactions (
                         statement_id, statement_file, company_name, company_cui, account_number,
@@ -461,9 +418,10 @@ def save_transactions_with_dedup(
                     txn.get('status', 'pending')
                 ))
                 new_ids.append(cursor.fetchone()['id'])
+                cursor.execute('RELEASE SAVEPOINT txn_insert')
             except psycopg2.errors.UniqueViolation:
-                # Constraint caught a duplicate that slipped through the check
-                conn.rollback()
+                # Constraint caught a duplicate - rollback only this insert, not the whole batch
+                cursor.execute('ROLLBACK TO SAVEPOINT txn_insert')
                 duplicate_count += 1
                 logger.debug(f'Duplicate caught by constraint: {txn.get("description")[:50]}...')
                 continue

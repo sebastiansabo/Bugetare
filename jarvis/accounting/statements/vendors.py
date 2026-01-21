@@ -5,19 +5,24 @@ using regex patterns from the vendor_mappings table.
 """
 import re
 import logging
+import threading
 from typing import Optional
 
 from .database import get_all_vendor_mappings
 
 logger = logging.getLogger('jarvis.statements.vendors')
 
-# Cache for compiled patterns
+# Cache for compiled patterns with thread-safety
 _compiled_patterns = None
 _patterns_loaded = False
+_patterns_lock = threading.RLock()
 
 
 def _load_patterns():
-    """Load and compile vendor patterns from database."""
+    """Load and compile vendor patterns from database.
+
+    Note: Caller must hold _patterns_lock.
+    """
     global _compiled_patterns, _patterns_loaded
 
     mappings = get_all_vendor_mappings(active_only=True)
@@ -43,8 +48,9 @@ def _load_patterns():
 def reload_patterns():
     """Force reload of vendor patterns from database."""
     global _patterns_loaded
-    _patterns_loaded = False
-    _load_patterns()
+    with _patterns_lock:
+        _patterns_loaded = False
+        _load_patterns()
 
 
 def match_vendor(description: str) -> dict:
@@ -66,8 +72,12 @@ def match_vendor(description: str) -> dict:
     """
     global _compiled_patterns, _patterns_loaded
 
-    if not _patterns_loaded:
-        _load_patterns()
+    # Thread-safe pattern loading
+    with _patterns_lock:
+        if not _patterns_loaded:
+            _load_patterns()
+        # Copy reference to avoid race conditions during iteration
+        patterns = _compiled_patterns
 
     result = {
         'matched': False,
@@ -84,8 +94,8 @@ def match_vendor(description: str) -> dict:
     # Extract a human-readable vendor name from description
     result['vendor_name'] = extract_vendor_name(description)
 
-    # Try to match against known patterns
-    for mapping in _compiled_patterns:
+    # Try to match against known patterns (using local reference)
+    for mapping in patterns:
         if mapping['pattern'].search(description):
             result['matched'] = True
             result['supplier_name'] = mapping['supplier_name']

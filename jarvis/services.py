@@ -1,6 +1,6 @@
 import re
 from typing import Optional
-from database import get_db, get_placeholder, get_cursor
+from database import get_db, get_placeholder, get_cursor, release_db
 
 
 def normalize_vat(vat: str) -> str:
@@ -35,14 +35,38 @@ def extract_vat_numbers(vat: str) -> str:
 
 
 def get_companies_with_vat() -> list[dict]:
-    """Load companies with VAT numbers from database."""
+    """Load companies with VAT numbers and brands from database."""
     conn = get_db()
     cursor = get_cursor(conn)
 
-    cursor.execute('SELECT company, brands, vat FROM companies ORDER BY company')
+    # Get companies with id
+    cursor.execute('SELECT id, company, vat FROM companies ORDER BY company')
     companies = [dict(row) for row in cursor.fetchall()]
 
-    conn.close()
+    # Get brands from company_brands table
+    cursor.execute('''
+        SELECT cb.company_id, cb.id as brand_id, cb.brand
+        FROM company_brands cb
+        WHERE cb.is_active = TRUE
+        ORDER BY cb.brand
+    ''')
+    brands_rows = cursor.fetchall()
+
+    # Group brands by company_id
+    brands_by_company = {}
+    for row in brands_rows:
+        cid = row['company_id']
+        if cid not in brands_by_company:
+            brands_by_company[cid] = []
+        brands_by_company[cid].append({'id': row['brand_id'], 'brand': row['brand']})
+
+    # Add brands to companies
+    for company in companies:
+        company_brands = brands_by_company.get(company['id'], [])
+        company['brands_list'] = company_brands
+        company['brands'] = ', '.join(b['brand'] for b in company_brands) if company_brands else ''
+
+    release_db(conn)
     return companies
 
 
@@ -78,7 +102,7 @@ def match_company_by_vat(invoice_vat: str) -> Optional[dict]:
     return None
 
 
-def add_company_with_vat(company: str, vat: str, brands: str = '') -> bool:
+def add_company_with_vat(company: str, vat: str) -> bool:
     """Add a new company with VAT to the database."""
     conn = get_db()
     cursor = conn.cursor()
@@ -86,38 +110,32 @@ def add_company_with_vat(company: str, vat: str, brands: str = '') -> bool:
 
     try:
         cursor.execute(f'''
-            INSERT INTO companies (company, brands, vat)
-            VALUES ({ph}, {ph}, {ph})
-        ''', (company, brands, vat))
+            INSERT INTO companies (company, vat)
+            VALUES ({ph}, {ph})
+        ''', (company, vat))
         conn.commit()
         return True
     except Exception:
         conn.rollback()
         return False
     finally:
-        conn.close()
+        release_db(conn)
 
 
-def update_company_vat(company: str, vat: str, brands: str = None) -> bool:
+def update_company_vat(company: str, vat: str) -> bool:
     """Update VAT for an existing company."""
     conn = get_db()
     cursor = conn.cursor()
     ph = get_placeholder()
 
-    if brands is not None:
-        cursor.execute(f'''
-            UPDATE companies SET vat = {ph}, brands = {ph}
-            WHERE company = {ph}
-        ''', (vat, brands, company))
-    else:
-        cursor.execute(f'''
-            UPDATE companies SET vat = {ph}
-            WHERE company = {ph}
-        ''', (vat, company))
+    cursor.execute(f'''
+        UPDATE companies SET vat = {ph}
+        WHERE company = {ph}
+    ''', (vat, company))
 
     updated = cursor.rowcount > 0
     conn.commit()
-    conn.close()
+    release_db(conn)
     return updated
 
 
@@ -131,5 +149,5 @@ def delete_company(company: str) -> bool:
     deleted = cursor.rowcount > 0
 
     conn.commit()
-    conn.close()
+    release_db(conn)
     return deleted

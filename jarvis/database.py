@@ -645,9 +645,10 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_supplier ON bank_statement_transactions(matched_supplier)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_transactions_company ON bank_statement_transactions(company_cui)')
     # Unique constraint to prevent duplicate transactions
+    # Note: If upgrading, drop old index first: DROP INDEX IF EXISTS idx_unique_transaction;
     cursor.execute('''
         CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_transaction
-        ON bank_statement_transactions (company_cui, transaction_date, amount, description)
+        ON bank_statement_transactions (company_cui, account_number, transaction_date, amount, currency, description)
         WHERE company_cui IS NOT NULL
           AND transaction_date IS NOT NULL
           AND amount IS NOT NULL
@@ -1005,19 +1006,43 @@ def init_db():
         ON CONFLICT (name) DO NOTHING
     ''')
 
-    # Responsables table - people responsible for departments who receive notifications
+    # Responsables table - employees/people responsible for departments
+    # Used for both notification recipients and HR event bonuses
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS responsables (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
-            email TEXT NOT NULL UNIQUE,
+            email TEXT,
             phone TEXT,
             departments TEXT,
+            company TEXT,
+            brand TEXT,
             notify_on_allocation BOOLEAN DEFAULT TRUE,
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+    ''')
+
+    # Migration: Add company, brand, subdepartment columns to responsables if they don't exist
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'responsables' AND column_name = 'company') THEN
+                ALTER TABLE responsables ADD COLUMN company TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'responsables' AND column_name = 'brand') THEN
+                ALTER TABLE responsables ADD COLUMN brand TEXT;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'responsables' AND column_name = 'subdepartment') THEN
+                ALTER TABLE responsables ADD COLUMN subdepartment TEXT;
+            END IF;
+            -- Make email nullable for HR employees who may not have email
+            ALTER TABLE responsables ALTER COLUMN email DROP NOT NULL;
+        END $$
     ''')
 
     # Notification settings table - email/SMTP configuration
@@ -1507,6 +1532,54 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hr_bonuses_employee ON hr.event_bonuses(employee_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hr_bonuses_event ON hr.event_bonuses(event_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_hr_bonuses_year_month ON hr.event_bonuses(year, month)')
+    conn.commit()
+
+    # Migration: Migrate hr.employees to responsables table and update FK
+    # Step 1: Add hr_employee_id column to responsables to track migration
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'responsables' AND column_name = 'hr_employee_id') THEN
+                ALTER TABLE responsables ADD COLUMN hr_employee_id INTEGER;
+            END IF;
+        END $$
+    ''')
+    conn.commit()
+
+    # Step 2: Migrate hr.employees to responsables (only if not already migrated)
+    cursor.execute('''
+        INSERT INTO responsables (name, departments, company, brand, is_active, hr_employee_id, created_at, updated_at)
+        SELECT e.name, e.department, e.company, e.brand, e.is_active, e.id, e.created_at, e.updated_at
+        FROM hr.employees e
+        WHERE NOT EXISTS (
+            SELECT 1 FROM responsables r WHERE r.hr_employee_id = e.id
+        )
+    ''')
+    conn.commit()
+
+    # Step 3: Update hr.event_bonuses to reference responsables instead of hr.employees
+    # First, add responsable_id column if not exists
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_schema = 'hr' AND table_name = 'event_bonuses'
+                          AND column_name = 'responsable_id') THEN
+                ALTER TABLE hr.event_bonuses ADD COLUMN responsable_id INTEGER REFERENCES responsables(id);
+            END IF;
+        END $$
+    ''')
+    conn.commit()
+
+    # Step 4: Populate responsable_id from employee_id mapping
+    cursor.execute('''
+        UPDATE hr.event_bonuses eb
+        SET responsable_id = r.id
+        FROM responsables r
+        WHERE r.hr_employee_id = eb.employee_id
+          AND eb.responsable_id IS NULL
+    ''')
     conn.commit()
 
     # Migrate existing single reinvoice data to new table (if not already migrated)
@@ -3956,6 +4029,7 @@ def get_responsables_by_department(department: str) -> list[dict]:
 
 
 def save_responsable(name: str, email: str, phone: str = None, departments: str = None,
+                     subdepartment: str = None, company: str = None, brand: str = None,
                      notify_on_allocation: bool = True, is_active: bool = True) -> int:
     """Create a new responsable."""
     conn = get_db()
@@ -3963,10 +4037,10 @@ def save_responsable(name: str, email: str, phone: str = None, departments: str 
 
     try:
         cursor.execute('''
-            INSERT INTO responsables (name, email, phone, departments, notify_on_allocation, is_active)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO responsables (name, email, phone, departments, subdepartment, company, brand, notify_on_allocation, is_active)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
-        ''', (name, email, phone, departments, notify_on_allocation, is_active))
+        ''', (name, email, phone, departments, subdepartment, company, brand, notify_on_allocation, is_active))
 
         responsable_id = cursor.fetchone()['id']
         conn.commit()
@@ -3982,7 +4056,8 @@ def save_responsable(name: str, email: str, phone: str = None, departments: str 
 
 
 def update_responsable(responsable_id: int, name: str = None, email: str = None, phone: str = None,
-                       departments: str = None, notify_on_allocation: bool = None, is_active: bool = None) -> bool:
+                       departments: str = None, subdepartment: str = None, company: str = None,
+                       brand: str = None, notify_on_allocation: bool = None, is_active: bool = None) -> bool:
     """Update a responsable."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -4002,6 +4077,15 @@ def update_responsable(responsable_id: int, name: str = None, email: str = None,
     if departments is not None:
         updates.append('departments = %s')
         params.append(departments)
+    if subdepartment is not None:
+        updates.append('subdepartment = %s')
+        params.append(subdepartment)
+    if company is not None:
+        updates.append('company = %s')
+        params.append(company)
+    if brand is not None:
+        updates.append('brand = %s')
+        params.append(brand)
     if notify_on_allocation is not None:
         updates.append('notify_on_allocation = %s')
         params.append(notify_on_allocation)
@@ -4362,17 +4446,17 @@ def get_company(company_id: int) -> Optional[dict]:
     return dict_from_row(row) if row else None
 
 
-def save_company(company: str, brands: str = None, vat: str = None) -> int:
+def save_company(company: str, vat: str = None) -> int:
     """Create a new company."""
     conn = get_db()
     cursor = get_cursor(conn)
 
     try:
         cursor.execute('''
-            INSERT INTO companies (company, brands, vat)
-            VALUES (%s, %s, %s)
+            INSERT INTO companies (company, vat)
+            VALUES (%s, %s)
             RETURNING id
-        ''', (company, brands, vat))
+        ''', (company, vat))
 
         company_id = cursor.fetchone()['id']
         conn.commit()
@@ -4387,7 +4471,7 @@ def save_company(company: str, brands: str = None, vat: str = None) -> int:
         release_db(conn)
 
 
-def update_company(company_id: int, company: str = None, brands: str = None, vat: str = None) -> bool:
+def update_company(company_id: int, company: str = None, vat: str = None) -> bool:
     """Update a company."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -4398,9 +4482,6 @@ def update_company(company_id: int, company: str = None, brands: str = None, vat
     if company is not None:
         updates.append('company = %s')
         params.append(company)
-    if brands is not None:
-        updates.append('brands = %s')
-        params.append(brands)
     if vat is not None:
         updates.append('vat = %s')
         params.append(vat)

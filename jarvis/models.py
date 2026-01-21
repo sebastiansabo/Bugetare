@@ -41,7 +41,9 @@ def clear_structure_cache():
 
 @dataclass
 class DepartmentUnit:
-    """Represents a single department unit from the Structure sheet."""
+    """Represents a single department unit from the organizational structure."""
+    id: int  # Primary key from department_structure
+    company_id: int  # Foreign key to companies table
     company: str
     brand: Optional[str]
     department: str
@@ -97,14 +99,16 @@ def load_structure() -> list[DepartmentUnit]:
     cursor = get_cursor(conn)
 
     cursor.execute('''
-        SELECT company, brand, department, subdepartment, manager, marketing
+        SELECT id, company_id, company, brand, department, subdepartment, manager, marketing
         FROM department_structure
-        ORDER BY company, department, subdepartment
+        ORDER BY company, brand, department, subdepartment
     ''')
 
     units = []
     for row in cursor.fetchall():
         unit = DepartmentUnit(
+            id=row['id'],
+            company_id=row['company_id'],
             company=row['company'] or '',
             brand=row['brand'],
             department=row['department'] or '',
@@ -166,9 +170,11 @@ def get_brands_for_company(company: str) -> list[str]:
     ph = get_placeholder()
 
     cursor.execute(f'''
-        SELECT DISTINCT brand FROM department_structure
-        WHERE company = {ph} AND brand IS NOT NULL AND brand != ''
-        ORDER BY brand
+        SELECT cb.brand
+        FROM company_brands cb
+        JOIN companies c ON cb.company_id = c.id
+        WHERE c.company = {ph} AND cb.is_active = TRUE
+        ORDER BY cb.brand
     ''', (company,))
 
     brands = [row['brand'] for row in cursor.fetchall()]

@@ -1347,7 +1347,7 @@ body.dark-theme .payment-status-dropdown {
     z-index: 10;
 }
 .tab-content {
-    padding-top: 20px;
+    padding-top: 0px;
 }
 .distribute-item .item-header {
     display: flex;

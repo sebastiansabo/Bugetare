@@ -322,50 +322,55 @@ class TestCheckDuplicateTransaction:
 
 
 class TestSaveTransactions:
-    """Tests for save_transactions() function."""
+    """Tests for save_transactions_with_dedup() function."""
 
     @patch('accounting.statements.database.release_db')
     @patch('accounting.statements.database.get_db')
     @patch('accounting.statements.database.get_cursor')
     def test_saves_transactions(self, mock_cursor, mock_db, _mock_release):
-        from accounting.statements.database import save_transactions
+        from accounting.statements.database import save_transactions_with_dedup
 
         mock_conn = MagicMock()
         mock_db.return_value = mock_conn
         mock_cur = MagicMock()
         mock_cursor.return_value = mock_cur
-        mock_cur.fetchone.side_effect = [{'id': 1}, {'id': 2}]
+        # First fetchone returns None (no duplicate), second returns the new ID
+        mock_cur.fetchone.side_effect = [None, {'id': 1}, None, {'id': 2}]
 
         transactions = [
             {'statement_file': 'test.pdf', 'amount': 100, 'description': 'Test 1'},
             {'statement_file': 'test.pdf', 'amount': 200, 'description': 'Test 2'}
         ]
 
-        result = save_transactions(transactions)
+        result = save_transactions_with_dedup(transactions)
 
-        assert len(result) == 2
-        assert result[0] == 1
-        assert result[1] == 2
+        assert result['new_count'] == 2
+        assert len(result['new_ids']) == 2
+        assert 1 in result['new_ids']
+        assert 2 in result['new_ids']
         mock_conn.commit.assert_called_once()
 
     @patch('accounting.statements.database.release_db')
     @patch('accounting.statements.database.get_db')
     @patch('accounting.statements.database.get_cursor')
     def test_handles_duplicates_in_batch(self, mock_cursor, mock_db, _mock_release):
-        from accounting.statements.database import save_transactions
+        from accounting.statements.database import save_transactions_with_dedup
 
         mock_conn = MagicMock()
         mock_db.return_value = mock_conn
         mock_cur = MagicMock()
         mock_cursor.return_value = mock_cur
-        mock_cur.fetchone.side_effect = [{'id': 1}]
+        # First transaction: duplicate check returns existing, second: no duplicate
+        mock_cur.fetchone.side_effect = [{'id': 99}, None, {'id': 1}]
 
         transactions = [
-            {'statement_file': 'test.pdf', 'amount': 100, 'description': 'Test 1'}
+            {'statement_file': 'test.pdf', 'amount': 100, 'description': 'Duplicate'},
+            {'statement_file': 'test.pdf', 'amount': 200, 'description': 'New'}
         ]
 
-        result = save_transactions(transactions)
-        assert len(result) == 1
+        result = save_transactions_with_dedup(transactions)
+        assert result['new_count'] == 1
+        assert result['duplicate_count'] == 1
 
 
 # ============== RATE LIMITER TESTS ==============

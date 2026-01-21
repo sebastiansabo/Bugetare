@@ -31,17 +31,19 @@
                 <a href="{{ url_for('hr.events.event_bonuses') }}" class="btn btn-outline-light btn-sm">
                     <i class="bi bi-gift"></i> Events
                 </a>
-                <a href="{{ url_for('hr.events.employees') }}" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-person-badge"></i> Employees
-                </a>
-                <a href="{{ url_for('hr.events.settings') }}#structure" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-diagram-3"></i> Structure
-                </a>
                 <div class="dropdown">
-                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="bi bi-person-circle"></i> {{ current_user.name }}
                     </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="/guide"><i class="bi bi-book"></i> User Guide</a></li>
+                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="bi bi-person"></i> Edit Profile</a></li>
+                        {% if current_user.can_access_settings %}
+                        <li><a class="dropdown-item" href="/settings#hr-settings"><i class="bi bi-gear"></i> Jarvis Settings</a></li>
+                        {% endif %}
+                        <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
                     </ul>
                 </div>

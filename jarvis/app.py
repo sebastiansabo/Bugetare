@@ -526,6 +526,8 @@ def get_structure():
     """Get the full organizational structure."""
     units = load_structure()
     return jsonify([{
+        'id': u.id,
+        'company_id': u.company_id,
         'company': u.company,
         'brand': u.brand,
         'department': u.department,
@@ -1450,13 +1452,12 @@ def api_add_company_vat():
     data = request.json
     company = data.get('company', '').strip()
     vat = data.get('vat', '').strip()
-    brands = data.get('brands', '').strip()
 
     if not company or not vat:
         return jsonify({'success': False, 'error': 'Company and VAT are required'}), 400
 
     try:
-        add_company_with_vat(company, vat, brands)
+        add_company_with_vat(company, vat)
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
@@ -1468,12 +1469,11 @@ def api_update_company_vat(company):
     """Update company VAT."""
     data = request.json
     vat = data.get('vat', '').strip()
-    brands = data.get('brands')
 
     if not vat:
         return jsonify({'success': False, 'error': 'VAT is required'}), 400
 
-    if update_company_vat(company, vat, brands):
+    if update_company_vat(company, vat):
         return jsonify({'success': True})
     return jsonify({'success': False, 'error': 'Company not found'}), 404
 
@@ -2046,16 +2046,19 @@ def api_get_responsable(responsable_id):
 
 @app.route('/api/responsables', methods=['POST'])
 def api_create_responsable():
-    """Create a new responsable."""
+    """Create a new responsable/employee."""
     data = request.get_json()
 
     name = data.get('name', '').strip()
-    email = data.get('email', '').strip()
+    email = data.get('email', '').strip() if data.get('email') else None
     phone = data.get('phone', '').strip() if data.get('phone') else None
     departments = data.get('departments', '').strip() if data.get('departments') else None
+    subdepartment = data.get('subdepartment', '').strip() if data.get('subdepartment') else None
+    company = data.get('company', '').strip() if data.get('company') else None
+    brand = data.get('brand', '').strip() if data.get('brand') else None
 
-    if not name or not email:
-        return jsonify({'error': 'Name and email are required'}), 400
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
 
     try:
         responsable_id = save_responsable(
@@ -2063,6 +2066,9 @@ def api_create_responsable():
             email=email,
             phone=phone,
             departments=departments,
+            subdepartment=subdepartment,
+            company=company,
+            brand=brand,
             notify_on_allocation=data.get('notify_on_allocation', True),
             is_active=data.get('is_active', True)
         )
@@ -2075,7 +2081,7 @@ def api_create_responsable():
 
 @app.route('/api/responsables/<int:responsable_id>', methods=['PUT'])
 def api_update_responsable(responsable_id):
-    """Update a responsable."""
+    """Update a responsable/employee."""
     data = request.get_json()
 
     try:
@@ -2085,6 +2091,9 @@ def api_update_responsable(responsable_id):
             email=data.get('email'),
             phone=data.get('phone'),
             departments=data.get('departments'),
+            subdepartment=data.get('subdepartment'),
+            company=data.get('company'),
+            brand=data.get('brand'),
             notify_on_allocation=data.get('notify_on_allocation'),
             is_active=data.get('is_active')
         )
@@ -2387,7 +2396,6 @@ def api_create_company_config():
     try:
         company_id = save_company(
             company=data.get('company'),
-            brands=data.get('brands'),
             vat=data.get('vat')
         )
         return jsonify({'success': True, 'id': company_id})
@@ -2415,7 +2423,6 @@ def api_update_company_config(company_id):
         success = update_company(
             company_id=company_id,
             company=data.get('company'),
-            brands=data.get('brands'),
             vat=data.get('vat')
         )
         if success:

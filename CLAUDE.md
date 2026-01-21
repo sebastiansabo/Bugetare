@@ -174,12 +174,40 @@ docker run -p 8080:8080 -e DATABASE_URL="..." -e ANTHROPIC_API_KEY="..." bugetar
 
 ## Database Schema
 
+### Unified Organizational Structure
+The platform uses a normalized organizational hierarchy with foreign key references:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      companies                               │
+│  id | company                        | vat                   │
+│  (Master table for all company names)                        │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ company_id (FK)
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 department_structure                         │
+│  id | company_id | company | brand | department | subdept   │
+│  (Single source of truth for org hierarchy)                  │
+└───────────────────────────┬─────────────────────────────────┘
+                            │ org_unit_id (FK)
+           ┌────────────────┼────────────────┐
+           ▼                ▼                ▼
+    ┌────────────┐   ┌─────────────┐  ┌──────────────┐
+    │allocations │   │responsables │  │hr.employees  │
+    │(260 rows)  │   │(125 rows)   │  │(113 rows)    │
+    └────────────┘   └─────────────┘  └──────────────┘
+```
+
 ### Public Schema (Accounting)
+- `companies` - Company registry (id, company, vat, brands) - **Master table**
+- `department_structure` - Organizational hierarchy with company_id FK
+  - id, company_id (FK), company, brand, department, subdepartment, manager, marketing
 - `invoices` - Invoice header records (includes subtract_vat, vat_rate_id, net_value)
-- `allocations` - Department allocation splits
+- `allocations` - Department allocation splits with org_unit_id FK
+- `responsables` - Employee records with org_unit_id FK
+- `reinvoice_destinations` - Reinvoicing targets with org_unit_id FK
 - `invoice_templates` - AI parsing templates per supplier
-- `department_structure` - Company/department hierarchy
-- `companies` - Company VAT registry for matching
 - `users` - Application users with bcrypt passwords and role permissions
 - `user_events` - Activity log for user actions (login, invoice operations)
 - `vat_rates` - VAT rate definitions (id, name, rate)
@@ -190,15 +218,25 @@ docker run -p 8080:8080 -e DATABASE_URL="..." -e ANTHROPIC_API_KEY="..." bugetar
 ### HR Schema (`hr.`)
 The HR module uses a separate PostgreSQL schema for data isolation:
 
-- `hr.employees` - Employee records with optional link to Jarvis users
-  - id, name, department, brand, company, user_id (FK to users), is_active, created_at, updated_at
-- `hr.events` - Event definitions (auto shows, promotions, etc.)
-  - id, name, start_date, end_date, company, brand, description, created_by (FK to users), created_at
+- `hr.employees` - Employee records with org_unit_id FK to department_structure
+  - id, name, department, brand, company, org_unit_id (FK), user_id (FK to users), is_active
+- `hr.events` - Event definitions with company_id FK to companies
+  - id, name, start_date, end_date, company, brand, company_id (FK), description, created_by
 - `hr.event_bonuses` - Individual bonus records per employee/event
   - id, employee_id (FK), event_id (FK), year, month, participation_start, participation_end
   - bonus_days, hours_free, bonus_net, details, allocation_month, created_by, created_at, updated_at
 
 **Note**: HR schema auto-creates on app startup via `init_db()` in `jarvis/database.py`
+
+### Foreign Key Relationships
+| Table | Column | References |
+|-------|--------|------------|
+| department_structure | company_id | companies.id |
+| allocations | org_unit_id | department_structure.id |
+| responsables | org_unit_id | department_structure.id |
+| reinvoice_destinations | org_unit_id | department_structure.id |
+| hr.employees | org_unit_id | department_structure.id |
+| hr.events | company_id | companies.id |
 
 ## Bank Statement Module
 

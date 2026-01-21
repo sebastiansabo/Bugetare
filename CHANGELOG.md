@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-01-20
+### Critical Fixes - Database Connection Management
+- Fixed `conn.close()` → `release_db(conn)` in `services.py` (3 functions: add_company_with_vat, update_company_vat, delete_company)
+- Fixed 8 functions in `hr/events/routes.py` to use `with get_db_connection() as conn:` context manager pattern
+- Prevents connection pool exhaustion under load
+
+### Critical Fixes - Transaction Deduplication
+- Added `account_number` and `currency` to dedup query in `accounting/statements/database.py`
+- Updated unique index in `database.py` to include all 6 columns (company_cui, account_number, transaction_date, amount, currency, description)
+- Uses `IS NOT DISTINCT FROM` for NULL-safe comparisons
+
+### Critical Fixes - Transaction Isolation
+- Added PostgreSQL SAVEPOINTs to `save_transactions_with_dedup()` for partial rollback on duplicates
+- Individual transaction failures no longer abort entire batch
+- Returns count of duplicates skipped alongside new IDs
+
+### High Priority - Code Refactoring
+- Split `upload_statements()` (~180 lines) into focused helper functions:
+  - `_validate_upload_files()` - File validation logic
+  - `_process_single_statement()` - Single PDF processing
+  - `_auto_match_new_transactions()` - Auto-matching logic
+- Main function reduced to ~75 lines
+
+### High Priority - Thread Safety
+- Added `threading.RLock()` to vendor pattern cache in `accounting/statements/vendors.py`
+- Functions `_load_patterns()`, `reload_patterns()`, and `match_vendor()` now thread-safe
+- Pattern iteration uses local reference outside lock to minimize contention
+
+### Code Cleanup
+- Removed dead `save_transactions()` function (replaced by `save_transactions_with_dedup`)
+- Updated tests to use the new function
+- Added `psycopg2.errors` mock to `conftest.py` for UniqueViolation testing
+
 ## 2025-01-19
 ### Invoice Parser Improvements
 - Fixed `normalize_vat_number()` to handle Irish VAT format with trailing letters (e.g., `IE9692928F`)
