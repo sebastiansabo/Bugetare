@@ -177,6 +177,11 @@
                         <i class="bi bi-people"></i> By Employee
                     </button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="by-event-tab" data-bs-toggle="tab" data-bs-target="#by-event-pane" type="button" role="tab">
+                        <i class="bi bi-calendar-event"></i> By Event
+                    </button>
+                </li>
                 {% endif %}
             </ul>
 
@@ -308,6 +313,68 @@
                                     <th style="text-align: right;">{{ employee_summary|sum(attribute='total_days') }}</th>
                                     <th style="text-align: right;">{{ employee_summary|sum(attribute='total_hours') }}</th>
                                     <th style="text-align: right;"><strong>{{ '{:,.0f}'.format(employee_summary|sum(attribute='total_bonus')) }}</strong> RON</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- By Event Tab -->
+                <div class="tab-pane fade" id="by-event-pane" role="tabpanel">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0" id="eventSummaryTable">
+                            <thead>
+                                <tr>
+                                    <th class="sortable-event" data-sort="year" data-order="desc">Year <i class="bi bi-arrow-down sort-icon"></i></th>
+                                    <th class="sortable-event" data-sort="month">Month <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                    <th class="sortable-event" data-sort="name">Event <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                    <th>Date Range</th>
+                                    <th class="sortable-event" data-sort="company">Company <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                    <th class="sortable-event" data-sort="brand">Brand <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                    <th class="sortable-event" data-sort="employees" style="text-align: right;"># Employees <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                    <th class="sortable-event" data-sort="days" style="text-align: right;">Total Days <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                    <th class="sortable-event" data-sort="hours" style="text-align: right;">Total Hours <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                    <th class="sortable-event" data-sort="bonus" style="text-align: right;">Total Bonus <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
+                                </tr>
+                            </thead>
+                            <tbody id="eventSummaryBody">
+                                {% for evt in event_summary %}
+                                <tr data-name="{{ evt.name|lower }}"
+                                    data-year="{{ evt.year }}"
+                                    data-month="{{ evt.month }}"
+                                    data-company="{{ (evt.company or '')|lower }}"
+                                    data-brand="{{ (evt.brand or '')|lower }}"
+                                    data-employees="{{ evt.employee_count }}"
+                                    data-days="{{ evt.total_days or 0 }}"
+                                    data-hours="{{ evt.total_hours or 0 }}"
+                                    data-bonus="{{ evt.total_bonus or 0 }}">
+                                    <td><strong>{{ evt.year }}</strong></td>
+                                    <td><span class="month-badge">{{ months.get(evt.month, evt.month) }}</span></td>
+                                    <td><strong>{{ evt.name }}</strong></td>
+                                    <td>{{ evt.start_date }} - {{ evt.end_date }}</td>
+                                    <td>{{ evt.company or '-' }}</td>
+                                    <td>{{ evt.brand or '-' }}</td>
+                                    <td style="text-align: right;">{{ evt.employee_count }}</td>
+                                    <td style="text-align: right;">{{ evt.total_days or 0 }}</td>
+                                    <td style="text-align: right;">{{ evt.total_hours or 0 }}</td>
+                                    <td style="text-align: right;"><strong>{{ '{:,.0f}'.format(evt.total_bonus or 0) }}</strong> RON</td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="10" class="text-center text-muted py-4">
+                                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                        No event data found.
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="table-secondary">
+                                <tr>
+                                    <th colspan="6">Total ({{ event_summary|length }} rows)</th>
+                                    <th style="text-align: right;">{{ event_summary|sum(attribute='employee_count') }}</th>
+                                    <th style="text-align: right;">{{ event_summary|sum(attribute='total_days') }}</th>
+                                    <th style="text-align: right;">{{ event_summary|sum(attribute='total_hours') }}</th>
+                                    <th style="text-align: right;"><strong>{{ '{:,.0f}'.format(event_summary|sum(attribute='total_bonus')) }}</strong> RON</th>
                                 </tr>
                             </tfoot>
                         </table>
@@ -1069,6 +1136,55 @@
             });
         });
 
+        // ============== Event Summary Table Sorting ==============
+        function sortEventTable(column, order) {
+            const tbody = document.getElementById('eventSummaryBody');
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll('tr[data-name]'));
+
+            rows.sort((a, b) => {
+                let valA = a.dataset[column] || '';
+                let valB = b.dataset[column] || '';
+
+                // Numeric columns
+                if (['year', 'month', 'employees', 'days', 'hours', 'bonus'].includes(column)) {
+                    valA = parseFloat(valA) || 0;
+                    valB = parseFloat(valB) || 0;
+                    return order === 'asc' ? valA - valB : valB - valA;
+                }
+
+                // String columns
+                return order === 'asc'
+                    ? valA.localeCompare(valB)
+                    : valB.localeCompare(valA);
+            });
+
+            // Re-append sorted rows
+            rows.forEach(row => tbody.appendChild(row));
+        }
+
+        // Add click handlers to event summary sortable headers
+        document.querySelectorAll('.sortable-event').forEach(th => {
+            th.addEventListener('click', () => {
+                const column = th.dataset.sort;
+                const currentOrder = th.dataset.order;
+                const newOrder = currentOrder === 'desc' ? 'asc' : 'desc';
+
+                // Reset all event headers
+                document.querySelectorAll('.sortable-event').forEach(h => {
+                    h.removeAttribute('data-order');
+                    h.querySelector('.sort-icon').className = 'bi bi-arrow-down-up sort-icon text-muted';
+                });
+
+                // Set current header
+                th.dataset.order = newOrder;
+                th.querySelector('.sort-icon').className = `bi bi-arrow-${newOrder === 'asc' ? 'up' : 'down'} sort-icon`;
+
+                // Sort the table
+                sortEventTable(column, newOrder);
+            });
+        });
+
         // ============== Theme Toggle ==============
         const themeToggle = document.getElementById('themeToggle');
 
@@ -1182,9 +1298,10 @@
             }
         }
 
-        // Initialize column resizing for both tables
+        // Initialize column resizing for all tables
         initColumnResize('bonusesTableMain');
         initColumnResize('employeeSummaryTable');
+        initColumnResize('eventSummaryTable');
 
         // Add CSS for resizer hover effect
         const style = document.createElement('style');

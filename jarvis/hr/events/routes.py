@@ -10,7 +10,7 @@ from .database import (
     get_all_hr_events, get_hr_event, save_hr_event, update_hr_event, delete_hr_event,
     get_all_event_bonuses, get_event_bonus, save_event_bonus,
     save_event_bonuses_bulk, update_event_bonus, delete_event_bonus,
-    get_event_bonuses_summary, get_bonuses_by_month, get_bonuses_by_employee,
+    get_event_bonuses_summary, get_bonuses_by_month, get_bonuses_by_employee, get_bonuses_by_event,
     get_all_bonus_types, get_bonus_type, save_bonus_type, update_bonus_type, delete_bonus_type
 )
 
@@ -59,6 +59,7 @@ def event_bonuses():
     employees = get_all_hr_employees()
     summary = get_event_bonuses_summary(year=year)
     employee_summary = get_bonuses_by_employee(year=year, month=month)
+    event_summary = get_bonuses_by_event(year=year, month=month)
 
     # Get unique years from bonuses for filter
     years = sorted(set(b['year'] for b in bonuses), reverse=True) if bonuses else [2025]
@@ -69,6 +70,7 @@ def event_bonuses():
                            employees=employees,
                            summary=summary,
                            employee_summary=employee_summary,
+                           event_summary=event_summary,
                            years=years,
                            months=MONTH_NAMES,
                            selected_year=year,

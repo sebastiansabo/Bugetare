@@ -206,8 +206,19 @@
                 document.getElementById('eventStartDate').value = event.start_date;
                 document.getElementById('eventEndDate').value = event.end_date;
                 document.getElementById('eventCompany').value = event.company || '';
-                document.getElementById('eventBrand').value = event.brand || '';
                 document.getElementById('eventDescription').value = event.description || '';
+
+                // Load brands for selected company, then set brand value
+                const brandSelect = document.getElementById('eventBrand');
+                brandSelect.innerHTML = '<option value="">Select Brand</option>';
+                if (event.company) {
+                    const brandsResp = await fetch(`/hr/events/api/structure/brands/${encodeURIComponent(event.company)}`);
+                    const brands = await brandsResp.json();
+                    brands.forEach(b => {
+                        if (b) brandSelect.innerHTML += `<option value="${b}">${b}</option>`;
+                    });
+                }
+                brandSelect.value = event.brand || '';
 
                 eventModal.show();
             });

@@ -386,6 +386,39 @@ def get_bonuses_by_employee(year=None, month=None):
     return [dict_from_row(row) for row in rows]
 
 
+def get_bonuses_by_event(year=None, month=None):
+    """Get bonus totals grouped by event, year, and month."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    query = '''
+        SELECT e.id, e.name, e.start_date, e.end_date, e.company, e.brand,
+               b.year, b.month,
+               COUNT(*) as bonus_count,
+               COUNT(DISTINCT b.employee_id) as employee_count,
+               COALESCE(SUM(b.bonus_days), 0) as total_days,
+               COALESCE(SUM(b.hours_free), 0) as total_hours,
+               COALESCE(SUM(b.bonus_net), 0) as total_bonus
+        FROM hr.event_bonuses b
+        JOIN hr.events e ON e.id = b.event_id
+        WHERE 1=1
+    '''
+    params = []
+    if year:
+        query += ' AND b.year = %s'
+        params.append(year)
+    if month:
+        query += ' AND b.month = %s'
+        params.append(month)
+
+    query += ' GROUP BY e.id, e.name, e.start_date, e.end_date, e.company, e.brand, b.year, b.month ORDER BY b.year DESC, b.month DESC, total_bonus DESC'
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [dict_from_row(row) for row in rows]
+
+
 # ============== HR Bonus Types ==============
 
 def get_all_bonus_types(active_only=True):
