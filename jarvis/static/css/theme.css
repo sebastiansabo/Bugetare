@@ -1173,6 +1173,7 @@ body.dark-theme tr[data-status="lipsa_factura"] > td {
     border-radius: 4px;
     border: 1px solid rgba(0,0,0,0.15);
     transition: background-color 0.2s ease;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 .payment-status-dropdown:focus {
     box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
@@ -2502,4 +2503,306 @@ body.apps-page .navbar-brand {
         font-size: 0.7rem;
         padding: 8px 15px;
     }
+    /* Module menu responsive */
+    .module-menu .dropdown-menu {
+        min-width: 200px;
+    }
+}
+
+/* ============================================================================
+   MAIN MODULE MENU
+   Configurable navigation menu for JARVIS modules
+   ============================================================================ */
+
+/* Module Menu Configuration Variables */
+:root {
+    /* Module Colors - customize per module */
+    --module-accounting-color: #0d6efd;
+    --module-accounting-bg: rgba(13, 110, 253, 0.1);
+    --module-hr-color: #9c27b0;
+    --module-hr-bg: rgba(156, 39, 176, 0.1);
+    --module-sales-color: #dc3545;
+    --module-sales-bg: rgba(220, 53, 69, 0.1);
+    --module-aftersales-color: #198754;
+    --module-aftersales-bg: rgba(25, 135, 84, 0.1);
+
+    /* Menu styling */
+    --module-menu-bg: rgba(255, 255, 255, 0.1);
+    --module-menu-hover-bg: rgba(255, 255, 255, 0.2);
+    --module-menu-border: rgba(255, 255, 255, 0.2);
+}
+
+body.dark-theme {
+    --module-menu-bg: rgba(0, 0, 0, 0.2);
+    --module-menu-hover-bg: rgba(255, 255, 255, 0.1);
+    --module-menu-border: rgba(255, 255, 255, 0.15);
+}
+
+/* Module Menu Container */
+.module-menu {
+    position: relative;
+}
+
+.module-menu .module-menu-toggle {
+    background: var(--module-menu-bg);
+    border: 1px solid var(--module-menu-border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    color: white;
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.module-menu .module-menu-toggle:hover {
+    background: var(--module-menu-hover-bg);
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.module-menu .module-menu-toggle i {
+    font-size: 1rem;
+}
+
+/* Module Menu Dropdown */
+.module-menu .dropdown-menu {
+    min-width: 280px;
+    padding: 8px;
+    border-radius: 10px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+}
+
+body.dark-theme .module-menu .dropdown-menu {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* Module Menu Section Headers */
+.module-menu .menu-section-header {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    padding: 8px 12px 4px;
+    margin-top: 4px;
+}
+
+.module-menu .menu-section-header:first-child {
+    margin-top: 0;
+}
+
+/* Module Menu Items */
+.module-menu .module-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: all 0.15s ease;
+    margin: 2px 0;
+}
+
+.module-menu .module-menu-item:hover {
+    background: var(--bg-table-hover);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.module-menu .module-menu-item.active {
+    background: var(--bg-table-hover);
+    font-weight: 600;
+}
+
+/* Submenu Toggle Arrow */
+.module-menu .submenu-toggle {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    transition: transform 0.2s ease;
+    cursor: pointer;
+    padding: 4px;
+    margin-left: auto;
+}
+
+.module-menu .submenu-toggle:hover {
+    color: var(--text-primary);
+}
+
+/* Submenu Container */
+.module-menu .module-submenu {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 0 48px;
+    display: none;
+    border-left: 2px solid var(--border-color);
+    padding-left: 12px;
+}
+
+.module-menu .module-submenu.show {
+    display: block;
+}
+
+/* Submenu Items */
+.module-menu .module-submenu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: all 0.15s ease;
+}
+
+.module-menu .module-submenu-item:hover {
+    background: var(--bg-table-hover);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.module-menu .module-submenu-item.active {
+    background: var(--bg-table-hover);
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.module-menu .module-submenu-item i {
+    font-size: 0.85rem;
+    opacity: 0.8;
+}
+
+/* Module Icons */
+.module-menu .module-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.module-menu .module-icon.accounting {
+    background: var(--module-accounting-bg);
+    color: var(--module-accounting-color);
+}
+
+.module-menu .module-icon.hr {
+    background: var(--module-hr-bg);
+    color: var(--module-hr-color);
+}
+
+.module-menu .module-icon.sales {
+    background: var(--module-sales-bg);
+    color: var(--module-sales-color);
+}
+
+.module-menu .module-icon.aftersales {
+    background: var(--module-aftersales-bg);
+    color: var(--module-aftersales-color);
+}
+
+/* Module Item Text */
+.module-menu .module-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.module-menu .module-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.module-menu .module-desc {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    line-height: 1.2;
+}
+
+/* Module Badges */
+.module-menu .module-badge {
+    font-size: 0.65rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.module-menu .module-badge.coming-soon {
+    background: rgba(108, 117, 125, 0.15);
+    color: var(--text-muted);
+}
+
+/* Divider */
+.module-menu .menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 8px 0;
+}
+
+/* Home Link at Top */
+.module-menu .home-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.15s ease;
+    margin-bottom: 4px;
+}
+
+.module-menu .home-link:hover {
+    background: var(--bg-table-hover);
+    color: var(--text-primary);
+}
+
+.module-menu .home-link i {
+    font-size: 1.1rem;
+    color: var(--brand-primary);
+}
+
+body.dark-theme .module-menu .home-link i {
+    color: #64b5f6;
+}
+
+/* Current Module Indicator in Toggle */
+.module-menu .current-module-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.module-menu .current-module-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.module-menu .current-module-dot.accounting {
+    background: var(--module-accounting-color);
+}
+
+.module-menu .current-module-dot.hr {
+    background: var(--module-hr-color);
+}
+
+.module-menu .current-module-dot.sales {
+    background: var(--module-sales-color);
+}
+
+.module-menu .current-module-dot.aftersales {
+    background: var(--module-aftersales-color);
 }

@@ -16,46 +16,8 @@
         <div class="loading-text">Loading...</div>
     </div>
 
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container-fluid">
-            <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
-                <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
-            </a>
-            <span class="navbar-text text-white me-auto ms-3">
-                <i class="bi bi-people"></i> HR - Events
-                <span class="badge bg-light text-success ms-2" id="onlineUsersIndicator" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true" title="Loading..." style="cursor: pointer; font-size: 0.7rem;">
-                    <i class="bi bi-circle-fill text-success" style="font-size: 0.4rem;"></i> <span id="onlineUsersCount">-</span> online
-                </span>
-            </span>
-            <div class="d-flex align-items-center gap-2">
-                <!-- Theme Toggle -->
-                <div class="theme-switch">
-                    <i class="bi bi-sun-fill"></i>
-                    <input type="checkbox" id="themeToggle" title="Toggle Dark/Light Theme">
-                    <i class="bi bi-moon-fill"></i>
-                </div>
-                <a href="{{ url_for('hr.events.events') }}" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-calendar-event"></i> Manage Events
-                </a>
-                <div class="dropdown">
-                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-person-circle"></i> {{ current_user.name }}
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="/guide"><i class="bi bi-book"></i> User Guide</a></li>
-                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="bi bi-person"></i> Edit Profile</a></li>
-                        {% if current_user.can_access_settings %}
-                        <li><a class="dropdown-item" href="/settings#hr-settings"><i class="bi bi-gear"></i> Jarvis Settings</a></li>
-                        {% endif %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </nav>
+    {% set current_module = 'hr' %}
+    {% include 'partials/_navbar.html' %}
 
     <!-- Breadcrumb -->
     <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
@@ -74,98 +36,52 @@
     </div>
 
     <div class="container-fluid px-4 mt-3">
-        <!-- Summary Cards -->
-        <div class="row mb-4 g-3">
-            <div class="col-md-2">
-                <div class="card summary-card">
-                    <div class="card-body p-3">
-                        <div class="text-muted small text-uppercase">Total Bonuses</div>
-                        <div class="fs-4 fw-bold text-primary">{{ summary.total_bonuses or 0 }}</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card">
-                    <div class="card-body p-3">
-                        <div class="text-muted small text-uppercase">Employees</div>
-                        <div class="fs-4 fw-bold text-primary">{{ summary.total_employees or 0 }}</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card">
-                    <div class="card-body p-3">
-                        <div class="text-muted small text-uppercase">Events</div>
-                        <div class="fs-4 fw-bold text-primary">{{ summary.total_events or 0 }}</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card">
-                    <div class="card-body p-3">
-                        <div class="text-muted small text-uppercase">Total Amount (Net)</div>
-                        <div class="fs-4 fw-bold text-success">{{ '{:,.0f}'.format(summary.total_bonus_amount or 0) }} <small>RON</small></div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card">
-                    <div class="card-body p-3">
-                        <div class="text-muted small text-uppercase">Total Hours</div>
-                        <div class="fs-4 fw-bold text-primary">{{ summary.total_hours or 0 }}</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card">
-                    <div class="card-body p-3">
-                        <div class="text-muted small text-uppercase">Total Days</div>
-                        <div class="fs-4 fw-bold text-primary">{{ '{:.1f}'.format(summary.total_days or 0) }}</div>
-                    </div>
-                </div>
+        <!-- Nav + Summary Stats (same line) -->
+        <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-2">
+            {% set active_page = 'bonuses' %}
+            {% set inline_nav = true %}
+            {% include 'partials/_hr_nav.html' %}
+
+            <div class="summary-filter-bar d-flex align-items-center flex-wrap gap-3">
+                <span class="summary-stat" title="Total Bonuses">
+                    <i class="bi bi-gift text-primary"></i>
+                    <strong>{{ summary.total_bonuses or 0 }}</strong> bonuses
+                </span>
+                <span class="summary-stat" title="Employees">
+                    <i class="bi bi-people text-info"></i>
+                    <strong>{{ summary.total_employees or 0 }}</strong> employees
+                </span>
+                <span class="summary-stat" title="Events">
+                    <i class="bi bi-calendar-event text-warning"></i>
+                    <strong>{{ summary.total_events or 0 }}</strong> events
+                </span>
+                {% if is_hr_manager %}
+                <span class="summary-stat text-success" title="Total Amount (Net)">
+                    <i class="bi bi-cash-stack"></i>
+                    <strong>{{ '{:,.0f}'.format(summary.total_bonus_amount or 0) }}</strong> RON
+                </span>
+                {% endif %}
+                <span class="summary-stat" title="Total Hours">
+                    <i class="bi bi-clock text-secondary"></i>
+                    <strong>{{ summary.total_hours or 0 }}</strong> hours
+                </span>
+                <span class="summary-stat" title="Total Days">
+                    <i class="bi bi-calendar-check text-secondary"></i>
+                    <strong>{{ '{:.1f}'.format(summary.total_days or 0) }}</strong> days
+                </span>
             </div>
         </div>
 
-        <!-- Filter Bar & Actions -->
-        <div class="card">
-            <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
-                <div class="d-flex gap-2 align-items-center">
-                    <select id="filterYear" class="form-select form-select-sm" style="width: auto;">
-                        <option value="">All Years</option>
-                        {% for year in years %}
-                        <option value="{{ year }}" {% if selected_year == year %}selected{% endif %}>{{ year }}</option>
-                        {% endfor %}
-                    </select>
-                    <select id="filterMonth" class="form-select form-select-sm" style="width: auto;">
-                        <option value="">All Months</option>
-                        {% for num, name in months.items() %}
-                        <option value="{{ num }}" {% if selected_month == num %}selected{% endif %}>{{ name }}</option>
-                        {% endfor %}
-                    </select>
-                    <button id="btnApplyFilter" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-funnel"></i> Filter
-                    </button>
-                    <button id="btnClearFilter" class="btn btn-outline-secondary btn-sm">
-                        <i class="bi bi-x"></i> Clear
-                    </button>
-                </div>
-                <div class="d-flex gap-2">
-                    <a href="{{ url_for('hr.events.add_event') }}" class="btn btn-hr btn-sm">
-                        <i class="bi bi-calendar-plus"></i> Add Event
-                    </a>
-                    <a href="{{ url_for('hr.events.add_bonus') }}" class="btn btn-outline-info btn-sm">
-                        <i class="bi bi-plus-lg"></i> Add Bonus
-                    </a>
-                    {% if is_hr_manager %}
-                    <button id="btnExport" class="btn btn-outline-success btn-sm">
-                        <i class="bi bi-download"></i> Export
-                    </button>
-                    {% endif %}
-                </div>
-            </div>
+        <style>
+            .summary-filter-bar { font-size: 0.85rem; }
+            .summary-stat { display: flex; align-items: center; gap: 4px; color: var(--bs-secondary-color); }
+            .summary-stat i { font-size: 1rem; }
+            .summary-stat strong { color: var(--bs-body-color); }
+        </style>
 
-            <!-- Tabs -->
-            <ul class="nav nav-tabs" id="bonusesTabs" role="tablist">
+        <!-- Tabs with Action Buttons -->
+        <div class="d-flex justify-content-between align-items-center">
+            <ul class="nav nav-tabs mb-0" id="bonusesTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="bonuses-tab" data-bs-toggle="tab" data-bs-target="#bonuses-pane" type="button" role="tab">
                         <i class="bi bi-list-ul"></i> Bonuses List
@@ -184,10 +100,55 @@
                 </li>
                 {% endif %}
             </ul>
+            <div class="d-flex gap-2">
+                <a href="{{ url_for('hr.events.add_event') }}" class="btn btn-hr btn-sm">
+                    <i class="bi bi-calendar-plus"></i> Add Event
+                </a>
+                <a href="{{ url_for('hr.events.add_bonus') }}" class="btn btn-outline-info btn-sm">
+                    <i class="bi bi-plus-lg"></i> Add Bonus
+                </a>
+                {% if is_hr_manager %}
+                <button id="btnExport" class="btn btn-outline-success btn-sm">
+                    <i class="bi bi-download"></i> Export
+                </button>
+                {% endif %}
+            </div>
+        </div>
 
-            <div class="tab-content border border-top-0 bg-white">
-                <!-- Bonuses List Tab -->
-                <div class="tab-pane fade show active" id="bonuses-pane" role="tabpanel">
+        <div class="tab-content">
+            <!-- Bonuses List Tab -->
+            <div class="tab-pane fade show active" id="bonuses-pane" role="tabpanel">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-gift"></i> Bonuses <span id="bonusResultCount" class="badge bg-secondary ms-2">{{ bonuses|length }}</span></span>
+                        <div class="d-flex gap-2 align-items-center">
+                            <!-- Search -->
+                            <div class="input-group input-group-sm" style="width: 220px;">
+                                <input type="text" class="form-control" id="searchInput" placeholder="Search employee, event..." oninput="updateSearchIcon(); filterBonuses();">
+                                <button class="btn btn-outline-secondary" type="button" id="searchBtn" onclick="handleSearchClick()" title="Search">
+                                    <i class="bi bi-search" id="searchIcon"></i>
+                                </button>
+                            </div>
+                            <select id="filterYear" class="form-select form-select-sm" style="width: auto;">
+                                <option value="">All Years</option>
+                                {% for year in years %}
+                                <option value="{{ year }}" {% if selected_year == year %}selected{% endif %}>{{ year }}</option>
+                                {% endfor %}
+                            </select>
+                            <select id="filterMonth" class="form-select form-select-sm" style="width: auto;">
+                                <option value="">All Months</option>
+                                {% for num, name in months.items() %}
+                                <option value="{{ num }}" {% if selected_month == num %}selected{% endif %}>{{ name }}</option>
+                                {% endfor %}
+                            </select>
+                            <button id="btnApplyFilter" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-funnel"></i> Filter
+                            </button>
+                            <button id="btnClearFilter" class="btn btn-outline-secondary btn-sm">
+                                <i class="bi bi-x"></i> Clear
+                            </button>
+                        </div>
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-striped table-hover mb-0" id="bonusesTableMain">
                             <thead class="table-light">
@@ -263,10 +224,15 @@
                         </table>
                     </div>
                 </div>
+            </div>
 
-                {% if is_hr_manager %}
-                <!-- By Employee Tab -->
-                <div class="tab-pane fade" id="by-employee-pane" role="tabpanel">
+            {% if is_hr_manager %}
+            <!-- By Employee Tab -->
+            <div class="tab-pane fade" id="by-employee-pane" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <span><i class="bi bi-people"></i> By Employee</span>
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-hover mb-0" id="employeeSummaryTable">
                             <thead>
@@ -321,9 +287,14 @@
                         </table>
                     </div>
                 </div>
+            </div>
 
-                <!-- By Event Tab -->
-                <div class="tab-pane fade" id="by-event-pane" role="tabpanel">
+            <!-- By Event Tab -->
+            <div class="tab-pane fade" id="by-event-pane" role="tabpanel">
+                <div class="card">
+                    <div class="card-header">
+                        <span><i class="bi bi-calendar-event"></i> By Event</span>
+                    </div>
                     <div class="table-responsive">
                         <table class="table table-hover mb-0" id="eventSummaryTable">
                             <thead>
@@ -383,8 +354,8 @@
                         </table>
                     </div>
                 </div>
-                {% endif %}
             </div>
+            {% endif %}
         </div>
     </div>
 
@@ -433,10 +404,12 @@
                         <div class="col-12">
                             <h6 class="text-info mb-3"><i class="bi bi-people"></i> Employees</h6>
                         </div>
+                        {% if is_hr_manager %}
                         <div class="col-md-2">
                             <label class="form-label">Default Bonus</label>
                             <input type="number" id="newEventDefaultBonus" class="form-control" value="150">
                         </div>
+                        {% endif %}
                         <div class="col-md-2">
                             <label class="form-label">Default Hours</label>
                             <input type="number" id="newEventDefaultHours" class="form-control" value="6">
@@ -465,7 +438,7 @@
                                     <th>Part. End</th>
                                     <th style="width: 80px;">Days</th>
                                     <th style="width: 80px;">Hours</th>
-                                    <th style="width: 100px;">Bonus</th>
+                                    {% if is_hr_manager %}<th style="width: 100px;">Bonus</th>{% endif %}
                                     <th>Details</th>
                                     <th style="width: 40px;"></th>
                                 </tr>
@@ -545,10 +518,14 @@
                                 <label class="form-label">Hours Free</label>
                                 <input type="number" id="bonusHours" class="form-control" min="0" max="100">
                             </div>
+                            {% if is_hr_manager %}
                             <div class="col-md-3">
-                                <label class="form-label">Bonus (Net) *</label>
-                                <input type="number" id="bonusNet" class="form-control" step="0.01" min="0" required>
+                                <label class="form-label">Bonus (Net)</label>
+                                <input type="number" id="bonusNet" class="form-control" step="0.01" min="0">
                             </div>
+                            {% else %}
+                            <input type="hidden" id="bonusNet" value="">
+                            {% endif %}
                             <div class="col-md-3">
                                 <label class="form-label">Allocation Month</label>
                                 <input type="text" id="bonusAllocation" class="form-control" placeholder="e.g., Feb 2026">
@@ -601,10 +578,12 @@
                                 {% endfor %}
                             </select>
                         </div>
+                        {% if is_hr_manager %}
                         <div class="col-md-2">
                             <label class="form-label">Default Bonus</label>
                             <input type="number" id="bulkDefaultBonus" class="form-control" value="150">
                         </div>
+                        {% endif %}
                         <div class="col-md-2">
                             <label class="form-label">Default Hours</label>
                             <input type="number" id="bulkDefaultHours" class="form-control" value="6">
@@ -629,7 +608,7 @@
                                     <th>Part. End</th>
                                     <th>Days</th>
                                     <th>Hours</th>
-                                    <th>Bonus</th>
+                                    {% if is_hr_manager %}<th>Bonus</th>{% endif %}
                                     <th>Details</th>
                                     <th></th>
                                 </tr>
@@ -653,6 +632,71 @@
     <script>
         // Month names for display
         const MONTHS = {{ months|tojson }};
+
+        // HR Manager permission flag for conditional bonus display
+        const isHrManager = {{ 'true' if is_hr_manager else 'false' }};
+
+        // Total bonuses count for badge
+        const totalBonusesCount = {{ bonuses|length }};
+
+        // Search functions
+        function updateSearchIcon() {
+            const input = document.getElementById('searchInput');
+            const icon = document.getElementById('searchIcon');
+            const btn = document.getElementById('searchBtn');
+            if (input.value.trim()) {
+                icon.className = 'bi bi-x-lg';
+                btn.title = 'Clear';
+            } else {
+                icon.className = 'bi bi-search';
+                btn.title = 'Search';
+            }
+        }
+
+        function handleSearchClick() {
+            const input = document.getElementById('searchInput');
+            if (input.value.trim()) {
+                input.value = '';
+                updateSearchIcon();
+                filterBonuses();
+            } else {
+                input.focus();
+            }
+        }
+
+        function filterBonuses() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+            const rows = document.querySelectorAll('#bonusesTable .bonus-row');
+            let visibleCount = 0;
+
+            rows.forEach(row => {
+                const employee = row.dataset.employee || '';
+                const event = row.dataset.event || '';
+                const dept = row.dataset.dept || '';
+                const company = row.dataset.company || '';
+
+                const matchesSearch = !searchTerm ||
+                    employee.includes(searchTerm) ||
+                    event.includes(searchTerm) ||
+                    dept.includes(searchTerm) ||
+                    company.includes(searchTerm);
+
+                if (matchesSearch) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            // Update result count badge
+            const countBadge = document.getElementById('bonusResultCount');
+            if (searchTerm) {
+                countBadge.textContent = `${visibleCount} / ${totalBonusesCount}`;
+            } else {
+                countBadge.textContent = totalBonusesCount;
+            }
+        }
 
         // Filter handlers
         document.getElementById('btnApplyFilter').addEventListener('click', () => {
@@ -766,7 +810,8 @@
             row.dataset.rowId = bulkRowId++;
 
             const defaultHours = document.getElementById('bulkDefaultHours').value;
-            const defaultBonus = document.getElementById('bulkDefaultBonus').value;
+            const defaultBonusEl = document.getElementById('bulkDefaultBonus');
+            const defaultBonus = defaultBonusEl ? defaultBonusEl.value : '';
 
             row.innerHTML = `
                 <td>
@@ -779,7 +824,7 @@
                 <td><input type="date" class="form-control form-control-sm bulk-part-end" value="${partEnd}"></td>
                 <td><input type="number" class="form-control form-control-sm bulk-days" step="0.5" value="${days || 1}"></td>
                 <td><input type="number" class="form-control form-control-sm bulk-hours" value="${hours || defaultHours}"></td>
-                <td><input type="number" class="form-control form-control-sm bulk-bonus" value="${bonus || defaultBonus}"></td>
+                ${isHrManager ? `<td><input type="number" class="form-control form-control-sm bulk-bonus" value="${bonus || defaultBonus}"></td>` : ''}
                 <td><input type="text" class="form-control form-control-sm bulk-details" value="${details}"></td>
                 <td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-row"><i class="bi bi-x"></i></button></td>
             `;
@@ -802,10 +847,12 @@
 
         document.getElementById('btnApplyDefaults').addEventListener('click', () => {
             const hours = document.getElementById('bulkDefaultHours').value;
-            const bonus = document.getElementById('bulkDefaultBonus').value;
-
             document.querySelectorAll('.bulk-hours').forEach(el => el.value = hours);
-            document.querySelectorAll('.bulk-bonus').forEach(el => el.value = bonus);
+
+            if (isHrManager) {
+                const bonus = document.getElementById('bulkDefaultBonus').value;
+                document.querySelectorAll('.bulk-bonus').forEach(el => el.value = bonus);
+            }
         });
 
         document.getElementById('btnSaveBulk').addEventListener('click', async () => {
@@ -825,6 +872,7 @@
                 const employeeId = row.querySelector('.bulk-employee').value;
                 if (!employeeId) return;
 
+                const bonusInput = row.querySelector('.bulk-bonus');
                 bonuses.push({
                     employee_id: parseInt(employeeId),
                     event_id: parseInt(eventId),
@@ -834,7 +882,7 @@
                     participation_end: row.querySelector('.bulk-part-end').value || null,
                     bonus_days: parseFloat(row.querySelector('.bulk-days').value) || null,
                     hours_free: parseInt(row.querySelector('.bulk-hours').value) || null,
-                    bonus_net: parseFloat(row.querySelector('.bulk-bonus').value) || null,
+                    bonus_net: bonusInput ? parseFloat(bonusInput.value) || null : null,
                     details: row.querySelector('.bulk-details').value || null
                 });
             });
@@ -877,7 +925,8 @@
 
             const defaultDays = document.getElementById('newEventDefaultDays').value;
             const defaultHours = document.getElementById('newEventDefaultHours').value;
-            const defaultBonus = document.getElementById('newEventDefaultBonus').value;
+            const defaultBonusEl = document.getElementById('newEventDefaultBonus');
+            const defaultBonus = defaultBonusEl ? defaultBonusEl.value : '';
             const eventStart = document.getElementById('newEventStart').value;
             const eventEnd = document.getElementById('newEventEnd').value;
 
@@ -892,7 +941,7 @@
                 <td><input type="date" class="form-control form-control-sm event-part-end" value="${partEnd || eventEnd}"></td>
                 <td><input type="number" class="form-control form-control-sm event-days" step="0.5" value="${days || defaultDays}"></td>
                 <td><input type="number" class="form-control form-control-sm event-hours" value="${hours || defaultHours}"></td>
-                <td><input type="number" class="form-control form-control-sm event-bonus" value="${bonus || defaultBonus}"></td>
+                ${isHrManager ? `<td><input type="number" class="form-control form-control-sm event-bonus" value="${bonus || defaultBonus}"></td>` : ''}
                 <td><input type="text" class="form-control form-control-sm event-details" value="${details}"></td>
                 <td><button type="button" class="btn btn-sm btn-outline-danger btn-remove-event-row"><i class="bi bi-x"></i></button></td>
             `;
@@ -916,15 +965,18 @@
         document.getElementById('btnApplyEventDefaults').addEventListener('click', () => {
             const days = document.getElementById('newEventDefaultDays').value;
             const hours = document.getElementById('newEventDefaultHours').value;
-            const bonus = document.getElementById('newEventDefaultBonus').value;
             const eventStart = document.getElementById('newEventStart').value;
             const eventEnd = document.getElementById('newEventEnd').value;
 
             document.querySelectorAll('.event-days').forEach(el => el.value = days);
             document.querySelectorAll('.event-hours').forEach(el => el.value = hours);
-            document.querySelectorAll('.event-bonus').forEach(el => el.value = bonus);
             document.querySelectorAll('.event-part-start').forEach(el => el.value = eventStart);
             document.querySelectorAll('.event-part-end').forEach(el => el.value = eventEnd);
+
+            if (isHrManager) {
+                const bonus = document.getElementById('newEventDefaultBonus').value;
+                document.querySelectorAll('.event-bonus').forEach(el => el.value = bonus);
+            }
         });
 
         // Auto-set month based on event start date
@@ -979,6 +1031,7 @@
                 const employeeId = row.querySelector('.event-employee').value;
                 if (!employeeId) return;
 
+                const bonusInput = row.querySelector('.event-bonus');
                 bonuses.push({
                     employee_id: parseInt(employeeId),
                     event_id: eventId,
@@ -988,7 +1041,7 @@
                     participation_end: row.querySelector('.event-part-end').value || null,
                     bonus_days: parseFloat(row.querySelector('.event-days').value) || null,
                     hours_free: parseInt(row.querySelector('.event-hours').value) || null,
-                    bonus_net: parseFloat(row.querySelector('.event-bonus').value) || null,
+                    bonus_net: bonusInput ? parseFloat(bonusInput.value) || null : null,
                     details: row.querySelector('.event-details').value || null
                 });
             });
@@ -1325,53 +1378,9 @@
         `;
         document.head.appendChild(style);
 
-        // Online users tracking
-        let onlineUsersInterval = null;
-        let onlineUsersTooltip = null;
-
-        async function initOnlineUsersTracking() {
-            await sendHeartbeat();
-            await updateOnlineUsersCount();
-            setInterval(sendHeartbeat, 60000);
-            onlineUsersInterval = setInterval(updateOnlineUsersCount, 30000);
-        }
-
-        async function sendHeartbeat() {
-            try {
-                await fetch('/api/heartbeat', { method: 'POST' });
-            } catch (e) {
-                console.error('Heartbeat failed:', e);
-            }
-        }
-
-        async function updateOnlineUsersCount() {
-            try {
-                const res = await fetch('/api/online-users');
-                const data = await res.json();
-                const countEl = document.getElementById('onlineUsersCount');
-                const indicatorEl = document.getElementById('onlineUsersIndicator');
-                if (countEl) {
-                    countEl.textContent = data.count;
-                    if (indicatorEl && data.users) {
-                        if (!onlineUsersTooltip) {
-                            onlineUsersTooltip = new bootstrap.Tooltip(indicatorEl);
-                        }
-                        let tooltipContent = '<strong>Online Users:</strong>';
-                        if (data.users.length > 0) {
-                            tooltipContent += '<br>' + data.users.map(u => u.name).join('<br>');
-                        } else {
-                            tooltipContent += '<br><em>No users online</em>';
-                        }
-                        indicatorEl.setAttribute('data-bs-original-title', tooltipContent);
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to get online users:', e);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', initOnlineUsersTracking);
     </script>
+    <script src="/static/js/jarvis-utils.js"></script>
+    <script src="/static/js/online-users.js"></script>
     <script src="/static/js/theme.js"></script>
 </body>
 </html>

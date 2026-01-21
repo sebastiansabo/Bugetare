@@ -479,10 +479,17 @@ def get_transactions(
     supplier: str = None,
     date_from: str = None,
     date_to: str = None,
+    search: str = None,
+    sort: str = None,
     limit: int = 500,
     offset: int = 0
 ) -> list[dict]:
-    """Get transactions with optional filters. Includes linked invoice details."""
+    """Get transactions with optional filters. Includes linked invoice details.
+
+    Args:
+        search: Search term for description, vendor_name, or matched_supplier
+        sort: Sort order - newest, oldest, amount_high, amount_low
+    """
     conn = get_db()
     try:
         cursor = get_cursor(conn)
@@ -505,8 +512,22 @@ def get_transactions(
         if date_to:
             conditions.append('t.transaction_date <= %s')
             params.append(date_to)
+        if search:
+            # Search in description, vendor_name, and matched_supplier (case-insensitive)
+            conditions.append('(t.description ILIKE %s OR t.vendor_name ILIKE %s OR t.matched_supplier ILIKE %s)')
+            search_pattern = f'%{search}%'
+            params.extend([search_pattern, search_pattern, search_pattern])
 
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ''
+
+        # Determine sort order
+        order_clause = 't.transaction_date DESC, t.id DESC'  # default: newest
+        if sort == 'oldest':
+            order_clause = 't.transaction_date ASC, t.id ASC'
+        elif sort == 'amount_high':
+            order_clause = 't.amount DESC, t.transaction_date DESC'
+        elif sort == 'amount_low':
+            order_clause = 't.amount ASC, t.transaction_date DESC'
 
         params.extend([limit, offset])
         cursor.execute(f'''
@@ -530,7 +551,7 @@ def get_transactions(
             LEFT JOIN invoices i ON t.invoice_id = i.id
             LEFT JOIN invoices si ON t.suggested_invoice_id = si.id
             {where_clause}
-            ORDER BY t.transaction_date DESC, t.id DESC
+            ORDER BY {order_clause}
             LIMIT %s OFFSET %s
         ''', tuple(params))
 

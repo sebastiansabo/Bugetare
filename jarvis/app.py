@@ -1941,6 +1941,92 @@ def api_activate_theme(theme_id):
     return jsonify({'error': 'Failed to activate theme'}), 500
 
 
+# ============== MODULE MENU ENDPOINTS ==============
+
+@app.route('/api/module-menu', methods=['GET'])
+def api_get_module_menu():
+    """Get module menu items (public endpoint for navigation)."""
+    from database import get_module_menu_items
+    items = get_module_menu_items(include_hidden=False)
+    return jsonify({'items': items})
+
+
+@app.route('/api/module-menu/all', methods=['GET'])
+@login_required
+def api_get_all_module_menu():
+    """Get all module menu items including hidden (admin endpoint)."""
+    from database import get_all_module_menu_items_flat
+    items = get_all_module_menu_items_flat()
+    return jsonify({'items': items})
+
+
+@app.route('/api/module-menu/<int:item_id>', methods=['GET'])
+@login_required
+def api_get_module_menu_item(item_id):
+    """Get a specific module menu item."""
+    from database import get_module_menu_item_by_id
+    item = get_module_menu_item_by_id(item_id)
+    if item:
+        return jsonify({'item': item})
+    return jsonify({'error': 'Item not found'}), 404
+
+
+@app.route('/api/module-menu', methods=['POST'])
+@login_required
+def api_create_module_menu_item():
+    """Create a new module menu item."""
+    data = request.get_json()
+
+    if not data.get('name') or not data.get('module_key'):
+        return jsonify({'error': 'Name and module_key are required'}), 400
+
+    from database import save_module_menu_item
+    item = save_module_menu_item(None, data)
+    return jsonify({'success': True, 'item': item})
+
+
+@app.route('/api/module-menu/<int:item_id>', methods=['PUT'])
+@login_required
+def api_update_module_menu_item(item_id):
+    """Update a module menu item."""
+    data = request.get_json()
+
+    if not data.get('name') or not data.get('module_key'):
+        return jsonify({'error': 'Name and module_key are required'}), 400
+
+    from database import save_module_menu_item
+    item = save_module_menu_item(item_id, data)
+    if item:
+        return jsonify({'success': True, 'item': item})
+    return jsonify({'error': 'Item not found'}), 404
+
+
+@app.route('/api/module-menu/<int:item_id>', methods=['DELETE'])
+@login_required
+def api_delete_module_menu_item(item_id):
+    """Delete a module menu item."""
+    from database import delete_module_menu_item
+    if delete_module_menu_item(item_id):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Failed to delete item'}), 400
+
+
+@app.route('/api/module-menu/reorder', methods=['POST'])
+@login_required
+def api_reorder_module_menu():
+    """Reorder module menu items."""
+    data = request.get_json()
+    items = data.get('items', [])
+
+    if not items:
+        return jsonify({'error': 'Items array is required'}), 400
+
+    from database import update_module_menu_order
+    if update_module_menu_order(items):
+        return jsonify({'success': True})
+    return jsonify({'error': 'Failed to reorder items'}), 500
+
+
 # ============== USER MANAGEMENT ENDPOINTS ==============
 
 @app.route('/api/users', methods=['GET'])

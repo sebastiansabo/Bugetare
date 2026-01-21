@@ -10,30 +10,8 @@
     <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
 </head>
 <body>
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container">
-            <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
-                <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
-            </a>
-            <span class="navbar-text text-white me-auto ms-3">
-                <i class="bi bi-book"></i> User Guide
-                <span class="badge bg-light text-success ms-2" id="onlineUsersIndicator" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true" title="Loading..." style="cursor: pointer; font-size: 0.7rem;">
-                    <i class="bi bi-circle-fill text-success" style="font-size: 0.4rem;"></i> <span id="onlineUsersCount">-</span> online
-                </span>
-            </span>
-            <div class="d-flex align-items-center">
-                <!-- Theme Toggle -->
-                <div class="theme-switch">
-                    <i class="bi bi-sun-fill"></i>
-                    <input type="checkbox" id="themeToggle" title="Toggle Dark/Light Theme">
-                    <i class="bi bi-moon-fill"></i>
-                </div>
-                <a href="/accounting" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-calculator"></i> Accounting
-                </a>
-            </div>
-        </div>
-    </nav>
+    {% set current_module = 'guide' %}
+    {% include 'partials/_navbar.html' %}
 
     <!-- Breadcrumb -->
     <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
@@ -494,53 +472,9 @@
             });
         });
 
-        // Online users tracking
-        let onlineUsersInterval = null;
-        let onlineUsersTooltip = null;
-
-        async function initOnlineUsersTracking() {
-            await sendHeartbeat();
-            await updateOnlineUsersCount();
-            setInterval(sendHeartbeat, 60000);
-            onlineUsersInterval = setInterval(updateOnlineUsersCount, 30000);
-        }
-
-        async function sendHeartbeat() {
-            try {
-                await fetch('/api/heartbeat', { method: 'POST' });
-            } catch (e) {
-                console.error('Heartbeat failed:', e);
-            }
-        }
-
-        async function updateOnlineUsersCount() {
-            try {
-                const res = await fetch('/api/online-users');
-                const data = await res.json();
-                const countEl = document.getElementById('onlineUsersCount');
-                const indicatorEl = document.getElementById('onlineUsersIndicator');
-                if (countEl) {
-                    countEl.textContent = data.count;
-                    if (indicatorEl && data.users) {
-                        if (!onlineUsersTooltip) {
-                            onlineUsersTooltip = new bootstrap.Tooltip(indicatorEl);
-                        }
-                        let tooltipContent = '<strong>Online Users:</strong>';
-                        if (data.users.length > 0) {
-                            tooltipContent += '<br>' + data.users.map(u => u.name).join('<br>');
-                        } else {
-                            tooltipContent += '<br><em>No users online</em>';
-                        }
-                        indicatorEl.setAttribute('data-bs-original-title', tooltipContent);
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to get online users:', e);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', initOnlineUsersTracking);
     </script>
+    <script src="/static/js/jarvis-utils.js"></script>
+    <script src="/static/js/online-users.js"></script>
     <script src="/static/js/theme.js"></script>
 </body>
 </html>

@@ -13,6 +13,10 @@
         .mapping-inactive { opacity: 0.5; }
         .test-result { max-height: 200px; overflow-y: auto; }
         .test-match { background-color: var(--bs-success-bg-subtle); padding: 2px 4px; border-radius: 3px; }
+        .summary-filter-bar { font-size: 0.85rem; }
+        .summary-stat { display: flex; align-items: center; gap: 4px; color: var(--bs-secondary-color); }
+        .summary-stat i { font-size: 1rem; }
+        .summary-stat strong { color: var(--bs-body-color); }
     </style>
 </head>
 <body>
@@ -22,51 +26,8 @@
         <div class="progress-text">Processing...</div>
     </div>
 
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
-                <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
-            </a>
-            <span class="navbar-text text-white me-auto ms-3">
-                <i class="bi bi-diagram-3"></i> Vendor Mappings
-                <span class="badge bg-light text-success ms-2" id="onlineUsersIndicator" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true" title="Loading..." style="cursor: pointer; font-size: 0.7rem;">
-                    <i class="bi bi-circle-fill text-success" style="font-size: 0.4rem;"></i> <span id="onlineUsersCount">-</span> online
-                </span>
-            </span>
-            <div class="d-flex align-items-center">
-                <!-- Theme Toggle -->
-                <div class="theme-switch">
-                    <i class="bi bi-sun-fill"></i>
-                    <input type="checkbox" id="themeToggle" title="Toggle Dark/Light Theme">
-                    <i class="bi bi-moon-fill"></i>
-                </div>
-                <a href="/statements/" class="btn btn-outline-light btn-sm me-2">
-                    <i class="bi bi-bank"></i> Bank Statements
-                </a>
-                {% if current_user.can_access_accounting %}
-                <a href="/accounting" class="btn btn-outline-light btn-sm me-2">
-                    <i class="bi bi-calculator"></i> Accounting
-                </a>
-                {% endif %}
-                <div class="dropdown">
-                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-person-circle"></i> {{ current_user.name }}
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="/guide"><i class="bi bi-book"></i> User Guide</a></li>
-                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="bi bi-person"></i> Edit Profile</a></li>
-                        {% if current_user.can_access_settings %}
-                        <li><a class="dropdown-item" href="/settings"><i class="bi bi-gear"></i> Jarvis Settings</a></li>
-                        {% endif %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </nav>
+    {% set current_module = 'statements' %}
+    {% include 'partials/_navbar.html' %}
 
     <!-- Breadcrumb -->
     <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
@@ -86,108 +47,147 @@
     </div>
 
     <div class="container-fluid px-4 mt-3">
-        <!-- Add New Mapping Section -->
-        <div class="row mb-4">
-            <div class="col-lg-8 mx-auto">
-                <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleAddSection()">
-                        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Add New Mapping</h5>
-                        <i class="bi bi-chevron-down" id="addToggleIcon"></i>
-                    </div>
-                    <div class="card-body" id="addBody">
-                        <form id="addMappingForm" onsubmit="createMapping(event)">
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label class="form-label">Regex Pattern <span class="text-danger">*</span></label>
-                                    <div class="input-group">
-                                        <input type="text" class="form-control pattern-code" id="newPattern"
-                                               placeholder="e.g., VENDOR\s*\*" required>
-                                        <button type="button" class="btn btn-outline-secondary" onclick="testPattern('new')" title="Test Pattern">
-                                            <i class="bi bi-play-circle"></i> Test
-                                        </button>
-                                    </div>
-                                    <small class="text-muted">Case-insensitive regex pattern to match transaction descriptions</small>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Supplier Name <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="newSupplierName"
-                                           placeholder="e.g., Meta" required>
-                                    <small class="text-muted">Display name for matched transactions</small>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Supplier VAT</label>
-                                    <input type="text" class="form-control" id="newSupplierVat"
-                                           placeholder="e.g., IE9692928F">
-                                    <small class="text-muted">Optional VAT number for invoice generation</small>
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Invoice Template</label>
-                                    <select class="form-select" id="newTemplateId">
-                                        <option value="">No template</option>
-                                    </select>
-                                    <small class="text-muted">Optional template for invoice parsing</small>
-                                </div>
-                                <div class="col-12" id="newTestResult" style="display: none;">
-                                    <div class="alert alert-info mb-0">
-                                        <strong>Pattern Test Results:</strong>
-                                        <div class="test-result mt-2" id="newTestResultContent"></div>
-                                    </div>
-                                </div>
-                                <div class="col-12">
-                                    <button type="submit" class="btn btn-primary">
-                                        <i class="bi bi-plus-lg"></i> Create Mapping
-                                    </button>
-                                </div>
-                            </div>
-                        </form>
-                    </div>
-                </div>
+        <!-- Nav + Summary Stats -->
+        <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-2">
+            {% set active_page = 'statements' %}
+            {% set inline_nav = true %}
+            {% include 'partials/_accounting_nav.html' %}
+            <div class="summary-filter-bar d-flex align-items-center flex-wrap gap-3" id="summaryStats" style="display: none;">
+                <span class="summary-stat" title="Total Mappings">
+                    <i class="bi bi-diagram-2 text-primary"></i>
+                    <strong id="totalMappingsCompact">0</strong> mappings
+                </span>
+                <span class="summary-stat" title="Active Mappings">
+                    <i class="bi bi-check-circle text-success"></i>
+                    <strong id="activeMappingsCompact">0</strong> active
+                </span>
             </div>
         </div>
 
-        <!-- Filter Section -->
-        <div class="row mb-3">
-            <div class="col-12">
-                <div class="d-flex gap-2 align-items-center">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" id="showInactive" onchange="loadMappings()">
-                        <label class="form-check-label" for="showInactive">Show inactive mappings</label>
-                    </div>
-                    <div class="ms-auto">
-                        <span class="text-muted" id="mappingCount">0 mappings</span>
-                    </div>
-                </div>
+        <!-- Tabs with Add Button -->
+        <div class="d-flex justify-content-between align-items-center">
+            <ul class="nav nav-tabs mb-0">
+                <li class="nav-item">
+                    <a class="nav-link" href="/statements/">
+                        <i class="bi bi-list-ul"></i> Transactions
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="/statements/files">
+                        <i class="bi bi-file-earmark-pdf"></i> Statements
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/statements/mappings">
+                        <i class="bi bi-diagram-2"></i> Mappings
+                    </a>
+                </li>
+            </ul>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addMappingModal">
+                    <i class="bi bi-plus-lg"></i> Add Mapping
+                </button>
             </div>
         </div>
 
         <!-- Mappings Table -->
-        <div class="row">
-            <div class="col-12">
-                <div class="card">
-                    <div class="card-body p-0">
-                        <div class="table-responsive">
-                            <table class="table table-hover table-striped mb-0">
-                                <thead class="table-light">
-                                    <tr>
-                                        <th>Pattern</th>
-                                        <th>Supplier Name</th>
-                                        <th>Supplier VAT</th>
-                                        <th>Template</th>
-                                        <th>Status</th>
-                                        <th>Created</th>
-                                        <th>Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="mappingsBody">
-                                    <tr>
-                                        <td colspan="7" class="text-center text-muted py-4">
-                                            Loading mappings...
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-diagram-2"></i> Vendor Mappings <span id="mappingCount" class="badge bg-secondary ms-2">0</span></span>
+                    <div class="d-flex gap-2 align-items-center">
+                        <!-- Search -->
+                        <div class="input-group input-group-sm" style="width: 220px;">
+                            <input type="text" class="form-control" id="searchInput" placeholder="Search supplier..." oninput="onSearchChange()">
+                            <button class="btn btn-outline-secondary" type="button" id="searchBtn" onclick="handleSearchClick()" title="Search">
+                                <i class="bi bi-search" id="searchIcon"></i>
+                            </button>
                         </div>
+                        <!-- Show Inactive -->
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="showInactiveBtn" onclick="toggleShowInactive()" title="Show inactive mappings">
+                            <i class="bi bi-eye" id="showInactiveIcon"></i>
+                        </button>
                     </div>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Pattern</th>
+                                <th>Supplier Name</th>
+                                <th>Supplier VAT</th>
+                                <th>Template</th>
+                                <th>Status</th>
+                                <th>Created</th>
+                                <th style="width: 120px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mappingsBody">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    Loading mappings...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Mapping Modal -->
+    <div class="modal fade" id="addMappingModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-circle"></i> Add New Mapping</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addMappingForm" onsubmit="createMapping(event)">
+                        <div class="mb-3">
+                            <label class="form-label">Regex Pattern <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="text" class="form-control pattern-code" id="newPattern"
+                                       placeholder="e.g., VENDOR\s*\*" required>
+                                <button type="button" class="btn btn-outline-secondary" onclick="testPattern('new')" title="Test Pattern">
+                                    <i class="bi bi-play-circle"></i>
+                                </button>
+                            </div>
+                            <small class="text-muted">Case-insensitive regex pattern to match transaction descriptions</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Supplier Name <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="newSupplierName"
+                                   placeholder="e.g., Meta" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Supplier VAT</label>
+                            <input type="text" class="form-control" id="newSupplierVat"
+                                   placeholder="e.g., IE9692928F">
+                            <small class="text-muted">Optional VAT number for invoice generation</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Invoice Template</label>
+                            <select class="form-select" id="newTemplateId">
+                                <option value="">No template</option>
+                            </select>
+                        </div>
+                        <div id="newTestResult" style="display: none;">
+                            <div class="alert alert-info mb-0">
+                                <strong>Pattern Test Results:</strong>
+                                <div class="test-result mt-2" id="newTestResultContent"></div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" form="addMappingForm" class="btn btn-primary">
+                        <i class="bi bi-plus-lg"></i> Create Mapping
+                    </button>
                 </div>
             </div>
         </div>
@@ -198,7 +198,7 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Edit Mapping</h5>
+                    <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Mapping</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -208,7 +208,7 @@
                         <div class="input-group">
                             <input type="text" class="form-control pattern-code" id="editPattern" required>
                             <button type="button" class="btn btn-outline-secondary" onclick="testPattern('edit')" title="Test Pattern">
-                                <i class="bi bi-play-circle"></i> Test
+                                <i class="bi bi-play-circle"></i>
                             </button>
                         </div>
                     </div>
@@ -254,7 +254,7 @@
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">Test Pattern</h5>
+                    <h5 class="modal-title"><i class="bi bi-play-circle"></i> Test Pattern</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
@@ -289,37 +289,18 @@
         </div>
     </div>
 
-    <!-- Delete Confirmation Modal -->
-    <div class="modal fade" id="deleteModal" tabindex="-1">
-        <div class="modal-dialog modal-sm">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Confirm Delete</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p>Are you sure you want to delete the mapping for <strong id="deleteSupplierName"></strong>?</p>
-                    <p class="text-muted small">This action cannot be undone.</p>
-                    <input type="hidden" id="deleteId">
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-danger" onclick="confirmDelete()">
-                        <i class="bi bi-trash"></i> Delete
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script>
         // State
         let mappings = [];
         let templates = [];
         let unmatchedTransactions = [];
         let currentTestContext = null;
+        let searchTerm = '';
+        let showInactive = false;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -328,23 +309,60 @@
             loadUnmatchedTransactions();
         });
 
-        function toggleAddSection() {
-            const body = document.getElementById('addBody');
-            const icon = document.getElementById('addToggleIcon');
-            if (body.style.display === 'none') {
-                body.style.display = 'block';
-                icon.classList.remove('bi-chevron-right');
-                icon.classList.add('bi-chevron-down');
+        // Search functionality
+        let searchTimeout;
+        function onSearchChange() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
+                updateSearchIcon();
+                renderMappings();
+            }, 300);
+        }
+
+        function updateSearchIcon() {
+            const input = document.getElementById('searchInput');
+            const icon = document.getElementById('searchIcon');
+            const btn = document.getElementById('searchBtn');
+            if (input.value.trim()) {
+                icon.className = 'bi bi-x-lg';
+                btn.title = 'Clear';
             } else {
-                body.style.display = 'none';
-                icon.classList.remove('bi-chevron-down');
-                icon.classList.add('bi-chevron-right');
+                icon.className = 'bi bi-search';
+                btn.title = 'Search';
             }
+        }
+
+        function handleSearchClick() {
+            const input = document.getElementById('searchInput');
+            if (input.value.trim()) {
+                input.value = '';
+                searchTerm = '';
+                updateSearchIcon();
+                renderMappings();
+            } else {
+                input.focus();
+            }
+        }
+
+        function toggleShowInactive() {
+            showInactive = !showInactive;
+            const btn = document.getElementById('showInactiveBtn');
+            const icon = document.getElementById('showInactiveIcon');
+            if (showInactive) {
+                btn.className = 'btn btn-sm btn-warning';
+                icon.className = 'bi bi-eye-slash';
+                btn.title = 'Hide inactive mappings';
+            } else {
+                btn.className = 'btn btn-sm btn-outline-secondary';
+                icon.className = 'bi bi-eye';
+                btn.title = 'Show inactive mappings';
+            }
+            loadMappings();
         }
 
         // Load Data
         async function loadMappings() {
-            const showInactive = document.getElementById('showInactive').checked;
             const params = new URLSearchParams();
             params.append('active_only', !showInactive);
 
@@ -355,6 +373,7 @@
                 if (data.success) {
                     mappings = data.mappings;
                     renderMappings();
+                    updateSummary();
                 }
             } catch (error) {
                 console.error('Load mappings error:', error);
@@ -399,22 +418,43 @@
             });
         }
 
+        function updateSummary() {
+            const total = mappings.length;
+            const active = mappings.filter(m => m.is_active).length;
+
+            document.getElementById('totalMappingsCompact').textContent = total;
+            document.getElementById('activeMappingsCompact').textContent = active;
+            document.getElementById('summaryStats').style.display = 'flex';
+        }
+
         function renderMappings() {
             const tbody = document.getElementById('mappingsBody');
-            document.getElementById('mappingCount').textContent = `${mappings.length} mapping${mappings.length !== 1 ? 's' : ''}`;
+            const countBadge = document.getElementById('mappingCount');
 
-            if (mappings.length === 0) {
+            // Filter by search
+            let filtered = mappings;
+            if (searchTerm) {
+                filtered = mappings.filter(m =>
+                    (m.supplier_name || '').toLowerCase().includes(searchTerm) ||
+                    (m.pattern || '').toLowerCase().includes(searchTerm) ||
+                    (m.supplier_vat || '').toLowerCase().includes(searchTerm)
+                );
+            }
+
+            countBadge.textContent = filtered.length;
+
+            if (filtered.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="7" class="text-center text-muted py-4">
-                            No vendor mappings found. Add one above.
+                            ${searchTerm ? 'No mappings match your search.' : 'No vendor mappings found. Click "Add Mapping" to create one.'}
                         </td>
                     </tr>
                 `;
                 return;
             }
 
-            tbody.innerHTML = mappings.map(m => {
+            tbody.innerHTML = filtered.map(m => {
                 const template = templates.find(t => t.id === m.template_id);
                 const createdDate = m.created_at ? new Date(m.created_at).toLocaleDateString('ro-RO') : '-';
 
@@ -487,17 +527,17 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    // Clear form
                     document.getElementById('addMappingForm').reset();
                     document.getElementById('newTestResult').style.display = 'none';
+                    bootstrap.Modal.getInstance(document.getElementById('addMappingModal')).hide();
                     loadMappings();
-                    alert('Mapping created successfully!');
+                    showToast('Mapping created successfully!', 'success');
                 } else {
-                    alert('Error: ' + (data.error || 'Failed to create mapping'));
+                    showToast('Error: ' + (data.error || 'Failed to create mapping'), 'error');
                 }
             } catch (error) {
                 console.error('Create mapping error:', error);
-                alert('Failed to create mapping: ' + error.message);
+                showToast('Failed to create mapping: ' + error.message, 'error');
             } finally {
                 hideLoading();
             }
@@ -557,30 +597,26 @@
                 if (data.success) {
                     bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
                     loadMappings();
+                    showToast('Mapping updated successfully!', 'success');
                 } else {
-                    alert('Error: ' + (data.error || 'Failed to update mapping'));
+                    showToast('Error: ' + (data.error || 'Failed to update mapping'), 'error');
                 }
             } catch (error) {
                 console.error('Save mapping error:', error);
-                alert('Failed to save mapping: ' + error.message);
+                showToast('Failed to save mapping: ' + error.message, 'error');
             } finally {
                 hideLoading();
             }
         }
 
         // Delete Mapping
-        function deleteMapping(id) {
+        async function deleteMapping(id) {
             const mapping = mappings.find(m => m.id === id);
             if (!mapping) return;
 
-            document.getElementById('deleteId').value = id;
-            document.getElementById('deleteSupplierName').textContent = mapping.supplier_name;
-
-            new bootstrap.Modal(document.getElementById('deleteModal')).show();
-        }
-
-        async function confirmDelete() {
-            const id = document.getElementById('deleteId').value;
+            if (!confirm(`Delete the mapping for "${mapping.supplier_name}"?\n\nThis action cannot be undone.`)) {
+                return;
+            }
 
             showLoading('Deleting mapping...');
 
@@ -592,14 +628,14 @@
                 const data = await response.json();
 
                 if (data.success) {
-                    bootstrap.Modal.getInstance(document.getElementById('deleteModal')).hide();
                     loadMappings();
+                    showToast('Mapping deleted successfully', 'success');
                 } else {
-                    alert('Error: ' + (data.error || 'Failed to delete mapping'));
+                    showToast('Error: ' + (data.error || 'Failed to delete mapping'), 'error');
                 }
             } catch (error) {
                 console.error('Delete mapping error:', error);
-                alert('Failed to delete mapping: ' + error.message);
+                showToast('Failed to delete mapping: ' + error.message, 'error');
             } finally {
                 hideLoading();
             }
@@ -639,18 +675,7 @@
             document.getElementById('testString').value = '';
             document.getElementById('testResultBox').style.display = 'none';
 
-            // Populate unmatched transactions
-            const list = document.getElementById('unmatchedList');
-            if (unmatchedTransactions.length === 0) {
-                list.innerHTML = '<div class="list-group-item text-muted">No unmatched transactions found</div>';
-            } else {
-                list.innerHTML = unmatchedTransactions.map(t => `
-                    <button type="button" class="list-group-item list-group-item-action small"
-                            onclick="useTransactionForTest('${escapeHtml(t.description?.replace(/\\/g, '\\\\').replace(/'/g, "\\'") || '')}')">
-                        ${escapeHtml(t.description?.substring(0, 100) || 'No description')}...
-                    </button>
-                `).join('');
-            }
+            populateUnmatchedList();
 
             new bootstrap.Modal(document.getElementById('testModal')).show();
         }
@@ -664,7 +689,12 @@
             document.getElementById('testString').value = '';
             document.getElementById('testResultBox').style.display = 'none';
 
-            // Populate unmatched transactions
+            populateUnmatchedList();
+
+            new bootstrap.Modal(document.getElementById('testModal')).show();
+        }
+
+        function populateUnmatchedList() {
             const list = document.getElementById('unmatchedList');
             if (unmatchedTransactions.length === 0) {
                 list.innerHTML = '<div class="list-group-item text-muted">No unmatched transactions found</div>';
@@ -676,8 +706,6 @@
                     </button>
                 `).join('');
             }
-
-            new bootstrap.Modal(document.getElementById('testModal')).show();
         }
 
         function useTransactionForTest(description) {
@@ -729,44 +757,6 @@
             }
         }
 
-        // Quick inline test for new/edit forms
-        function testPatternInline(context) {
-            let pattern, resultDiv, resultContent;
-
-            if (context === 'new') {
-                pattern = document.getElementById('newPattern').value;
-                resultDiv = document.getElementById('newTestResult');
-                resultContent = document.getElementById('newTestResultContent');
-            } else {
-                pattern = document.getElementById('editPattern').value;
-                resultDiv = document.getElementById('editTestResult');
-                resultContent = document.getElementById('editTestResultContent');
-            }
-
-            if (!validateRegex(pattern)) {
-                resultDiv.style.display = 'block';
-                resultContent.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle"></i> Invalid regex syntax</span>';
-                return;
-            }
-
-            // Test against recent unmatched transactions
-            const regex = new RegExp(pattern, 'i');
-            const matches = unmatchedTransactions.filter(t => regex.test(t.description || ''));
-
-            resultDiv.style.display = 'block';
-            if (matches.length > 0) {
-                resultContent.innerHTML = `
-                    <span class="text-success"><i class="bi bi-check-circle"></i> Would match ${matches.length} unmatched transaction(s):</span>
-                    <ul class="mb-0 mt-1">
-                        ${matches.slice(0, 3).map(m => `<li class="small">${escapeHtml(m.description?.substring(0, 60) || '')}...</li>`).join('')}
-                        ${matches.length > 3 ? `<li class="text-muted small">...and ${matches.length - 3} more</li>` : ''}
-                    </ul>
-                `;
-            } else {
-                resultContent.innerHTML = '<span class="text-warning"><i class="bi bi-info-circle"></i> No matches among recent unmatched transactions</span>';
-            }
-        }
-
         // Loading
         function showLoading(text) {
             document.getElementById('loadingOverlay').style.display = 'flex';
@@ -777,135 +767,31 @@
             document.getElementById('loadingOverlay').style.display = 'none';
         }
 
-        // Online users tracking
-        let onlineUsersInterval = null;
-        let onlineUsersTooltip = null;
+        function showToast(message, type = 'info', duration = 5000) {
+            const container = document.querySelector('.toast-container');
+            const bgClass = type === 'success' ? 'bg-success' : type === 'error' ? 'bg-danger' : type === 'warning' ? 'bg-warning text-dark' : 'bg-info';
 
-        async function initOnlineUsersTracking() {
-            await sendHeartbeat();
-            await updateOnlineUsersCount();
-            setInterval(sendHeartbeat, 60000);
-            onlineUsersInterval = setInterval(updateOnlineUsersCount, 30000);
+            const toast = document.createElement('div');
+            toast.className = `toast ${bgClass} text-white`;
+            toast.setAttribute('role', 'alert');
+            toast.innerHTML = `
+                <div class="toast-body d-flex justify-content-between align-items-start">
+                    <span>${escapeHtml(message)}</span>
+                    <button type="button" class="btn-close btn-close-white ms-2" data-bs-dismiss="toast"></button>
+                </div>
+            `;
+
+            container.appendChild(toast);
+            const bsToast = new bootstrap.Toast(toast, { delay: duration });
+            bsToast.show();
+
+            toast.addEventListener('hidden.bs.toast', () => toast.remove());
         }
 
-        async function sendHeartbeat() {
-            try {
-                await fetch('/api/heartbeat', { method: 'POST' });
-            } catch (e) {
-                console.error('Heartbeat failed:', e);
-            }
-        }
-
-        async function updateOnlineUsersCount() {
-            try {
-                const res = await fetch('/api/online-users');
-                const data = await res.json();
-                const countEl = document.getElementById('onlineUsersCount');
-                const indicatorEl = document.getElementById('onlineUsersIndicator');
-                if (countEl) {
-                    countEl.textContent = data.count;
-                    if (indicatorEl && data.users) {
-                        if (!onlineUsersTooltip) {
-                            onlineUsersTooltip = new bootstrap.Tooltip(indicatorEl);
-                        }
-                        let tooltipContent = '<strong>Online Users:</strong>';
-                        if (data.users.length > 0) {
-                            tooltipContent += '<br>' + data.users.map(u => u.name).join('<br>');
-                        } else {
-                            tooltipContent += '<br><em>No users online</em>';
-                        }
-                        indicatorEl.setAttribute('data-bs-original-title', tooltipContent);
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to get online users:', e);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', initOnlineUsersTracking);
     </script>
-
-    <!-- Edit Profile Modal -->
-    <div class="modal fade" id="editProfileModal" tabindex="-1" aria-labelledby="editProfileModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="editProfileModalLabel"><i class="bi bi-person"></i> Edit Profile</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="editProfileForm">
-                        <div class="mb-3">
-                            <label for="profileName" class="form-label">Name</label>
-                            <input type="text" class="form-control" id="profileName" value="{{ current_user.name }}" required minlength="2">
-                        </div>
-                        <div class="mb-3">
-                            <label for="profileEmail" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="profileEmail" value="{{ current_user.email }}" disabled>
-                            <small class="text-muted">Contact an administrator to change your email</small>
-                        </div>
-                        <div class="mb-3">
-                            <label for="profilePhone" class="form-label">Phone</label>
-                            <input type="tel" class="form-control" id="profilePhone" value="{{ current_user.phone or '' }}" placeholder="Optional">
-                        </div>
-                    </form>
-                    <div class="d-flex justify-content-end mb-3">
-                        <button type="button" class="btn btn-primary" onclick="updateProfile()">Save Profile</button>
-                    </div>
-                    <hr>
-                    <h6 class="mb-3"><i class="bi bi-key"></i> Change Password</h6>
-                    <form id="changePasswordForm">
-                        <div class="mb-3">
-                            <label for="currentPassword" class="form-label">Current Password</label>
-                            <input type="password" class="form-control" id="currentPassword">
-                        </div>
-                        <div class="mb-3">
-                            <label for="newPassword" class="form-label">New Password</label>
-                            <input type="password" class="form-control" id="newPassword" minlength="6">
-                        </div>
-                        <div class="mb-3">
-                            <label for="confirmPassword" class="form-label">Confirm New Password</label>
-                            <input type="password" class="form-control" id="confirmPassword" minlength="6">
-                        </div>
-                    </form>
-                    <div class="d-flex justify-content-end">
-                        <button type="button" class="btn btn-warning" onclick="changePassword()">Change Password</button>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        async function updateProfile() {
-            const name = document.getElementById('profileName').value.trim();
-            const phone = document.getElementById('profilePhone').value.trim();
-            if (!name || name.length < 2) { alert('Name must be at least 2 characters'); return; }
-            try {
-                const response = await fetch('/api/auth/update-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone }) });
-                const result = await response.json();
-                if (result.success) { alert('Profile updated successfully'); const btn = document.getElementById('userDropdown'); if (btn) btn.innerHTML = '<i class="bi bi-person-circle"></i> ' + result.name; }
-                else { alert('Error: ' + result.error); }
-            } catch (e) { alert('Error: ' + e.message); }
-        }
-        async function changePassword() {
-            const currentPassword = document.getElementById('currentPassword').value;
-            const newPassword = document.getElementById('newPassword').value;
-            const confirmPassword = document.getElementById('confirmPassword').value;
-            if (!currentPassword || !newPassword || !confirmPassword) { alert('Please fill in all password fields'); return; }
-            if (newPassword !== confirmPassword) { alert('New passwords do not match'); return; }
-            if (newPassword.length < 6) { alert('Password must be at least 6 characters'); return; }
-            try {
-                const response = await fetch('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) });
-                const result = await response.json();
-                if (result.success) { alert('Password changed successfully'); document.getElementById('changePasswordForm').reset(); }
-                else { alert('Error: ' + result.error); }
-            } catch (e) { alert('Error: ' + e.message); }
-        }
-    </script>
+    <script src="/static/js/jarvis-utils.js"></script>
+    <script src="/static/js/online-users.js"></script>
+    {% include 'partials/_edit_profile_modal.html' %}
     <script src="/static/js/theme.js"></script>
 </body>
 </html>

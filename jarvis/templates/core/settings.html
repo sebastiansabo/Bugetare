@@ -22,40 +22,8 @@
         <div class="loading-text">Loading...</div>
     </div>
 
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
-                <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
-            </a>
-            <span class="navbar-text text-white me-auto ms-3">
-                <i class="bi bi-gear"></i> Settings
-                <span class="badge bg-light text-success ms-2" id="onlineUsersIndicator" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true" title="Loading..." style="cursor: pointer; font-size: 0.7rem;">
-                    <i class="bi bi-circle-fill text-success" style="font-size: 0.4rem;"></i> <span id="onlineUsersCount">-</span> online
-                </span>
-            </span>
-            <div class="d-flex align-items-center">
-                <!-- Theme Toggle -->
-                <div class="theme-switch">
-                    <i class="bi bi-sun-fill"></i>
-                    <input type="checkbox" id="themeToggle" title="Toggle Dark/Light Theme">
-                    <i class="bi bi-moon-fill"></i>
-                </div>
-                <div class="dropdown">
-                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-person-circle"></i> {{ current_user.name }}
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="/guide"><i class="bi bi-book"></i> User Guide</a></li>
-                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="bi bi-person"></i> Edit Profile</a></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </nav>
+    {% set current_module = 'settings' %}
+    {% include 'partials/_navbar.html' %}
 
     <!-- Breadcrumb -->
     <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
@@ -895,6 +863,105 @@
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <!-- Module Menu Configuration -->
+                        <div class="card mt-4">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="bi bi-grid-3x3-gap"></i> Module Menu Configuration</h6>
+                                <button class="btn btn-sm btn-primary" onclick="showAddModuleModal()">
+                                    <i class="bi bi-plus-lg"></i> Add Module
+                                </button>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted small mb-3">
+                                    <i class="bi bi-info-circle"></i> Configure the navigation modules and their sub-pages displayed in the global menu.
+                                </p>
+                                <div id="moduleMenuList">
+                                    <div class="text-center py-3">
+                                        <div class="spinner-border spinner-border-sm" role="status"></div>
+                                        <span class="ms-2">Loading modules...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Module Menu Edit Modal -->
+            <div class="modal fade" id="moduleMenuModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="moduleMenuModalTitle">Add Module</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <input type="hidden" id="moduleMenuItemId">
+                            <div class="mb-3">
+                                <label class="form-label">Parent Module</label>
+                                <select class="form-select" id="moduleParentId">
+                                    <option value="">-- Top Level Module --</option>
+                                </select>
+                                <small class="text-muted">Leave empty for main module, select parent for sub-page</small>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Module Key *</label>
+                                    <input type="text" class="form-control" id="moduleKey" placeholder="e.g., accounting" required>
+                                    <small class="text-muted">Unique identifier</small>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Name *</label>
+                                    <input type="text" class="form-control" id="moduleName" placeholder="e.g., Accounting" required>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Description</label>
+                                <input type="text" class="form-control" id="moduleDescription" placeholder="e.g., Invoices, Budgets, Statements">
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Icon</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="bi" id="moduleIconPreview"></i></span>
+                                        <input type="text" class="form-control" id="moduleIcon" placeholder="bi-calculator" value="bi-grid">
+                                    </div>
+                                    <small class="text-muted">Bootstrap icon class</small>
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Color</label>
+                                    <div class="input-group">
+                                        <input type="color" class="form-control form-control-color" id="moduleColorPicker" value="#6c757d">
+                                        <input type="text" class="form-control" id="moduleColor" value="#6c757d">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-8 mb-3">
+                                    <label class="form-label">URL</label>
+                                    <input type="text" class="form-control" id="moduleUrl" placeholder="/accounting">
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <label class="form-label">Sort Order</label>
+                                    <input type="number" class="form-control" id="moduleSortOrder" value="0" min="0">
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Status</label>
+                                <select class="form-select" id="moduleStatus">
+                                    <option value="active">Active</option>
+                                    <option value="coming_soon">Coming Soon</option>
+                                    <option value="hidden">Hidden</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" onclick="saveModuleMenuItem()">
+                                <i class="bi bi-check-lg"></i> Save
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -4042,6 +4109,246 @@
             }
         }
 
+        // ============== Module Menu Functions ==============
+
+        let moduleMenuItems = [];
+        const moduleMenuModal = new bootstrap.Modal(document.getElementById('moduleMenuModal'));
+
+        async function loadModuleMenu() {
+            try {
+                const res = await fetch('/api/module-menu/all');
+                const data = await res.json();
+                moduleMenuItems = data.items || [];
+                renderModuleMenuList();
+                populateParentDropdown();
+            } catch (err) {
+                console.error('Error loading module menu:', err);
+                document.getElementById('moduleMenuList').innerHTML = '<div class="alert alert-danger">Failed to load modules</div>';
+            }
+        }
+
+        function renderModuleMenuList() {
+            const container = document.getElementById('moduleMenuList');
+            if (!moduleMenuItems.length) {
+                container.innerHTML = '<div class="alert alert-info">No modules configured yet. Click "Add Module" to create one.</div>';
+                return;
+            }
+
+            // Group items by parent
+            const parentItems = moduleMenuItems.filter(i => !i.parent_id);
+            const childItems = moduleMenuItems.filter(i => i.parent_id);
+
+            let html = '<div class="list-group">';
+            parentItems.sort((a, b) => a.sort_order - b.sort_order).forEach(parent => {
+                const children = childItems.filter(c => c.parent_id === parent.id).sort((a, b) => a.sort_order - b.sort_order);
+                const statusBadge = getStatusBadge(parent.status);
+
+                html += `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center">
+                                <span class="module-icon-preview me-2" style="color: ${parent.color};">
+                                    <i class="bi ${parent.icon}"></i>
+                                </span>
+                                <div>
+                                    <strong>${parent.name}</strong>
+                                    <small class="text-muted ms-2">${parent.module_key}</small>
+                                    ${statusBadge}
+                                    <br><small class="text-muted">${parent.description || ''}</small>
+                                </div>
+                            </div>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="editModuleMenuItem(${parent.id})" title="Edit">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button class="btn btn-outline-success" onclick="showAddSubpageModal(${parent.id})" title="Add Sub-page">
+                                    <i class="bi bi-plus"></i>
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="deleteModuleMenuItem(${parent.id})" title="Delete">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        ${children.length ? `
+                            <div class="ms-4 mt-2 border-start ps-3">
+                                ${children.map(child => `
+                                    <div class="d-flex justify-content-between align-items-center py-1">
+                                        <div class="d-flex align-items-center">
+                                            <i class="bi ${child.icon} me-2" style="color: ${child.color};"></i>
+                                            <span>${child.name}</span>
+                                            <small class="text-muted ms-2">${child.url || ''}</small>
+                                            ${getStatusBadge(child.status)}
+                                        </div>
+                                        <div class="btn-group btn-group-sm">
+                                            <button class="btn btn-outline-secondary btn-sm" onclick="editModuleMenuItem(${child.id})" title="Edit">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm" onclick="deleteModuleMenuItem(${child.id})" title="Delete">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function getStatusBadge(status) {
+            switch (status) {
+                case 'active': return '<span class="badge bg-success ms-2">Active</span>';
+                case 'coming_soon': return '<span class="badge bg-warning ms-2">Coming Soon</span>';
+                case 'hidden': return '<span class="badge bg-secondary ms-2">Hidden</span>';
+                default: return '';
+            }
+        }
+
+        function populateParentDropdown() {
+            const select = document.getElementById('moduleParentId');
+            select.innerHTML = '<option value="">-- Top Level Module --</option>';
+            moduleMenuItems.filter(i => !i.parent_id).forEach(item => {
+                select.innerHTML += `<option value="${item.id}">${item.name}</option>`;
+            });
+        }
+
+        function showAddModuleModal() {
+            document.getElementById('moduleMenuModalTitle').textContent = 'Add Module';
+            document.getElementById('moduleMenuItemId').value = '';
+            document.getElementById('moduleParentId').value = '';
+            document.getElementById('moduleKey').value = '';
+            document.getElementById('moduleName').value = '';
+            document.getElementById('moduleDescription').value = '';
+            document.getElementById('moduleIcon').value = 'bi-grid';
+            document.getElementById('moduleIconPreview').className = 'bi bi-grid';
+            document.getElementById('moduleColor').value = '#6c757d';
+            document.getElementById('moduleColorPicker').value = '#6c757d';
+            document.getElementById('moduleUrl').value = '';
+            document.getElementById('moduleSortOrder').value = '0';
+            document.getElementById('moduleStatus').value = 'active';
+            moduleMenuModal.show();
+        }
+
+        function showAddSubpageModal(parentId) {
+            showAddModuleModal();
+            document.getElementById('moduleMenuModalTitle').textContent = 'Add Sub-page';
+            document.getElementById('moduleParentId').value = parentId;
+            // Copy parent's color
+            const parent = moduleMenuItems.find(i => i.id === parentId);
+            if (parent) {
+                document.getElementById('moduleColor').value = parent.color;
+                document.getElementById('moduleColorPicker').value = parent.color;
+            }
+        }
+
+        function editModuleMenuItem(itemId) {
+            const item = moduleMenuItems.find(i => i.id === itemId);
+            if (!item) return;
+
+            document.getElementById('moduleMenuModalTitle').textContent = 'Edit Module';
+            document.getElementById('moduleMenuItemId').value = item.id;
+            document.getElementById('moduleParentId').value = item.parent_id || '';
+            document.getElementById('moduleKey').value = item.module_key;
+            document.getElementById('moduleName').value = item.name;
+            document.getElementById('moduleDescription').value = item.description || '';
+            document.getElementById('moduleIcon').value = item.icon || 'bi-grid';
+            document.getElementById('moduleIconPreview').className = 'bi ' + (item.icon || 'bi-grid');
+            document.getElementById('moduleColor').value = item.color || '#6c757d';
+            document.getElementById('moduleColorPicker').value = item.color || '#6c757d';
+            document.getElementById('moduleUrl').value = item.url || '';
+            document.getElementById('moduleSortOrder').value = item.sort_order || 0;
+            document.getElementById('moduleStatus').value = item.status || 'active';
+            moduleMenuModal.show();
+        }
+
+        async function saveModuleMenuItem() {
+            const itemId = document.getElementById('moduleMenuItemId').value;
+            const data = {
+                parent_id: document.getElementById('moduleParentId').value || null,
+                module_key: document.getElementById('moduleKey').value.trim(),
+                name: document.getElementById('moduleName').value.trim(),
+                description: document.getElementById('moduleDescription').value.trim(),
+                icon: document.getElementById('moduleIcon').value.trim(),
+                color: document.getElementById('moduleColor').value,
+                url: document.getElementById('moduleUrl').value.trim(),
+                sort_order: parseInt(document.getElementById('moduleSortOrder').value) || 0,
+                status: document.getElementById('moduleStatus').value
+            };
+
+            if (!data.module_key || !data.name) {
+                alert('Module Key and Name are required');
+                return;
+            }
+
+            try {
+                const url = itemId ? `/api/module-menu/${itemId}` : '/api/module-menu';
+                const method = itemId ? 'PUT' : 'POST';
+                const res = await fetch(url, {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (res.ok) {
+                    moduleMenuModal.hide();
+                    loadModuleMenu();
+                } else {
+                    const err = await res.json();
+                    alert(err.error || 'Failed to save module');
+                }
+            } catch (err) {
+                console.error('Error saving module:', err);
+                alert('Failed to save module');
+            }
+        }
+
+        async function deleteModuleMenuItem(itemId) {
+            const item = moduleMenuItems.find(i => i.id === itemId);
+            const hasChildren = moduleMenuItems.some(i => i.parent_id === itemId);
+
+            let msg = `Delete "${item?.name}"?`;
+            if (hasChildren) {
+                msg += '\n\nWarning: This will also delete all sub-pages!';
+            }
+
+            if (!confirm(msg)) return;
+
+            try {
+                const res = await fetch(`/api/module-menu/${itemId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadModuleMenu();
+                } else {
+                    alert('Failed to delete module');
+                }
+            } catch (err) {
+                console.error('Error deleting module:', err);
+                alert('Failed to delete module');
+            }
+        }
+
+        // Sync icon preview
+        document.getElementById('moduleIcon').addEventListener('input', (e) => {
+            document.getElementById('moduleIconPreview').className = 'bi ' + e.target.value;
+        });
+
+        // Sync color inputs
+        document.getElementById('moduleColorPicker').addEventListener('input', (e) => {
+            document.getElementById('moduleColor').value = e.target.value;
+        });
+        document.getElementById('moduleColor').addEventListener('input', (e) => {
+            document.getElementById('moduleColorPicker').value = e.target.value;
+        });
+
+        // Load module menu when Theme tab is shown
+        document.querySelector('button[data-bs-target="#theme-settings"]')?.addEventListener('shown.bs.tab', loadModuleMenu);
+        // Also load on page load if already on theme tab
+        if (document.getElementById('theme-settings')?.classList.contains('show')) {
+            loadModuleMenu();
+        }
+
         // ============== Permission Matrix Functions ==============
 
         async function loadPermissionMatrix() {
@@ -4247,52 +4554,7 @@
 
         // Theme toggle is handled by theme.js with unified localStorage key 'jarvisTheme'
 
-        // Online users tracking
-        let onlineUsersInterval = null;
-        let onlineUsersTooltip = null;
-
-        async function initOnlineUsersTracking() {
-            await sendHeartbeat();
-            await updateOnlineUsersCount();
-            setInterval(sendHeartbeat, 60000);
-            onlineUsersInterval = setInterval(updateOnlineUsersCount, 30000);
-        }
-
-        async function sendHeartbeat() {
-            try {
-                await fetch('/api/heartbeat', { method: 'POST' });
-            } catch (e) {
-                console.error('Heartbeat failed:', e);
-            }
-        }
-
-        async function updateOnlineUsersCount() {
-            try {
-                const res = await fetch('/api/online-users');
-                const data = await res.json();
-                const countEl = document.getElementById('onlineUsersCount');
-                const indicatorEl = document.getElementById('onlineUsersIndicator');
-                if (countEl) {
-                    countEl.textContent = data.count;
-                    if (indicatorEl && data.users) {
-                        if (!onlineUsersTooltip) {
-                            onlineUsersTooltip = new bootstrap.Tooltip(indicatorEl);
-                        }
-                        let tooltipContent = '<strong>Online Users:</strong>';
-                        if (data.users.length > 0) {
-                            tooltipContent += '<br>' + data.users.map(u => u.name).join('<br>');
-                        } else {
-                            tooltipContent += '<br><em>No users online</em>';
-                        }
-                        indicatorEl.setAttribute('data-bs-original-title', tooltipContent);
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to get online users:', e);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', initOnlineUsersTracking);
+        // Online users tracking is handled by /static/js/online-users.js
 
         // ========== HR Events - Bonus Types Functions ==========
 
@@ -5762,87 +6024,8 @@
         }
     </script>
 
-    <!-- Edit Profile Modal -->
-    <div class="modal fade" id="editProfileModal" tabindex="-1" aria-labelledby="editProfileModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="editProfileModalLabel"><i class="bi bi-person"></i> Edit Profile</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="editProfileForm">
-                        <div class="mb-3">
-                            <label for="profileName" class="form-label">Name</label>
-                            <input type="text" class="form-control" id="profileName" value="{{ current_user.name }}" required minlength="2">
-                        </div>
-                        <div class="mb-3">
-                            <label for="profileEmail" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="profileEmail" value="{{ current_user.email }}" disabled>
-                            <small class="text-muted">Contact an administrator to change your email</small>
-                        </div>
-                        <div class="mb-3">
-                            <label for="profilePhone" class="form-label">Phone</label>
-                            <input type="tel" class="form-control" id="profilePhone" value="{{ current_user.phone or '' }}" placeholder="Optional">
-                        </div>
-                    </form>
-                    <div class="d-flex justify-content-end mb-3">
-                        <button type="button" class="btn btn-primary" onclick="updateProfile()">Save Profile</button>
-                    </div>
-                    <hr>
-                    <h6 class="mb-3"><i class="bi bi-key"></i> Change Password</h6>
-                    <form id="changePasswordForm">
-                        <div class="mb-3">
-                            <label for="currentPassword" class="form-label">Current Password</label>
-                            <input type="password" class="form-control" id="currentPassword">
-                        </div>
-                        <div class="mb-3">
-                            <label for="newPassword" class="form-label">New Password</label>
-                            <input type="password" class="form-control" id="newPassword" minlength="6">
-                        </div>
-                        <div class="mb-3">
-                            <label for="confirmPassword" class="form-label">Confirm New Password</label>
-                            <input type="password" class="form-control" id="confirmPassword" minlength="6">
-                        </div>
-                    </form>
-                    <div class="d-flex justify-content-end">
-                        <button type="button" class="btn btn-warning" onclick="changePassword()">Change Password</button>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        async function updateProfile() {
-            const name = document.getElementById('profileName').value.trim();
-            const phone = document.getElementById('profilePhone').value.trim();
-            if (!name || name.length < 2) { alert('Name must be at least 2 characters'); return; }
-            try {
-                const response = await fetch('/api/auth/update-profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, phone }) });
-                const result = await response.json();
-                if (result.success) { alert('Profile updated successfully'); const btn = document.getElementById('userDropdown'); if (btn) btn.innerHTML = '<i class="bi bi-person-circle"></i> ' + result.name; }
-                else { alert('Error: ' + result.error); }
-            } catch (e) { alert('Error: ' + e.message); }
-        }
-        async function changePassword() {
-            const currentPassword = document.getElementById('currentPassword').value;
-            const newPassword = document.getElementById('newPassword').value;
-            const confirmPassword = document.getElementById('confirmPassword').value;
-            if (!currentPassword || !newPassword || !confirmPassword) { alert('Please fill in all password fields'); return; }
-            if (newPassword !== confirmPassword) { alert('New passwords do not match'); return; }
-            if (newPassword.length < 6) { alert('Password must be at least 6 characters'); return; }
-            try {
-                const response = await fetch('/api/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }) });
-                const result = await response.json();
-                if (result.success) { alert('Password changed successfully'); document.getElementById('changePasswordForm').reset(); }
-                else { alert('Error: ' + result.error); }
-            } catch (e) { alert('Error: ' + e.message); }
-        }
-    </script>
+    <script src="/static/js/online-users.js"></script>
+    {% include 'partials/_edit_profile_modal.html' %}
     <script src="/static/js/theme.js"></script>
 </body>
 </html>

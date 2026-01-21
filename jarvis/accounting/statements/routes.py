@@ -529,6 +529,8 @@ def list_transactions():
         - supplier: filter by matched supplier
         - date_from: YYYY-MM-DD
         - date_to: YYYY-MM-DD
+        - search: search in description, vendor, supplier
+        - sort: newest, oldest, amount_high, amount_low
         - limit: max results (default 500)
         - offset: pagination offset
     """
@@ -538,6 +540,8 @@ def list_transactions():
         supplier=request.args.get('supplier'),
         date_from=request.args.get('date_from'),
         date_to=request.args.get('date_to'),
+        search=request.args.get('search'),
+        sort=request.args.get('sort'),
         limit=int(request.args.get('limit', 500)),
         offset=int(request.args.get('offset', 0))
     )

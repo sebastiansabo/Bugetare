@@ -16,56 +16,8 @@
         <div class="loading-text">Loading...</div>
     </div>
 
-    <nav class="navbar navbar-dark bg-primary">
-        <div class="container-fluid px-4">
-            <a class="navbar-brand mb-0 h1" href="/" id="navbarLogo">
-                <span class="navbar-logo-icon"></span> J.A.R.V.I.S.
-            </a>
-            <span class="navbar-text text-white me-auto ms-3">
-                <i class="bi bi-calculator"></i> Accounting
-                <span class="badge bg-light text-success ms-2" id="onlineUsersIndicator" data-bs-toggle="tooltip" data-bs-placement="bottom" data-bs-html="true" title="Loading..." style="cursor: pointer; font-size: 0.7rem;">
-                    <i class="bi bi-circle-fill text-success" style="font-size: 0.4rem;"></i> <span id="onlineUsersCount">-</span> online
-                </span>
-            </span>
-            <div class="d-flex align-items-center">
-                <!-- Theme Toggle -->
-                <div class="theme-switch">
-                    <i class="bi bi-sun-fill"></i>
-                    <input type="checkbox" id="themeToggle" title="Toggle Dark/Light Theme">
-                    <i class="bi bi-moon-fill"></i>
-                </div>
-                {% if current_user.can_add_invoices %}
-                <a href="/add-invoice" class="btn btn-outline-light btn-sm me-2">
-                    <i class="bi bi-plus-circle"></i> New Invoice
-                </a>
-                {% endif %}
-                {% if current_user.can_view_invoices %}
-                <a href="/bulk" class="btn btn-outline-light btn-sm me-2">
-                    <i class="bi bi-stack"></i> Bulk
-                </a>
-                <a href="/statements/" class="btn btn-outline-light btn-sm me-2">
-                    <i class="bi bi-bank"></i> Statements
-                </a>
-                {% endif %}
-                <div class="dropdown">
-                    <button class="btn btn-outline-light btn-sm dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="bi bi-person-circle"></i> {{ current_user.name }}
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                        <li><span class="dropdown-item-text text-muted small">{{ current_user.email }}</span></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item" href="/guide"><i class="bi bi-book"></i> User Guide</a></li>
-                        <li><a class="dropdown-item" href="#" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="bi bi-person"></i> Edit Profile</a></li>
-                        {% if current_user.can_access_settings %}
-                        <li><a class="dropdown-item" href="/settings"><i class="bi bi-gear"></i> Jarvis Settings</a></li>
-                        {% endif %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><a class="dropdown-item text-danger" href="/logout"><i class="bi bi-box-arrow-right"></i> Logout</a></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-    </nav>
+    {% set current_module = 'accounting' %}
+    {% include 'partials/_navbar.html' %}
 
     <!-- Breadcrumb -->
     <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
@@ -83,207 +35,203 @@
     </div>
 
     <div class="container-fluid px-4 mt-3">
-        <!-- Summary Cards Toggle -->
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <button class="btn btn-sm btn-outline-secondary" id="toggleSummary" onclick="toggleSummaryCards()">
-                <i class="bi bi-chevron-down" id="toggleSummaryIcon"></i> <span id="toggleSummaryText">Show Summary</span>
-            </button>
-            <div id="summaryCollapsed" class="text-muted small">
-                <span class="badge bg-primary me-1"><i class="bi bi-receipt"></i> <span id="totalInvoicesCompact">0</span></span>
-                <span class="badge bg-success me-1"><i class="bi bi-currency-exchange"></i> <span id="totalValueCompact">0</span></span>
-                <span class="badge bg-info me-1"><i class="bi bi-building"></i> <span id="totalCompaniesCompact">0</span></span>
-                <span class="badge bg-warning text-dark"><i class="bi bi-diagram-3"></i> <span id="totalDepartmentsCompact">0</span></span>
-            </div>
-        </div>
-        <!-- Summary Cards -->
-        <div class="row mb-3 d-none" id="summaryCards">
-            <div class="col-md-2">
-                <div class="card summary-card bg-primary text-white">
-                    <div class="card-body py-2">
-                        <h6 class="card-title small mb-1"><i class="bi bi-receipt"></i> Total Invoices</h6>
-                        <h4 id="totalInvoices" class="mb-0">0</h4>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card bg-info text-white">
-                    <div class="card-body py-2">
-                        <h6 class="card-title small mb-1"><i class="bi bi-building"></i> Companies</h6>
-                        <h4 id="totalCompanies" class="mb-0">0</h4>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card bg-warning text-white">
-                    <div class="card-body py-2">
-                        <h6 class="card-title small mb-1"><i class="bi bi-diagram-3"></i> Departments</h6>
-                        <h4 id="totalDepartments" class="mb-0">0</h4>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card bg-success text-white">
-                    <div class="card-body py-2">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h6 class="card-title small mb-0"><i class="bi bi-cash-stack"></i> Net Value</h6>
-                            <div class="form-check form-switch mb-0">
-                                <input class="form-check-input" type="checkbox" id="currencyToggle" style="cursor: pointer; transform: scale(0.8);">
-                                <label class="form-check-label small" for="currencyToggle" id="currencyToggleLabel" style="cursor: pointer; font-size: 0.7rem;">EUR</label>
-                            </div>
-                        </div>
-                        <h4 id="totalValue" class="mb-0">0 RON</h4>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card bg-danger text-white">
-                    <div class="card-body py-2">
-                        <h6 class="card-title small mb-1"><i class="bi bi-percent"></i> VAT Value</h6>
-                        <h4 id="vatValue" class="mb-0">0 RON</h4>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-2">
-                <div class="card summary-card bg-secondary text-white">
-                    <div class="card-body py-2">
-                        <h6 class="card-title small mb-1"><i class="bi bi-currency-exchange"></i> Gross Value</h6>
-                        <h4 id="grossValue" class="mb-0">0 RON</h4>
-                    </div>
+        <!-- Nav + Summary Stats (same line) -->
+        <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-2">
+            {% set active_page = 'dashboard' %}
+            {% set inline_nav = true %}
+            {% include 'partials/_accounting_nav.html' %}
+
+            <div class="summary-filter-bar d-flex align-items-center flex-wrap gap-3">
+                <span class="summary-stat" title="Total Invoices">
+                    <i class="bi bi-receipt text-primary"></i>
+                    <strong id="totalInvoicesCompact">0</strong> invoices
+                </span>
+                <span class="summary-stat" title="Companies">
+                    <i class="bi bi-building text-info"></i>
+                    <strong id="totalCompaniesCompact">0</strong> companies
+                </span>
+                <span class="summary-stat" title="Departments">
+                    <i class="bi bi-diagram-3 text-warning"></i>
+                    <strong id="totalDepartmentsCompact">0</strong> depts
+                </span>
+                <span class="summary-stat text-success" title="Net Value">
+                    <i class="bi bi-cash-stack"></i>
+                    <strong id="totalValueCompact">0</strong>
+                </span>
+                <span class="summary-stat text-danger" title="VAT Value">
+                    <i class="bi bi-percent"></i>
+                    <strong id="vatValueCompact">0</strong>
+                </span>
+                <span class="summary-stat" title="Gross Value">
+                    <i class="bi bi-currency-exchange text-secondary"></i>
+                    <strong id="grossValueCompact">0</strong>
+                </span>
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="currencyToggle" style="cursor: pointer;">
+                    <label class="form-check-label small" for="currencyToggle" id="currencyToggleLabel" style="cursor: pointer;">EUR</label>
                 </div>
             </div>
         </div>
 
-        <!-- Filters -->
-        <div class="filter-section">
-            <div class="row align-items-end g-1">
-                <div class="col">
-                    <label class="form-label small mb-0">Company</label>
-                    <select class="form-select form-select-sm" id="companyFilter">
-                        <option value="">All</option>
-                    </select>
-                </div>
-                <div class="col">
-                    <label class="form-label small mb-0">Department</label>
-                    <select class="form-select form-select-sm" id="departmentFilter" onchange="updateSubdepartmentFilter()">
-                        <option value="">All</option>
-                    </select>
-                </div>
-                <div class="col">
-                    <label class="form-label small mb-0">Subdept</label>
-                    <select class="form-select form-select-sm" id="subdepartmentFilter">
-                        <option value="">All</option>
-                    </select>
-                </div>
-                <div class="col">
-                    <label class="form-label small mb-0">Brand</label>
-                    <select class="form-select form-select-sm" id="brandFilter">
-                        <option value="">All</option>
-                    </select>
-                </div>
-                <div class="col-auto">
-                    <label class="form-label small mb-0">Status</label>
-                    <select class="form-select form-select-sm" id="statusFilter">
-                        <option value="">All</option>
-                        <!-- Populated dynamically from dropdown_options -->
-                    </select>
-                </div>
-                <div class="col-auto">
-                    <label class="form-label small mb-0">Payment</label>
-                    <select class="form-select form-select-sm" id="paymentFilter">
-                        <option value="">All</option>
-                        <!-- Populated dynamically from dropdown_options -->
-                    </select>
-                </div>
-                <div class="col">
-                    <label class="form-label small mb-0">Start</label>
-                    <input type="date" class="form-control form-control-sm" id="startDate">
-                </div>
-                <div class="col">
-                    <label class="form-label small mb-0">End</label>
-                    <input type="date" class="form-control form-control-sm" id="endDate">
-                </div>
-                <div class="col-auto">
-                    <label class="form-label small mb-0">Quick</label>
-                    <select class="form-select form-select-sm" id="quickFilter" onchange="setQuickFilter(this.value)">
-                        <option value="">--</option>
-                        <option value="today">Today</option>
-                        <option value="week">This Week</option>
-                        <option value="month">This Month</option>
-                        <option value="quarter">This Quarter</option>
-                        <option value="year">This Year</option>
-                    </select>
-                </div>
-                <div class="col-auto d-flex align-items-end">
-                    <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()" title="Clear All Filters" aria-label="Clear All Filters">
-                        <i class="bi bi-x-circle"></i> Clear All
-                    </button>
-                </div>
-            </div>
-            <div class="row mt-2">
-                <div class="col">
-                    <div class="input-group input-group-sm">
-                        <input type="text" class="form-control" id="searchInput" placeholder="Search by supplier or invoice #...">
-                        <button class="btn btn-primary" type="button" id="searchBtn" aria-label="Search">
-                            <i class="bi bi-search"></i>
-                        </button>
-                        <button class="btn btn-outline-secondary" type="button" id="clearSearchBtn" title="Clear search" aria-label="Clear search">
-                            <i class="bi bi-x-lg"></i>
+        <!-- Hidden elements for JS compatibility -->
+        <div class="d-none">
+            <span id="totalInvoices">0</span>
+            <span id="totalCompanies">0</span>
+            <span id="totalDepartments">0</span>
+            <span id="totalValue">0</span>
+            <span id="vatValue">0</span>
+            <span id="grossValue">0</span>
+        </div>
+        <style>
+            .summary-filter-bar { font-size: 0.85rem; }
+            .summary-stat { display: flex; align-items: center; gap: 4px; color: var(--bs-secondary-color); }
+            .summary-stat i { font-size: 1rem; }
+            .summary-stat strong { color: var(--bs-body-color); }
+        </style>
+
+        <!-- Collapsible Filters Panel -->
+        <div class="collapse" id="filtersCollapse">
+            <div class="filter-section mb-2">
+                <div class="row align-items-end g-1">
+                    <div class="col">
+                        <label class="form-label small mb-0">Company</label>
+                        <select class="form-select form-select-sm" id="companyFilter">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label class="form-label small mb-0">Department</label>
+                        <select class="form-select form-select-sm" id="departmentFilter" onchange="updateSubdepartmentFilter()">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label class="form-label small mb-0">Subdept</label>
+                        <select class="form-select form-select-sm" id="subdepartmentFilter">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label class="form-label small mb-0">Brand</label>
+                        <select class="form-select form-select-sm" id="brandFilter">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-0">Status</label>
+                        <select class="form-select form-select-sm" id="statusFilter">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-0">Payment</label>
+                        <select class="form-select form-select-sm" id="paymentFilter">
+                            <option value="">All</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label class="form-label small mb-0">Start</label>
+                        <input type="date" class="form-control form-control-sm" id="startDate">
+                    </div>
+                    <div class="col">
+                        <label class="form-label small mb-0">End</label>
+                        <input type="date" class="form-control form-control-sm" id="endDate">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-0">Quick</label>
+                        <select class="form-select form-select-sm" id="quickFilter" onchange="setQuickFilter(this.value)">
+                            <option value="">--</option>
+                            <option value="today">Today</option>
+                            <option value="week">This Week</option>
+                            <option value="month">This Month</option>
+                            <option value="quarter">This Quarter</option>
+                            <option value="year">This Year</option>
+                        </select>
+                    </div>
+                    <div class="col-auto d-flex align-items-end">
+                        <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()" title="Clear All">
+                            <i class="bi bi-x-circle"></i>
                         </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Tabs -->
-        <ul class="nav nav-tabs mb-3" id="mainTabs">
-            <li class="nav-item">
-                <a class="nav-link active" data-bs-toggle="tab" href="#invoicesTab">
-                    <i class="bi bi-receipt"></i> Invoices
+        <!-- Tabs with Action Buttons -->
+        <div class="d-flex justify-content-between align-items-center">
+            <ul class="nav nav-tabs mb-0" id="mainTabs">
+                <li class="nav-item">
+                    <a class="nav-link active" data-bs-toggle="tab" href="#invoicesTab">
+                        <i class="bi bi-receipt"></i> Invoices
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#companyTab">
+                        <i class="bi bi-building"></i> By Company
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#departmentTab">
+                        <i class="bi bi-diagram-3"></i> By Department
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#brandTab">
+                        <i class="bi bi-tag"></i> By Brand
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#supplierTab">
+                        <i class="bi bi-shop"></i> By Supplier
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-bs-toggle="tab" href="#binTab" onclick="loadBinData()">
+                        <i class="bi bi-trash3"></i> Bin <span id="binCount" class="bin-badge" style="display: none;">0</span>
+                    </a>
+                </li>
+            </ul>
+            <div class="d-flex gap-2">
+                <a href="/add-invoice" class="btn btn-primary btn-sm">
+                    <i class="bi bi-plus-circle"></i> New Invoice
                 </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#companyTab">
-                    <i class="bi bi-building"></i> By Company
+                <a href="/bulk" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-stack"></i> Bulk
                 </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#departmentTab">
-                    <i class="bi bi-diagram-3"></i> By Department
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#brandTab">
-                    <i class="bi bi-tag"></i> By Brand
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#supplierTab">
-                    <i class="bi bi-shop"></i> By Supplier
-                </a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" data-bs-toggle="tab" href="#binTab" onclick="loadBinData()">
-                    <i class="bi bi-trash3"></i> Bin <span id="binCount" class="bin-badge" style="display: none;">0</span>
-                </a>
-            </li>
-        </ul>
+            </div>
+        </div>
 
         <div class="tab-content">
             <!-- Invoices Tab -->
             <div class="tab-pane fade show active" id="invoicesTab">
                 <div class="card">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-table"></i> Invoice Data <span id="invoiceResultCount" class="badge bg-secondary ms-2"></span></span>
-                        <div class="d-flex gap-2 align-items-center">
-                            <select class="form-select form-select-sm" id="sortOrder" onchange="applySorting()" style="width: auto;">
-                                <option value="newest">Date: Newest</option>
-                                <option value="oldest">Date: Oldest</option>
-                                <option value="value_highest">Value: Highest</option>
-                                <option value="value_lowest">Value: Lowest</option>
-                            </select>
-                            <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#columnConfigModal">
-                                <i class="bi bi-gear"></i> Columns
-                            </button>
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span><i class="bi bi-table"></i> Invoice Data <span id="invoiceResultCount" class="badge bg-secondary ms-2"></span></span>
+                            <div class="d-flex gap-2 align-items-center">
+                                <!-- Search -->
+                                <div class="input-group input-group-sm" style="width: 250px;">
+                                    <input type="text" class="form-control" id="searchInput" placeholder="Search supplier or invoice #..." oninput="updateSearchIcon()">
+                                    <button class="btn btn-outline-secondary" type="button" id="searchBtn" onclick="handleSearchClick()" title="Search">
+                                        <i class="bi bi-search" id="searchIcon"></i>
+                                    </button>
+                                </div>
+                                <!-- Filters Toggle -->
+                                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" id="filtersToggleBtn">
+                                    <i class="bi bi-funnel"></i> Filters <span id="activeFiltersCount" class="badge bg-primary ms-1 d-none">0</span>
+                                </button>
+                                <!-- Sort -->
+                                <select class="form-select form-select-sm" id="sortOrder" onchange="applySorting()" style="width: auto;">
+                                    <option value="newest">Date: Newest</option>
+                                    <option value="oldest">Date: Oldest</option>
+                                    <option value="value_highest">Value: Highest</option>
+                                    <option value="value_lowest">Value: Lowest</option>
+                                </select>
+                                <!-- Columns -->
+                                <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#columnConfigModal">
+                                    <i class="bi bi-gear"></i> Columns
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div class="card-body">
@@ -1106,7 +1054,7 @@
             // Get current option's color for styling
             const currentOpt = paymentStatusOptions.find(o => o.value === currentPaymentStatus);
             const bgColor = currentOpt?.color ? `var(--payment-color-${currentPaymentStatus}, ${currentOpt.color})` : '';
-            const style = bgColor ? `background-color: ${bgColor}; color: #fff; font-weight: 500;` : '';
+            const style = bgColor ? `background-color: ${bgColor}; color: #fff;` : '';
             let html = `<select class="form-select form-select-sm payment-status-dropdown"
                         data-invoice-id="${invoiceId}"
                         data-payment-status="${currentPaymentStatus}"
@@ -1138,7 +1086,7 @@
             // Get current option's color for styling
             const currentOpt = paymentStatusOptions.find(o => o.value === currentPaymentStatus);
             const bgColor = currentOpt?.color ? `var(--payment-color-${currentPaymentStatus}, ${currentOpt.color})` : '';
-            const style = bgColor ? `background-color: ${bgColor}; color: #fff; font-weight: 500;` : '';
+            const style = bgColor ? `background-color: ${bgColor}; color: #fff;` : '';
             let html = `<select class="form-select form-select-sm payment-status-dropdown" id="modalPaymentStatusDropdown"
                         data-payment-status="${currentPaymentStatus}"
                         onchange="updatePaymentStatus(${invoiceId}, this.value)"
@@ -1265,59 +1213,7 @@
             }
         });
 
-        // Online users tracking
-        let onlineUsersInterval = null;
-
-        async function initOnlineUsersTracking() {
-            // Send initial heartbeat and wait for it to complete
-            await sendHeartbeat();
-            // Update online users count immediately after heartbeat
-            await updateOnlineUsersCount();
-
-            // Send heartbeat every 60 seconds
-            setInterval(sendHeartbeat, 60000);
-            // Update online users count every 30 seconds
-            onlineUsersInterval = setInterval(updateOnlineUsersCount, 30000);
-        }
-
-        async function sendHeartbeat() {
-            try {
-                await fetch('/api/heartbeat', { method: 'POST' });
-            } catch (e) {
-                console.error('Heartbeat failed:', e);
-            }
-        }
-
-        let onlineUsersTooltip = null;
-
-        async function updateOnlineUsersCount() {
-            try {
-                const res = await fetch('/api/online-users');
-                const data = await res.json();
-                const countEl = document.getElementById('onlineUsersCount');
-                const indicatorEl = document.getElementById('onlineUsersIndicator');
-                if (countEl) {
-                    countEl.textContent = data.count;
-                    // Update Bootstrap tooltip with user names
-                    if (indicatorEl && data.users) {
-                        // Initialize tooltip if not already done
-                        if (!onlineUsersTooltip) {
-                            onlineUsersTooltip = new bootstrap.Tooltip(indicatorEl);
-                        }
-                        // Build tooltip content with user names on separate lines
-                        let tooltipContent = '<strong>Online Users:</strong>';
-                        if (data.users.length > 0) {
-                            tooltipContent += '<br>' + data.users.map(u => u.name).join('<br>');
-                        } else {
-                            tooltipContent += '<br><em>No users online</em>';
-                        }
-                        indicatorEl.setAttribute('data-bs-original-title', tooltipContent);
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to get online users:', e);
-            }
-        }
+        // Online users tracking - provided by /static/js/online-users.js
 
         function initCurrencyToggles() {
             // Set the radio button state from localStorage for all tabs
@@ -1796,17 +1692,45 @@
             bootstrap.Tab.getOrCreateInstance(tabEl).show();
         }
 
+        // Search icon toggle functions
+        function updateSearchIcon() {
+            const input = document.getElementById('searchInput');
+            const icon = document.getElementById('searchIcon');
+            const btn = document.getElementById('searchBtn');
+            if (input.value.trim()) {
+                icon.className = 'bi bi-x-lg';
+                btn.title = 'Clear';
+            } else {
+                icon.className = 'bi bi-search';
+                btn.title = 'Search';
+            }
+        }
+
+        function handleSearchClick() {
+            const input = document.getElementById('searchInput');
+            if (input.value.trim()) {
+                input.value = '';
+                updateSearchIcon();
+                handleSearch();
+            } else {
+                input.focus();
+            }
+        }
+
         function setupEventListeners() {
-            // Search button click
-            document.getElementById('searchBtn').addEventListener('click', handleSearch);
-            // Enter key in search input
-            document.getElementById('searchInput').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') handleSearch();
+            // Search input - instant search on typing
+            const searchInput = document.getElementById('searchInput');
+            let searchTimeout;
+            searchInput.addEventListener('input', () => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(handleSearch, 300); // Debounce 300ms
             });
-            // Clear search button
-            document.getElementById('clearSearchBtn').addEventListener('click', () => {
-                document.getElementById('searchInput').value = '';
-                renderInvoicesTable(allInvoices);
+            // Enter key in search input
+            searchInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    clearTimeout(searchTimeout);
+                    handleSearch();
+                }
             });
             document.getElementById('deleteInvoiceBtn').addEventListener('click', handleDelete);
             document.getElementById('editInvoiceBtn').addEventListener('click', openEditModal);
@@ -1940,9 +1864,31 @@
             });
         }
 
+        // Update active filters count badge
+        function updateActiveFiltersCount() {
+            let count = 0;
+            if (document.getElementById('companyFilter').value) count++;
+            if (document.getElementById('departmentFilter').value) count++;
+            if (document.getElementById('subdepartmentFilter').value) count++;
+            if (document.getElementById('brandFilter').value) count++;
+            if (document.getElementById('statusFilter').value) count++;
+            if (document.getElementById('paymentFilter').value) count++;
+            if (document.getElementById('startDate').value) count++;
+            if (document.getElementById('endDate').value) count++;
+
+            const badge = document.getElementById('activeFiltersCount');
+            if (count > 0) {
+                badge.textContent = count;
+                badge.classList.remove('d-none');
+            } else {
+                badge.classList.add('d-none');
+            }
+        }
+
         // Apply filters without reloading filter dropdowns (to avoid infinite loop)
         async function applyFiltersOnly() {
             showLoading('Applying filters...');
+            updateActiveFiltersCount();
             try {
                 await Promise.all([
                     loadInvoices(),
@@ -4141,23 +4087,22 @@
         // ============== SUMMARY CARDS TOGGLE ==============
         function toggleSummaryCards() {
             const cards = document.getElementById('summaryCards');
-            const collapsed = document.getElementById('summaryCollapsed');
-            const icon = document.getElementById('toggleSummaryIcon');
-            const text = document.getElementById('toggleSummaryText');
+            const summaryBar = document.getElementById('summaryBar');
+            const btn = document.getElementById('toggleSummary');
 
             if (cards.classList.contains('d-none')) {
-                // Show cards
+                // Show expanded cards, hide compact bar stats
                 cards.classList.remove('d-none');
-                collapsed.classList.add('d-none');
-                icon.className = 'bi bi-chevron-up';
-                text.textContent = 'Hide Summary';
+                summaryBar.querySelector('.summary-stats').classList.add('d-none');
+                btn.innerHTML = '<i class="bi bi-chevron-up"></i>';
+                btn.title = 'Collapse summary';
                 localStorage.setItem('summaryCardsVisible', 'true');
             } else {
-                // Hide cards, show compact
+                // Hide cards, show compact bar
                 cards.classList.add('d-none');
-                collapsed.classList.remove('d-none');
-                icon.className = 'bi bi-chevron-down';
-                text.textContent = 'Show Summary';
+                summaryBar.querySelector('.summary-stats').classList.remove('d-none');
+                btn.innerHTML = '<i class="bi bi-bar-chart-fill"></i>';
+                btn.title = 'Expand summary';
                 localStorage.setItem('summaryCardsVisible', 'false');
             }
         }
@@ -4171,16 +4116,20 @@
         }
 
         function updateCompactSummary() {
-            // Update compact badges with same values
+            // Update compact bar with same values
             const invoices = document.getElementById('totalInvoices').textContent;
             const value = document.getElementById('totalValue').textContent;
             const companies = document.getElementById('totalCompanies').textContent;
             const depts = document.getElementById('totalDepartments').textContent;
+            const vat = document.getElementById('vatValue').textContent;
+            const gross = document.getElementById('grossValue').textContent;
 
             document.getElementById('totalInvoicesCompact').textContent = invoices;
             document.getElementById('totalValueCompact').textContent = value;
             document.getElementById('totalCompaniesCompact').textContent = companies;
             document.getElementById('totalDepartmentsCompact').textContent = depts;
+            document.getElementById('vatValueCompact').textContent = vat;
+            document.getElementById('grossValueCompact').textContent = gross;
         }
 
         function updateSummaryCards() {
@@ -4939,137 +4888,9 @@
         </div>
     </div>
 
-    <!-- Edit Profile Modal -->
-    <div class="modal fade" id="editProfileModal" tabindex="-1" aria-labelledby="editProfileModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="editProfileModalLabel"><i class="bi bi-person"></i> Edit Profile</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <!-- Profile Info Section -->
-                    <form id="editProfileForm">
-                        <div class="mb-3">
-                            <label for="profileName" class="form-label">Name</label>
-                            <input type="text" class="form-control" id="profileName" value="{{ current_user.name }}" required minlength="2">
-                        </div>
-                        <div class="mb-3">
-                            <label for="profileEmail" class="form-label">Email</label>
-                            <input type="email" class="form-control" id="profileEmail" value="{{ current_user.email }}" disabled>
-                            <small class="text-muted">Contact an administrator to change your email</small>
-                        </div>
-                        <div class="mb-3">
-                            <label for="profilePhone" class="form-label">Phone</label>
-                            <input type="tel" class="form-control" id="profilePhone" value="{{ current_user.phone or '' }}" placeholder="Optional">
-                        </div>
-                    </form>
-                    <div class="d-flex justify-content-end mb-3">
-                        <button type="button" class="btn btn-primary" onclick="updateProfile()">Save Profile</button>
-                    </div>
-
-                    <!-- Change Password Section -->
-                    <hr>
-                    <h6 class="mb-3"><i class="bi bi-key"></i> Change Password</h6>
-                    <form id="changePasswordForm">
-                        <div class="mb-3">
-                            <label for="currentPassword" class="form-label">Current Password</label>
-                            <input type="password" class="form-control" id="currentPassword">
-                        </div>
-                        <div class="mb-3">
-                            <label for="newPassword" class="form-label">New Password</label>
-                            <input type="password" class="form-control" id="newPassword" minlength="6">
-                        </div>
-                        <div class="mb-3">
-                            <label for="confirmPassword" class="form-label">Confirm New Password</label>
-                            <input type="password" class="form-control" id="confirmPassword" minlength="6">
-                        </div>
-                    </form>
-                    <div class="d-flex justify-content-end">
-                        <button type="button" class="btn btn-warning" onclick="changePassword()">Change Password</button>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        // Edit Profile
-        async function updateProfile() {
-            const name = document.getElementById('profileName').value.trim();
-            const phone = document.getElementById('profilePhone').value.trim();
-
-            if (!name || name.length < 2) {
-                alert('Name must be at least 2 characters');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/auth/update-profile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, phone })
-                });
-                const result = await response.json();
-                if (result.success) {
-                    alert('Profile updated successfully');
-                    const userDropdownBtn = document.getElementById('userDropdown');
-                    if (userDropdownBtn) {
-                        userDropdownBtn.innerHTML = '<i class="bi bi-person-circle"></i> ' + result.name;
-                    }
-                } else {
-                    alert('Error: ' + result.error);
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        // Change Password
-        async function changePassword() {
-            const currentPassword = document.getElementById('currentPassword').value;
-            const newPassword = document.getElementById('newPassword').value;
-            const confirmPassword = document.getElementById('confirmPassword').value;
-
-            if (!currentPassword || !newPassword || !confirmPassword) {
-                alert('Please fill in all password fields');
-                return;
-            }
-
-            if (newPassword !== confirmPassword) {
-                alert('New passwords do not match');
-                return;
-            }
-
-            if (newPassword.length < 6) {
-                alert('Password must be at least 6 characters');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/auth/change-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        current_password: currentPassword,
-                        new_password: newPassword
-                    })
-                });
-                const result = await response.json();
-                if (result.success) {
-                    alert('Password changed successfully');
-                    document.getElementById('changePasswordForm').reset();
-                } else {
-                    alert('Error: ' + result.error);
-                }
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-    </script>
+    <script src="/static/js/jarvis-utils.js"></script>
+    <script src="/static/js/online-users.js"></script>
+    {% include 'partials/_edit_profile_modal.html' %}
     <script src="/static/js/theme.js"></script>
 </body>
 </html>

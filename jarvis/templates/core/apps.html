@@ -193,53 +193,9 @@
         // Start preloading when page loads
         document.addEventListener('DOMContentLoaded', preloadAccounting);
 
-        // Online users tracking
-        let onlineUsersInterval = null;
-        let onlineUsersTooltip = null;
-
-        async function initOnlineUsersTracking() {
-            await sendHeartbeat();
-            await updateOnlineUsersCount();
-            setInterval(sendHeartbeat, 60000);
-            onlineUsersInterval = setInterval(updateOnlineUsersCount, 30000);
-        }
-
-        async function sendHeartbeat() {
-            try {
-                await fetch('/api/heartbeat', { method: 'POST' });
-            } catch (e) {
-                console.error('Heartbeat failed:', e);
-            }
-        }
-
-        async function updateOnlineUsersCount() {
-            try {
-                const res = await fetch('/api/online-users');
-                const data = await res.json();
-                const countEl = document.getElementById('onlineUsersCount');
-                const indicatorEl = document.getElementById('onlineUsersIndicator');
-                if (countEl) {
-                    countEl.textContent = data.count;
-                    if (indicatorEl && data.users) {
-                        if (!onlineUsersTooltip) {
-                            onlineUsersTooltip = new bootstrap.Tooltip(indicatorEl);
-                        }
-                        let tooltipContent = '<strong>Online Users:</strong>';
-                        if (data.users.length > 0) {
-                            tooltipContent += '<br>' + data.users.map(u => u.name).join('<br>');
-                        } else {
-                            tooltipContent += '<br><em>No users online</em>';
-                        }
-                        indicatorEl.setAttribute('data-bs-original-title', tooltipContent);
-                    }
-                }
-            } catch (e) {
-                console.error('Failed to get online users:', e);
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', initOnlineUsersTracking);
     </script>
+    <script src="/static/js/jarvis-utils.js"></script>
+    <script src="/static/js/online-users.js"></script>
     <script src="/static/js/theme.js"></script>
 </body>
 </html>

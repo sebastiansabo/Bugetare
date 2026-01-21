@@ -201,7 +201,8 @@ def add_event():
     return render_template('add_event.html',
                            companies=companies,
                            employees=employees,
-                           bonus_types=bonus_types)
+                           bonus_types=bonus_types,
+                           is_hr_manager=current_user.is_hr_manager)
 
 
 @events_bp.route('/bonuses/new')
@@ -219,7 +220,8 @@ def add_bonus():
                            bonus_types=bonus_types,
                            months=MONTH_NAMES,
                            current_year=datetime.now().year,
-                           current_month=datetime.now().month)
+                           current_month=datetime.now().month,
+                           is_hr_manager=current_user.is_hr_manager)
 
 
 @events_bp.route('/api/events', methods=['GET'])

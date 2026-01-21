@@ -1216,6 +1216,62 @@ def init_db():
             }
         }),))
 
+    # Module menu items table - configurable navigation menu
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS module_menu_items (
+            id SERIAL PRIMARY KEY,
+            parent_id INTEGER REFERENCES module_menu_items(id) ON DELETE CASCADE,
+            module_key TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            icon TEXT DEFAULT 'bi-grid',
+            url TEXT,
+            color TEXT DEFAULT '#6c757d',
+            status TEXT DEFAULT 'active' CHECK (status IN ('active', 'coming_soon', 'hidden')),
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Insert default module menu items if table is empty
+    cursor.execute('SELECT COUNT(*) as cnt FROM module_menu_items')
+    if cursor.fetchone()['cnt'] == 0:
+        # Insert parent modules first
+        cursor.execute('''
+            INSERT INTO module_menu_items (module_key, name, description, icon, url, color, status, sort_order)
+            VALUES
+                ('accounting', 'Accounting', 'Invoices, Budgets, Statements', 'bi-calculator', '/accounting', '#0d6efd', 'active', 1),
+                ('hr', 'HR', 'Events, Bonuses, Employees', 'bi-people', '/hr/events/', '#9c27b0', 'active', 2),
+                ('sales', 'Sales', 'Orders, Customers, Reports', 'bi-cart3', '#', '#dc3545', 'coming_soon', 3),
+                ('aftersales', 'After Sales', 'Service, Warranty, Support', 'bi-tools', '#', '#198754', 'coming_soon', 4),
+                ('settings', 'Settings', 'System Configuration', 'bi-gear', '/settings', '#6c757d', 'active', 5)
+            RETURNING id, module_key
+        ''')
+        parent_rows = cursor.fetchall()
+        parent_ids = {row['module_key']: row['id'] for row in parent_rows}
+
+        # Insert submenu items for Accounting
+        if 'accounting' in parent_ids:
+            cursor.execute('''
+                INSERT INTO module_menu_items (parent_id, module_key, name, description, icon, url, color, status, sort_order)
+                VALUES
+                    (%s, 'accounting_dashboard', 'Dashboard', 'View invoices', 'bi-grid-1x2', '/accounting', '#0d6efd', 'active', 1),
+                    (%s, 'accounting_add', 'Add Invoice', 'Create new invoice', 'bi-plus-circle', '/add-invoice', '#0d6efd', 'active', 2),
+                    (%s, 'accounting_templates', 'Templates', 'Manage parsing templates', 'bi-file-earmark-code', '/templates', '#0d6efd', 'active', 3),
+                    (%s, 'accounting_statements', 'Bank Statements', 'Parse statements', 'bi-bank', '/statements/', '#0d6efd', 'active', 4)
+            ''', (parent_ids['accounting'], parent_ids['accounting'], parent_ids['accounting'], parent_ids['accounting']))
+
+        # Insert submenu items for HR
+        if 'hr' in parent_ids:
+            cursor.execute('''
+                INSERT INTO module_menu_items (parent_id, module_key, name, description, icon, url, color, status, sort_order)
+                VALUES
+                    (%s, 'hr_events', 'Event Bonuses', 'Manage bonuses', 'bi-gift', '/hr/events/', '#9c27b0', 'active', 1),
+                    (%s, 'hr_manage_events', 'Manage Events', 'Create/edit events', 'bi-calendar-event', '/hr/events/events', '#9c27b0', 'active', 2),
+                    (%s, 'hr_employees', 'Employees', 'Employee list', 'bi-person-lines-fill', '/hr/events/employees', '#9c27b0', 'active', 3)
+            ''', (parent_ids['hr'], parent_ids['hr'], parent_ids['hr']))
+
     # Create indexes for invoice queries (most frequently accessed)
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_date ON invoices(invoice_date)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_date_desc ON invoices(invoice_date DESC)')
@@ -4339,6 +4395,261 @@ def activate_theme(theme_id: int) -> bool:
 
     conn.commit()
     release_db(conn)
+    return True
+
+
+# ============== Module Menu CRUD ==============
+
+# In-memory cache for module menu items
+_module_menu_cache = {
+    'data': None,
+    'timestamp': 0,
+    'ttl': 300  # 5 minutes TTL
+}
+
+
+def clear_module_menu_cache():
+    """Clear the module menu cache. Call this after menu updates."""
+    global _module_menu_cache
+    with _cache_lock:
+        _module_menu_cache = {'data': None, 'timestamp': 0, 'ttl': 300}
+    logger.debug('Module menu cache cleared')
+
+
+def get_module_menu_items(include_hidden: bool = False) -> list:
+    """Get all module menu items organized hierarchically.
+
+    Returns a list of parent modules with their children nested.
+    """
+    global _module_menu_cache
+
+    # Check cache first (only for non-admin requests)
+    if not include_hidden:
+        with _cache_lock:
+            if _module_menu_cache['data'] is not None and \
+               (time.time() - _module_menu_cache['timestamp']) < _module_menu_cache['ttl']:
+                return _module_menu_cache['data']
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Build status filter
+    if include_hidden:
+        status_filter = ""
+    else:
+        status_filter = "WHERE status != 'hidden'"
+
+    cursor.execute(f'''
+        SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order
+        FROM module_menu_items
+        {status_filter}
+        ORDER BY sort_order, name
+    ''')
+
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    # Build hierarchical structure
+    items_by_id = {}
+    parent_items = []
+
+    for row in rows:
+        item = {
+            'id': row['id'],
+            'parent_id': row['parent_id'],
+            'module_key': row['module_key'],
+            'name': row['name'],
+            'description': row['description'],
+            'icon': row['icon'],
+            'url': row['url'],
+            'color': row['color'],
+            'status': row['status'],
+            'sort_order': row['sort_order'],
+            'children': []
+        }
+        items_by_id[row['id']] = item
+
+        if row['parent_id'] is None:
+            parent_items.append(item)
+
+    # Attach children to parents
+    for row in rows:
+        if row['parent_id'] is not None and row['parent_id'] in items_by_id:
+            items_by_id[row['parent_id']]['children'].append(items_by_id[row['id']])
+
+    # Sort children by sort_order
+    for item in parent_items:
+        item['children'].sort(key=lambda x: (x['sort_order'], x['name']))
+
+    # Cache the result (only for non-admin requests)
+    if not include_hidden:
+        with _cache_lock:
+            _module_menu_cache['data'] = parent_items
+            _module_menu_cache['timestamp'] = time.time()
+
+    return parent_items
+
+
+def get_all_module_menu_items_flat() -> list:
+    """Get all module menu items as a flat list (for admin UI)."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order,
+               created_at, updated_at
+        FROM module_menu_items
+        ORDER BY parent_id NULLS FIRST, sort_order, name
+    ''')
+
+    items = []
+    for row in cursor.fetchall():
+        items.append({
+            'id': row['id'],
+            'parent_id': row['parent_id'],
+            'module_key': row['module_key'],
+            'name': row['name'],
+            'description': row['description'],
+            'icon': row['icon'],
+            'url': row['url'],
+            'color': row['color'],
+            'status': row['status'],
+            'sort_order': row['sort_order'],
+            'created_at': row['created_at'].isoformat() if row['created_at'] else None,
+            'updated_at': row['updated_at'].isoformat() if row['updated_at'] else None
+        })
+
+    release_db(conn)
+    return items
+
+
+def get_module_menu_item_by_id(item_id: int) -> dict:
+    """Get a single module menu item by ID."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order,
+               created_at, updated_at
+        FROM module_menu_items
+        WHERE id = %s
+    ''', (item_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row:
+        return {
+            'id': row['id'],
+            'parent_id': row['parent_id'],
+            'module_key': row['module_key'],
+            'name': row['name'],
+            'description': row['description'],
+            'icon': row['icon'],
+            'url': row['url'],
+            'color': row['color'],
+            'status': row['status'],
+            'sort_order': row['sort_order'],
+            'created_at': row['created_at'].isoformat() if row['created_at'] else None,
+            'updated_at': row['updated_at'].isoformat() if row['updated_at'] else None
+        }
+    return None
+
+
+def save_module_menu_item(item_id: int, data: dict) -> dict:
+    """Create or update a module menu item."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    if item_id:
+        # Update existing item
+        cursor.execute('''
+            UPDATE module_menu_items
+            SET parent_id = %s, module_key = %s, name = %s, description = %s,
+                icon = %s, url = %s, color = %s, status = %s, sort_order = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+            RETURNING id
+        ''', (
+            data.get('parent_id'),
+            data.get('module_key'),
+            data.get('name'),
+            data.get('description'),
+            data.get('icon', 'bi-grid'),
+            data.get('url'),
+            data.get('color', '#6c757d'),
+            data.get('status', 'active'),
+            data.get('sort_order', 0),
+            item_id
+        ))
+    else:
+        # Create new item
+        cursor.execute('''
+            INSERT INTO module_menu_items (parent_id, module_key, name, description, icon, url, color, status, sort_order)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        ''', (
+            data.get('parent_id'),
+            data.get('module_key'),
+            data.get('name'),
+            data.get('description'),
+            data.get('icon', 'bi-grid'),
+            data.get('url'),
+            data.get('color', '#6c757d'),
+            data.get('status', 'active'),
+            data.get('sort_order', 0)
+        ))
+
+    result = cursor.fetchone()
+    conn.commit()
+    release_db(conn)
+
+    # Clear cache
+    clear_module_menu_cache()
+
+    return get_module_menu_item_by_id(result['id']) if result else None
+
+
+def delete_module_menu_item(item_id: int) -> bool:
+    """Delete a module menu item and all its children (cascades)."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('DELETE FROM module_menu_items WHERE id = %s', (item_id,))
+    deleted = cursor.rowcount > 0
+
+    conn.commit()
+    release_db(conn)
+
+    # Clear cache
+    if deleted:
+        clear_module_menu_cache()
+
+    return deleted
+
+
+def update_module_menu_order(items: list) -> bool:
+    """Update the sort order of multiple menu items at once.
+
+    Args:
+        items: List of dicts with 'id' and 'sort_order' keys
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    for item in items:
+        cursor.execute('''
+            UPDATE module_menu_items
+            SET sort_order = %s, updated_at = CURRENT_TIMESTAMP
+            WHERE id = %s
+        ''', (item['sort_order'], item['id']))
+
+    conn.commit()
+    release_db(conn)
+
+    # Clear cache
+    clear_module_menu_cache()
+
     return True
 
 
