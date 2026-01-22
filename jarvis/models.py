@@ -96,35 +96,36 @@ def load_structure() -> list[DepartmentUnit]:
         return _structure_cache['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    cursor.execute('''
-        SELECT id, company_id, company, brand, department, subdepartment, manager, marketing
-        FROM department_structure
-        ORDER BY company, brand, department, subdepartment
-    ''')
+        cursor.execute('''
+            SELECT id, company_id, company, brand, department, subdepartment, manager, marketing
+            FROM department_structure
+            ORDER BY company, brand, department, subdepartment
+        ''')
 
-    units = []
-    for row in cursor.fetchall():
-        unit = DepartmentUnit(
-            id=row['id'],
-            company_id=row['company_id'],
-            company=row['company'] or '',
-            brand=row['brand'],
-            department=row['department'] or '',
-            subdepartment=row['subdepartment'],
-            manager=row['manager'] or '',
-            marketing=row['marketing'] or ''
-        )
-        units.append(unit)
+        units = []
+        for row in cursor.fetchall():
+            unit = DepartmentUnit(
+                id=row['id'],
+                company_id=row['company_id'],
+                company=row['company'] or '',
+                brand=row['brand'],
+                department=row['department'] or '',
+                subdepartment=row['subdepartment'],
+                manager=row['manager'] or '',
+                marketing=row['marketing'] or ''
+            )
+            units.append(unit)
 
-    release_db(conn)
+        # Cache the result
+        _structure_cache['data'] = units
+        _structure_cache['timestamp'] = time.time()
 
-    # Cache the result
-    _structure_cache['data'] = units
-    _structure_cache['timestamp'] = time.time()
-
-    return units
+        return units
+    finally:
+        release_db(conn)
 
 
 def get_companies() -> list[str]:
@@ -136,22 +137,24 @@ def get_companies() -> list[str]:
         return _companies_cache['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    cursor.execute('''
-        SELECT DISTINCT company FROM department_structure
-        WHERE company IS NOT NULL AND company != ''
-        ORDER BY company
-    ''')
+        cursor.execute('''
+            SELECT DISTINCT company FROM department_structure
+            WHERE company IS NOT NULL AND company != ''
+            ORDER BY company
+        ''')
 
-    companies = [row['company'] for row in cursor.fetchall()]
-    release_db(conn)
+        companies = [row['company'] for row in cursor.fetchall()]
 
-    # Cache the result
-    _companies_cache['data'] = companies
-    _companies_cache['timestamp'] = time.time()
+        # Cache the result
+        _companies_cache['data'] = companies
+        _companies_cache['timestamp'] = time.time()
 
-    return companies
+        return companies
+    finally:
+        release_db(conn)
 
 
 def get_brands_for_company(company: str) -> list[str]:
@@ -166,24 +169,26 @@ def get_brands_for_company(company: str) -> list[str]:
             return entry['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
-    ph = get_placeholder()
+    try:
+        cursor = get_cursor(conn)
+        ph = get_placeholder()
 
-    cursor.execute(f'''
-        SELECT cb.brand
-        FROM company_brands cb
-        JOIN companies c ON cb.company_id = c.id
-        WHERE c.company = {ph} AND cb.is_active = TRUE
-        ORDER BY cb.brand
-    ''', (company,))
+        cursor.execute(f'''
+            SELECT cb.brand
+            FROM company_brands cb
+            JOIN companies c ON cb.company_id = c.id
+            WHERE c.company = {ph} AND cb.is_active = TRUE
+            ORDER BY cb.brand
+        ''', (company,))
 
-    brands = [row['brand'] for row in cursor.fetchall()]
-    release_db(conn)
+        brands = [row['brand'] for row in cursor.fetchall()]
 
-    # Cache the result
-    _brands_cache[cache_key] = {'data': brands, 'timestamp': time.time(), 'ttl': 300}
+        # Cache the result
+        _brands_cache[cache_key] = {'data': brands, 'timestamp': time.time(), 'ttl': 300}
 
-    return brands
+        return brands
+    finally:
+        release_db(conn)
 
 
 def get_departments_for_company(company: str) -> list[str]:
@@ -198,22 +203,24 @@ def get_departments_for_company(company: str) -> list[str]:
             return entry['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
-    ph = get_placeholder()
+    try:
+        cursor = get_cursor(conn)
+        ph = get_placeholder()
 
-    cursor.execute(f'''
-        SELECT DISTINCT department FROM department_structure
-        WHERE company = {ph} AND department IS NOT NULL AND department != ''
-        ORDER BY department
-    ''', (company,))
+        cursor.execute(f'''
+            SELECT DISTINCT department FROM department_structure
+            WHERE company = {ph} AND department IS NOT NULL AND department != ''
+            ORDER BY department
+        ''', (company,))
 
-    departments = [row['department'] for row in cursor.fetchall()]
-    release_db(conn)
+        departments = [row['department'] for row in cursor.fetchall()]
 
-    # Cache the result
-    _departments_cache[cache_key] = {'data': departments, 'timestamp': time.time(), 'ttl': 300}
+        # Cache the result
+        _departments_cache[cache_key] = {'data': departments, 'timestamp': time.time(), 'ttl': 300}
 
-    return departments
+        return departments
+    finally:
+        release_db(conn)
 
 
 def get_subdepartments(company: str, department: str) -> list[str]:
@@ -228,22 +235,24 @@ def get_subdepartments(company: str, department: str) -> list[str]:
             return entry['data']
 
     conn = get_db()
-    cursor = get_cursor(conn)
-    ph = get_placeholder()
+    try:
+        cursor = get_cursor(conn)
+        ph = get_placeholder()
 
-    cursor.execute(f'''
-        SELECT DISTINCT subdepartment FROM department_structure
-        WHERE company = {ph} AND department = {ph} AND subdepartment IS NOT NULL AND subdepartment != ''
-        ORDER BY subdepartment
-    ''', (company, department))
+        cursor.execute(f'''
+            SELECT DISTINCT subdepartment FROM department_structure
+            WHERE company = {ph} AND department = {ph} AND subdepartment IS NOT NULL AND subdepartment != ''
+            ORDER BY subdepartment
+        ''', (company, department))
 
-    subdepts = [row['subdepartment'] for row in cursor.fetchall()]
-    release_db(conn)
+        subdepts = [row['subdepartment'] for row in cursor.fetchall()]
 
-    # Cache the result
-    _subdepartments_cache[cache_key] = {'data': subdepts, 'timestamp': time.time(), 'ttl': 300}
+        # Cache the result
+        _subdepartments_cache[cache_key] = {'data': subdepts, 'timestamp': time.time(), 'ttl': 300}
 
-    return subdepts
+        return subdepts
+    finally:
+        release_db(conn)
 
 
 def get_manager(company: str, department: str, subdepartment: Optional[str] = None, brand: Optional[str] = None) -> str:
@@ -252,35 +261,37 @@ def get_manager(company: str, department: str, subdepartment: Optional[str] = No
     Uses manager_ids array joined with responsables table to get manager names.
     """
     conn = get_db()
-    cursor = get_cursor(conn)
+    try:
+        cursor = get_cursor(conn)
 
-    # Build query with optional brand and subdepartment filters
-    conditions = ["ds.company = %s", "ds.department = %s"]
-    params = [company, department]
+        # Build query with optional brand and subdepartment filters
+        conditions = ["ds.company = %s", "ds.department = %s"]
+        params = [company, department]
 
-    if brand:
-        conditions.append("ds.brand = %s")
-        params.append(brand)
+        if brand:
+            conditions.append("ds.brand = %s")
+            params.append(brand)
 
-    if subdepartment:
-        conditions.append("ds.subdepartment = %s")
-        params.append(subdepartment)
+        if subdepartment:
+            conditions.append("ds.subdepartment = %s")
+            params.append(subdepartment)
 
-    # Query manager_ids and join with responsables to get names
-    query = f'''
-        SELECT COALESCE(
-            (SELECT string_agg(r.name, ', ')
-             FROM unnest(ds.manager_ids) AS mid
-             JOIN responsables r ON r.id = mid),
-            ds.manager,
-            ''
-        ) AS manager_name
-        FROM department_structure ds
-        WHERE {' AND '.join(conditions)}
-        LIMIT 1
-    '''
-    cursor.execute(query, tuple(params))
+        # Query manager_ids and join with responsables to get names
+        query = f'''
+            SELECT COALESCE(
+                (SELECT string_agg(r.name, ', ')
+                 FROM unnest(ds.manager_ids) AS mid
+                 JOIN responsables r ON r.id = mid),
+                ds.manager,
+                ''
+            ) AS manager_name
+            FROM department_structure ds
+            WHERE {' AND '.join(conditions)}
+            LIMIT 1
+        '''
+        cursor.execute(query, tuple(params))
 
-    row = cursor.fetchone()
-    release_db(conn)
-    return row['manager_name'] if row and row['manager_name'] else ''
+        row = cursor.fetchone()
+        return row['manager_name'] if row and row['manager_name'] else ''
+    finally:
+        release_db(conn)
