@@ -4090,6 +4090,9 @@
             const summaryBar = document.getElementById('summaryBar');
             const btn = document.getElementById('toggleSummary');
 
+            // Guard clause - elements may not exist in current layout
+            if (!cards || !summaryBar || !btn) return;
+
             if (cards.classList.contains('d-none')) {
                 // Show expanded cards, hide compact bar stats
                 cards.classList.remove('d-none');
