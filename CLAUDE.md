@@ -615,6 +615,35 @@ The `process_invoices()` function returns:
 
 See [CHANGELOG.md](CHANGELOG.md) for version history.
 
+## Settings Company Structure
+
+### Data Architecture
+The Settings → Company Structure page displays organizational data from existing operational tables (no separate master tables):
+
+| Tab | Data Source | Mode |
+|-----|-------------|------|
+| Companies | `companies` table | Full CRUD |
+| Brands | `company_brands` (DISTINCT brand) | Read-only |
+| Departments | `department_structure` (DISTINCT department) | Read-only |
+| Subdepartments | `department_structure` (DISTINCT subdepartment) | Read-only |
+| Structure Mapping | `department_structure` | Full CRUD |
+| Employees | `hr.employees` | Full CRUD |
+
+### API Endpoints
+| Endpoint | Source | Notes |
+|----------|--------|-------|
+| `/hr/events/api/master/brands` | `company_brands` | Returns `{id: name, name: name}` |
+| `/hr/events/api/master/departments` | `department_structure` | Returns `{id: name, name: name}` |
+| `/hr/events/api/master/subdepartments` | `department_structure` | Returns `{id: name, name: name}` |
+| `/hr/events/api/structure/departments-full` | `department_structure` | Direct query, no JOINs |
+| `/hr/events/api/structure/departments` | `department_structure` | POST/PUT accept text names |
+
+### Key Design Decision
+- No separate `brands`, `departments`, `subdepartments` master tables
+- Dropdown values populated from existing data (DISTINCT queries)
+- IDs are the text names themselves (for frontend compatibility)
+- Eliminates data duplication and sync issues
+
 ## Disabled Features
 
 Connector infrastructure (Google Ads, Anthropic invoice fetching) is disabled. Files `google_ads_connector.py` and `anthropic_connector.py` remain for future use.

@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-01-26
+### Settings Company Structure Refactor
+- Removed redundant master lookup tables (`brands`, `departments`, `subdepartments`)
+- Updated Settings → Company Structure tabs to query existing tables directly:
+  - Brands tab → queries `company_brands` table
+  - Departments tab → queries `department_structure` table
+  - Subdepartments tab → queries `department_structure` table
+  - Structure Mapping tab → queries `department_structure` directly (no JOINs)
+- Master table APIs now return text names as IDs (read-only)
+- POST/PUT endpoints accept text values directly instead of foreign key lookups
+- Eliminates data duplication between master tables and operational tables
+
 ## 2026-01-20
 ### Critical Fixes - Database Connection Management
 - Fixed `conn.close()` → `release_db(conn)` in `services.py` (3 functions: add_company_with_vat, update_company_vat, delete_company)
