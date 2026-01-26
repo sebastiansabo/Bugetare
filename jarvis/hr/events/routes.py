@@ -455,43 +455,45 @@ def api_get_companies_full():
     from database import get_db, get_cursor, release_db
 
     conn = get_db()
-    cur = get_cursor(conn)
+    try:
+        cur = get_cursor(conn)
 
-    # Get companies
-    cur.execute("""
-        SELECT id, company, vat, created_at
-        FROM companies
-        ORDER BY company
-    """)
-    companies = []
-    for r in cur.fetchall():
-        companies.append({
-            'id': r['id'],
-            'company': r['company'],
-            'vat': r['vat'],
-            'created_at': r['created_at'].isoformat() if r['created_at'] else None
-        })
+        # Get companies
+        cur.execute("""
+            SELECT id, company, vat, created_at
+            FROM companies
+            ORDER BY company
+        """)
+        companies = []
+        for r in cur.fetchall():
+            companies.append({
+                'id': r['id'],
+                'company': r['company'],
+                'vat': r['vat'],
+                'created_at': r['created_at'].isoformat() if r['created_at'] else None
+            })
 
-    # Get brands for all companies
-    cur.execute("""
-        SELECT company_id, brand FROM company_brands
-        WHERE is_active = TRUE ORDER BY brand
-    """)
-    brands_by_company = {}
-    for r in cur.fetchall():
-        cid = r['company_id']
-        if cid not in brands_by_company:
-            brands_by_company[cid] = []
-        brands_by_company[cid].append(r['brand'])
+        # Get brands for all companies
+        cur.execute("""
+            SELECT company_id, brand FROM company_brands
+            WHERE is_active = TRUE ORDER BY brand
+        """)
+        brands_by_company = {}
+        for r in cur.fetchall():
+            cid = r['company_id']
+            if cid not in brands_by_company:
+                brands_by_company[cid] = []
+            brands_by_company[cid].append(r['brand'])
 
-    # Add brands to companies
-    for company in companies:
-        brand_list = brands_by_company.get(company['id'], [])
-        company['brands'] = ', '.join(brand_list)
-        company['brands_list'] = [{'brand': b} for b in brand_list]
+        # Add brands to companies
+        for company in companies:
+            brand_list = brands_by_company.get(company['id'], [])
+            company['brands'] = ', '.join(brand_list)
+            company['brands_list'] = [{'brand': b} for b in brand_list]
 
-    release_db(conn)
-    return jsonify(companies)
+        return jsonify(companies)
+    finally:
+        release_db(conn)
 
 
 @events_bp.route('/api/structure/companies', methods=['POST'])
@@ -500,21 +502,26 @@ def api_get_companies_full():
 def api_create_company():
     """API: Create a new company."""
     from database import get_db, get_cursor, release_db
+    from models import clear_structure_cache
 
     data = request.get_json()
     conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("""
-        INSERT INTO companies (company, vat)
-        VALUES (%s, %s)
-        RETURNING id
-    """, (data['company'], data.get('vat')))
-    company_id = cur.fetchone()['id']
-    conn.commit()
-    release_db(conn)
-
-    return jsonify({'success': True, 'id': company_id})
+    try:
+        cur = get_cursor(conn)
+        cur.execute("""
+            INSERT INTO companies (company, vat)
+            VALUES (%s, %s)
+            RETURNING id
+        """, (data['company'], data.get('vat')))
+        company_id = cur.fetchone()['id']
+        conn.commit()
+        clear_structure_cache()
+        return jsonify({'success': True, 'id': company_id})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
+    finally:
+        release_db(conn)
 
 
 @events_bp.route('/api/structure/companies/<int:company_id>', methods=['PUT'])
@@ -523,20 +530,25 @@ def api_create_company():
 def api_update_company(company_id):
     """API: Update a company."""
     from database import get_db, get_cursor, release_db
+    from models import clear_structure_cache
 
     data = request.get_json()
     conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("""
-        UPDATE companies
-        SET company = %s, vat = %s
-        WHERE id = %s
-    """, (data['company'], data.get('vat'), company_id))
-    conn.commit()
-    release_db(conn)
-
-    return jsonify({'success': True})
+    try:
+        cur = get_cursor(conn)
+        cur.execute("""
+            UPDATE companies
+            SET company = %s, vat = %s
+            WHERE id = %s
+        """, (data['company'], data.get('vat'), company_id))
+        conn.commit()
+        clear_structure_cache()
+        return jsonify({'success': True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
+    finally:
+        release_db(conn)
 
 
 @events_bp.route('/api/structure/companies/<int:company_id>', methods=['DELETE'])
@@ -567,29 +579,30 @@ def api_get_company_brands():
     company_id = request.args.get('company_id', type=int)
 
     conn = get_db()
-    cur = get_cursor(conn)
+    try:
+        cur = get_cursor(conn)
 
-    if company_id:
-        cur.execute("""
-            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
-            FROM company_brands cb
-            JOIN companies c ON cb.company_id = c.id
-            WHERE cb.company_id = %s AND cb.is_active = TRUE
-            ORDER BY cb.brand
-        """, (company_id,))
-    else:
-        cur.execute("""
-            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
-            FROM company_brands cb
-            JOIN companies c ON cb.company_id = c.id
-            WHERE cb.is_active = TRUE
-            ORDER BY c.company, cb.brand
-        """)
+        if company_id:
+            cur.execute("""
+                SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
+                FROM company_brands cb
+                JOIN companies c ON cb.company_id = c.id
+                WHERE cb.company_id = %s AND cb.is_active = TRUE
+                ORDER BY cb.brand
+            """, (company_id,))
+        else:
+            cur.execute("""
+                SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
+                FROM company_brands cb
+                JOIN companies c ON cb.company_id = c.id
+                WHERE cb.is_active = TRUE
+                ORDER BY c.company, cb.brand
+            """)
 
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([dict_from_row(r) for r in rows])
+        rows = cur.fetchall()
+        return jsonify([dict_from_row(r) for r in rows])
+    finally:
+        release_db(conn)
 
 
 @events_bp.route('/api/structure/company-brands', methods=['POST'])
@@ -671,17 +684,18 @@ def api_get_brands_for_company(company_id):
     from database import get_db, get_cursor, release_db, dict_from_row
 
     conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("""
-        SELECT id, brand, is_active
-        FROM company_brands
-        WHERE company_id = %s AND is_active = TRUE
-        ORDER BY brand
-    """, (company_id,))
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([dict_from_row(r) for r in rows])
+    try:
+        cur = get_cursor(conn)
+        cur.execute("""
+            SELECT id, brand, is_active
+            FROM company_brands
+            WHERE company_id = %s AND is_active = TRUE
+            ORDER BY brand
+        """, (company_id,))
+        rows = cur.fetchall()
+        return jsonify([dict_from_row(r) for r in rows])
+    finally:
+        release_db(conn)
 
 
 # ============== Departments CRUD API ==============
@@ -694,26 +708,27 @@ def api_get_departments_full():
     from database import get_db, get_cursor, release_db
 
     conn = get_db()
-    cur = get_cursor(conn)
-    # department_structure stores values directly as TEXT, not as foreign keys
-    cur.execute("""
-        SELECT id, company, brand, department, subdepartment, manager, marketing, company_id
-        FROM department_structure
-        ORDER BY company, brand, department, subdepartment
-    """)
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([{
-        'id': r['id'],
-        'company': r['company'],
-        'brand': r['brand'],
-        'department': r['department'],
-        'subdepartment': r['subdepartment'],
-        'manager': r['manager'],
-        'marketing': r['marketing'],
-        'company_id': r['company_id']
-    } for r in rows])
+    try:
+        cur = get_cursor(conn)
+        # department_structure stores values directly as TEXT, not as foreign keys
+        cur.execute("""
+            SELECT id, company, brand, department, subdepartment, manager, marketing, company_id
+            FROM department_structure
+            ORDER BY company, brand, department, subdepartment
+        """)
+        rows = cur.fetchall()
+        return jsonify([{
+            'id': r['id'],
+            'company': r['company'],
+            'brand': r['brand'],
+            'department': r['department'],
+            'subdepartment': r['subdepartment'],
+            'manager': r['manager'],
+            'marketing': r['marketing'],
+            'company_id': r['company_id']
+        } for r in rows])
+    finally:
+        release_db(conn)
 
 
 @events_bp.route('/api/structure/departments', methods=['POST'])
@@ -726,33 +741,37 @@ def api_create_department():
 
     data = request.get_json()
     conn = get_db()
-    cur = get_cursor(conn)
+    try:
+        cur = get_cursor(conn)
 
-    # company_id is a real FK to companies table, look up the company name
-    company_name = None
-    company_id = data.get('company_id')
-    if company_id:
-        cur.execute("SELECT company FROM companies WHERE id = %s", (company_id,))
-        row = cur.fetchone()
-        if row:
-            company_name = row['company']
+        # company_id is a real FK to companies table, look up the company name
+        company_name = None
+        company_id = data.get('company_id')
+        if company_id:
+            cur.execute("SELECT company FROM companies WHERE id = %s", (company_id,))
+            row = cur.fetchone()
+            if row:
+                company_name = row['company']
 
-    # brand_id, department_id, subdepartment_id are now TEXT values (the names themselves)
-    brand_name = data.get('brand_id') or None
-    dept_name = data.get('department_id') or None
-    subdept_name = data.get('subdepartment_id') or None
+        # brand_id, department_id, subdepartment_id are now TEXT values (the names themselves)
+        brand_name = data.get('brand_id') or None
+        dept_name = data.get('department_id') or None
+        subdept_name = data.get('subdepartment_id') or None
 
-    cur.execute("""
-        INSERT INTO department_structure (company_id, company, brand, department, subdepartment, manager)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        RETURNING id
-    """, (company_id, company_name, brand_name, dept_name, subdept_name, data.get('manager')))
-    dept_id = cur.fetchone()['id']
-    conn.commit()
-    release_db(conn)
-    clear_structure_cache()
-
-    return jsonify({'success': True, 'id': dept_id})
+        cur.execute("""
+            INSERT INTO department_structure (company_id, company, brand, department, subdepartment, manager)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (company_id, company_name, brand_name, dept_name, subdept_name, data.get('manager')))
+        dept_id = cur.fetchone()['id']
+        conn.commit()
+        clear_structure_cache()
+        return jsonify({'success': True, 'id': dept_id})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
+    finally:
+        release_db(conn)
 
 
 @events_bp.route('/api/structure/departments/<int:dept_id>', methods=['PUT'])
@@ -765,32 +784,36 @@ def api_update_department(dept_id):
 
     data = request.get_json()
     conn = get_db()
-    cur = get_cursor(conn)
+    try:
+        cur = get_cursor(conn)
 
-    # company_id is a real FK to companies table, look up the company name
-    company_name = None
-    company_id = data.get('company_id')
-    if company_id:
-        cur.execute("SELECT company FROM companies WHERE id = %s", (company_id,))
-        row = cur.fetchone()
-        if row:
-            company_name = row['company']
+        # company_id is a real FK to companies table, look up the company name
+        company_name = None
+        company_id = data.get('company_id')
+        if company_id:
+            cur.execute("SELECT company FROM companies WHERE id = %s", (company_id,))
+            row = cur.fetchone()
+            if row:
+                company_name = row['company']
 
-    # brand_id, department_id, subdepartment_id are now TEXT values (the names themselves)
-    brand_name = data.get('brand_id') or None
-    dept_name = data.get('department_id') or None
-    subdept_name = data.get('subdepartment_id') or None
+        # brand_id, department_id, subdepartment_id are now TEXT values (the names themselves)
+        brand_name = data.get('brand_id') or None
+        dept_name = data.get('department_id') or None
+        subdept_name = data.get('subdepartment_id') or None
 
-    cur.execute("""
-        UPDATE department_structure
-        SET company_id = %s, company = %s, brand = %s, department = %s, subdepartment = %s, manager = %s
-        WHERE id = %s
-    """, (company_id, company_name, brand_name, dept_name, subdept_name, data.get('manager'), dept_id))
-    conn.commit()
-    release_db(conn)
-    clear_structure_cache()
-
-    return jsonify({'success': True})
+        cur.execute("""
+            UPDATE department_structure
+            SET company_id = %s, company = %s, brand = %s, department = %s, subdepartment = %s, manager = %s
+            WHERE id = %s
+        """, (company_id, company_name, brand_name, dept_name, subdept_name, data.get('manager'), dept_id))
+        conn.commit()
+        clear_structure_cache()
+        return jsonify({'success': True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
+    finally:
+        release_db(conn)
 
 
 @events_bp.route('/api/structure/departments/<int:dept_id>', methods=['DELETE'])
@@ -799,14 +822,20 @@ def api_update_department(dept_id):
 def api_delete_department(dept_id):
     """API: Delete a department."""
     from database import get_db, get_cursor, release_db
+    from models import clear_structure_cache
 
     conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("DELETE FROM department_structure WHERE id = %s", (dept_id,))
-    conn.commit()
-    release_db(conn)
-
-    return jsonify({'success': True})
+    try:
+        cur = get_cursor(conn)
+        cur.execute("DELETE FROM department_structure WHERE id = %s", (dept_id,))
+        conn.commit()
+        clear_structure_cache()
+        return jsonify({'success': True})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 400
+    finally:
+        release_db(conn)
 
 
 # ============== Master Tables CRUD API ==============
