@@ -8,6 +8,18 @@
 - Structure Mapping tab queries `department_structure` directly (simplified, no JOINs)
 - Soft delete support (is_active flag) for master table entries
 
+### Connection Pool Fixes - Company Structure Endpoints
+- Added `try/finally` blocks to 7 endpoints to ensure `release_db()` always called:
+  - `api_get_companies_full`, `api_create_company`, `api_update_company`
+  - `api_get_company_brands`, `api_get_brands_for_company`
+  - `api_update_department`, `api_delete_department`
+- Added proper error handling with `conn.rollback()` for write operations
+- Prevents connection pool exhaustion on staging
+
+### Database Migration - Staging
+- Added `company_id` column to `department_structure` table on staging
+- Populated `company_id` values by matching company names (31 rows updated)
+
 ## 2026-01-20
 ### Critical Fixes - Database Connection Management
 - Fixed `conn.close()` → `release_db(conn)` in `services.py` (3 functions: add_company_with_vat, update_company_vat, delete_company)

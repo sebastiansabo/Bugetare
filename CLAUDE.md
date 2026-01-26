@@ -635,6 +635,15 @@ These tables define the vocabulary of available options:
 - `departments` (id, name, is_active) - Department names
 - `subdepartments` (id, name, is_active) - Subdepartment names
 
+### Department Structure Table
+The `department_structure` table maps companies to brands, departments, and managers:
+- `id` - Primary key
+- `company_id` - FK to companies table (required for API)
+- `company` - Company name (denormalized for display)
+- `brand`, `department`, `subdepartment` - Text values from master tables
+- `manager`, `marketing` - Manager/marketing contact names
+- `manager_ids`, `marketing_ids` - Integer arrays for user IDs
+
 ### API Endpoints
 | Endpoint | Methods | Notes |
 |----------|---------|-------|
