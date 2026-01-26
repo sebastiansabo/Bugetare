@@ -1,16 +1,12 @@
 # Changelog
 
 ## 2026-01-26
-### Settings Company Structure Refactor
-- Removed redundant master lookup tables (`brands`, `departments`, `subdepartments`)
-- Updated Settings → Company Structure tabs to query existing tables directly:
-  - Brands tab → queries `company_brands` table
-  - Departments tab → queries `department_structure` table
-  - Subdepartments tab → queries `department_structure` table
-  - Structure Mapping tab → queries `department_structure` directly (no JOINs)
-- Master table APIs now return text names as IDs (read-only)
-- POST/PUT endpoints accept text values directly instead of foreign key lookups
-- Eliminates data duplication between master tables and operational tables
+### Settings Company Structure - Master Tables
+- Restored master lookup tables (`brands`, `departments`, `subdepartments`) with full CRUD
+- These serve as vocabulary/picklist tables for Settings → Company Structure tabs
+- Full API support: GET/POST/PUT/DELETE for brands, departments, subdepartments
+- Structure Mapping tab queries `department_structure` directly (simplified, no JOINs)
+- Soft delete support (is_active flag) for master table entries
 
 ## 2026-01-20
 ### Critical Fixes - Database Connection Management

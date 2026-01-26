@@ -618,31 +618,35 @@ See [CHANGELOG.md](CHANGELOG.md) for version history.
 ## Settings Company Structure
 
 ### Data Architecture
-The Settings → Company Structure page displays organizational data from existing operational tables (no separate master tables):
+The Settings → Company Structure page uses master lookup tables for vocabulary management:
 
 | Tab | Data Source | Mode |
 |-----|-------------|------|
 | Companies | `companies` table | Full CRUD |
-| Brands | `company_brands` (DISTINCT brand) | Read-only |
-| Departments | `department_structure` (DISTINCT department) | Read-only |
-| Subdepartments | `department_structure` (DISTINCT subdepartment) | Read-only |
+| Brands | `brands` table | Full CRUD |
+| Departments | `departments` table | Full CRUD |
+| Subdepartments | `subdepartments` table | Full CRUD |
 | Structure Mapping | `department_structure` | Full CRUD |
 | Employees | `hr.employees` | Full CRUD |
 
-### API Endpoints
-| Endpoint | Source | Notes |
-|----------|--------|-------|
-| `/hr/events/api/master/brands` | `company_brands` | Returns `{id: name, name: name}` |
-| `/hr/events/api/master/departments` | `department_structure` | Returns `{id: name, name: name}` |
-| `/hr/events/api/master/subdepartments` | `department_structure` | Returns `{id: name, name: name}` |
-| `/hr/events/api/structure/departments-full` | `department_structure` | Direct query, no JOINs |
-| `/hr/events/api/structure/departments` | `department_structure` | POST/PUT accept text names |
+### Master Lookup Tables
+These tables define the vocabulary of available options:
+- `brands` (id, name, is_active) - Brand names
+- `departments` (id, name, is_active) - Department names
+- `subdepartments` (id, name, is_active) - Subdepartment names
 
-### Key Design Decision
-- No separate `brands`, `departments`, `subdepartments` master tables
-- Dropdown values populated from existing data (DISTINCT queries)
-- IDs are the text names themselves (for frontend compatibility)
-- Eliminates data duplication and sync issues
+### API Endpoints
+| Endpoint | Methods | Notes |
+|----------|---------|-------|
+| `/hr/events/api/master/brands` | GET, POST | List/create brands |
+| `/hr/events/api/master/brands/<id>` | PUT, DELETE | Update/soft-delete brand |
+| `/hr/events/api/master/departments` | GET, POST | List/create departments |
+| `/hr/events/api/master/departments/<id>` | PUT, DELETE | Update/soft-delete department |
+| `/hr/events/api/master/subdepartments` | GET, POST | List/create subdepartments |
+| `/hr/events/api/master/subdepartments/<id>` | PUT, DELETE | Update/soft-delete subdepartment |
+| `/hr/events/api/structure/departments-full` | GET | Structure mapping list |
+| `/hr/events/api/structure/departments` | POST | Create structure entry |
+| `/hr/events/api/structure/departments/<id>` | PUT, DELETE | Update/delete structure entry |
 
 ## Disabled Features
 
