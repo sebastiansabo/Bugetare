@@ -62,42 +62,85 @@ class EFacturaService:
 
     def get_anaf_client(self, company_cif: str):
         """
-        Get ANAF client instance - mock or real based on environment.
+        Get ANAF client instance - mock, OAuth, or certificate-based.
 
-        Returns mock client if EFACTURA_MOCK_MODE=true (default for development).
-        Returns real client if certificate is configured.
+        Priority:
+        1. Mock client if EFACTURA_MOCK_MODE=true (default for development)
+        2. OAuth client if tokens are stored for the CIF
+        3. Certificate client if certificate is configured
         """
         if MOCK_MODE:
             from ..client.mock_client import MockANAFClient
             logger.info("Using MOCK ANAF client", extra={'cif': company_cif})
             return MockANAFClient(company_cif)
 
-        # Real client - requires certificate
+        from ..config import Environment
+        env = os.environ.get('EFACTURA_ENVIRONMENT', 'production')
+        environment = Environment.PRODUCTION if env == 'production' else Environment.TEST
+
+        # Try OAuth tokens first (preferred method)
+        try:
+            from database import get_efactura_oauth_tokens
+            tokens = get_efactura_oauth_tokens(company_cif)
+
+            if tokens and tokens.get('access_token'):
+                from ..client.oauth_client import ANAFOAuthClient
+                logger.info("Using OAuth ANAF client", extra={'cif': company_cif})
+                return ANAFOAuthClient.from_stored_tokens(
+                    company_cif=company_cif,
+                    environment=environment,
+                )
+        except Exception as e:
+            logger.warning(
+                "Failed to load OAuth tokens, trying certificate",
+                extra={'cif': company_cif, 'error': str(e)}
+            )
+
+        # Fall back to certificate-based client
         cert_path = os.environ.get('EFACTURA_CERT_PATH')
         cert_password = os.environ.get('EFACTURA_CERT_PASSWORD')
 
         if not cert_path or not cert_password:
             raise ValueError(
-                "Certificate not configured. Set EFACTURA_CERT_PATH and "
-                "EFACTURA_CERT_PASSWORD, or enable EFACTURA_MOCK_MODE=true"
+                "No authentication available. Either authenticate with ANAF OAuth "
+                "or configure EFACTURA_CERT_PATH and EFACTURA_CERT_PASSWORD."
             )
 
         from ..client.anaf_client import ANAFClient
-        from ..config import Environment
-
-        env = os.environ.get('EFACTURA_ENVIRONMENT', 'test')
-        environment = Environment.PRODUCTION if env == 'production' else Environment.TEST
-
         return ANAFClient(cert_path, cert_password, environment)
 
     def get_anaf_status(self) -> Dict[str, Any]:
-        """Get ANAF client status (mock mode, rate limits, etc.)."""
-        return {
+        """Get ANAF client status (mock mode, OAuth, rate limits, etc.)."""
+        status = {
             'mock_mode': MOCK_MODE,
             'mock_mode_reason': 'EFACTURA_MOCK_MODE=true (default for development)' if MOCK_MODE else 'Using real ANAF API',
-            'environment': os.environ.get('EFACTURA_ENVIRONMENT', 'test'),
+            'environment': os.environ.get('EFACTURA_ENVIRONMENT', 'production'),
             'cert_configured': bool(os.environ.get('EFACTURA_CERT_PATH')),
+            'oauth_connections': [],
         }
+
+        # Get list of companies with OAuth tokens
+        try:
+            from database import get_db, get_cursor, release_db
+            conn = get_db()
+            cursor = get_cursor(conn)
+            cursor.execute('''
+                SELECT name as cif, credentials->>'expires_at' as expires_at
+                FROM connectors
+                WHERE connector_type = 'efactura' AND status = 'connected'
+            ''')
+            rows = cursor.fetchall()
+            release_db(conn)
+
+            for row in rows:
+                status['oauth_connections'].append({
+                    'cif': row['cif'],
+                    'expires_at': row['expires_at'],
+                })
+        except Exception as e:
+            logger.warning(f"Failed to get OAuth connections: {e}")
+
+        return status
 
     # ============== Company Connections ==============
 
