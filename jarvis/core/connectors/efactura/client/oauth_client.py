@@ -493,11 +493,10 @@ class ANAFOAuthClient:
             'cif': self.company_cif,
             'zile': days,
             'pagina': page,
+            # ANAF requires filtru parameter - default to 'E' (both) if not specified
+            # P=Primite (received), T=Trimise (sent), E=Both (toate)
+            'filtru': filter_type if filter_type else 'E',
         }
-
-        # Filter: P=Primite (received), T=Trimise (sent)
-        if filter_type:
-            params['filtru'] = filter_type
 
         response = self._make_request(
             'GET',
