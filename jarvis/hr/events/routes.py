@@ -1,25 +1,22 @@
-"""HR Module Routes."""
+"""HR Events Module Routes.
+
+Follows layered architecture: Routes -> Services -> Repositories -> Database
+"""
 from functools import wraps
 from flask import render_template, request, jsonify, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from . import events_bp
-from .database import (
-    get_all_hr_employees, get_hr_employee, save_hr_employee,
-    update_hr_employee, delete_hr_employee, search_hr_employees,
-    get_all_hr_events, get_hr_event, save_hr_event, update_hr_event, delete_hr_event,
-    get_all_event_bonuses, get_event_bonus, save_event_bonus,
-    save_event_bonuses_bulk, update_event_bonus, delete_event_bonus,
-    get_event_bonuses_summary, get_bonuses_by_month, get_bonuses_by_employee, get_bonuses_by_event,
-    get_all_bonus_types, get_bonus_type, save_bonus_type, update_bonus_type, delete_bonus_type
-)
+from .services import HREventsService
 
 # Import from app root for structure data
 import sys
 import os
-# Go up two levels: events/ -> hr/ -> app/
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from models import get_companies, get_brands_for_company, get_departments_for_company
+from models import get_companies, get_brands_for_company, get_departments_for_company, clear_structure_cache
+
+# Initialize service layer
+hr_service = HREventsService()
 
 
 def hr_required(f):
@@ -43,7 +40,7 @@ MONTH_NAMES = {
 }
 
 
-# ============== Events Routes ==============
+# ============== Event Bonuses Page Routes ==============
 
 @events_bp.route('/')
 @events_bp.route('/event-bonuses')
@@ -54,12 +51,12 @@ def event_bonuses():
     year = request.args.get('year', type=int)
     month = request.args.get('month', type=int)
 
-    bonuses = get_all_event_bonuses(year=year, month=month)
-    events = get_all_hr_events()
-    employees = get_all_hr_employees()
-    summary = get_event_bonuses_summary(year=year)
-    employee_summary = get_bonuses_by_employee(year=year, month=month)
-    event_summary = get_bonuses_by_event(year=year, month=month)
+    bonuses = hr_service.get_all_bonuses(year=year, month=month)
+    events = hr_service.get_all_events()
+    employees = hr_service.get_all_employees()
+    summary = hr_service.get_bonuses_summary(year=year)
+    employee_summary = hr_service.get_bonuses_by_employee(year=year, month=month)
+    event_summary = hr_service.get_bonuses_by_event(year=year, month=month)
 
     # Get unique years from bonuses for filter
     years = sorted(set(b['year'] for b in bonuses), reverse=True) if bonuses else [2025]
@@ -88,8 +85,8 @@ def api_get_event_bonuses():
     employee_id = request.args.get('employee_id', type=int)
     event_id = request.args.get('event_id', type=int)
 
-    bonuses = get_all_event_bonuses(year=year, month=month,
-                                    employee_id=employee_id, event_id=event_id)
+    bonuses = hr_service.get_all_bonuses(year=year, month=month,
+                                         employee_id=employee_id, event_id=event_id)
     return jsonify(bonuses)
 
 
@@ -100,7 +97,7 @@ def api_create_event_bonus():
     """API: Create a new event bonus."""
     data = request.get_json()
 
-    bonus_id = save_event_bonus(
+    result = hr_service.create_bonus(
         employee_id=data['employee_id'],
         event_id=data['event_id'],
         year=data['year'],
@@ -115,7 +112,9 @@ def api_create_event_bonus():
         created_by=current_user.id
     )
 
-    return jsonify({'success': True, 'id': bonus_id})
+    if result.success:
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/event-bonuses/bulk', methods=['POST'])
@@ -126,11 +125,11 @@ def api_create_event_bonuses_bulk():
     data = request.get_json()
     bonuses = data.get('bonuses', [])
 
-    if not bonuses:
-        return jsonify({'success': False, 'error': 'No bonuses provided'}), 400
+    result = hr_service.create_bonuses_bulk(bonuses, created_by=current_user.id)
 
-    created_ids = save_event_bonuses_bulk(bonuses, created_by=current_user.id)
-    return jsonify({'success': True, 'ids': created_ids, 'count': len(created_ids)})
+    if result.success:
+        return jsonify({'success': True, 'ids': result.data['ids'], 'count': result.data['count']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/event-bonuses/<int:bonus_id>', methods=['GET'])
@@ -138,7 +137,7 @@ def api_create_event_bonuses_bulk():
 @hr_required
 def api_get_event_bonus(bonus_id):
     """API: Get a single event bonus."""
-    bonus = get_event_bonus(bonus_id)
+    bonus = hr_service.get_bonus(bonus_id)
     if not bonus:
         return jsonify({'error': 'Bonus not found'}), 404
     return jsonify(bonus)
@@ -151,7 +150,7 @@ def api_update_event_bonus(bonus_id):
     """API: Update an event bonus."""
     data = request.get_json()
 
-    update_event_bonus(
+    result = hr_service.update_bonus(
         bonus_id=bonus_id,
         employee_id=data['employee_id'],
         event_id=data['event_id'],
@@ -166,7 +165,9 @@ def api_update_event_bonus(bonus_id):
         allocation_month=data.get('allocation_month')
     )
 
-    return jsonify({'success': True})
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/event-bonuses/<int:bonus_id>', methods=['DELETE'])
@@ -174,18 +175,20 @@ def api_update_event_bonus(bonus_id):
 @hr_required
 def api_delete_event_bonus(bonus_id):
     """API: Delete an event bonus."""
-    delete_event_bonus(bonus_id)
-    return jsonify({'success': True})
+    result = hr_service.delete_bonus(bonus_id)
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
-# ============== Events Routes ==============
+# ============== Events Page Routes ==============
 
 @events_bp.route('/events')
 @login_required
 @hr_required
 def events():
     """Events management page."""
-    all_events = get_all_hr_events()
+    all_events = hr_service.get_all_events()
     companies = get_companies()
     return render_template('events.html', events=all_events, companies=companies)
 
@@ -196,8 +199,8 @@ def events():
 def add_event():
     """Add new event page."""
     companies = get_companies()
-    employees = get_all_hr_employees(active_only=True)
-    bonus_types = get_all_bonus_types(active_only=True)
+    employees = hr_service.get_all_employees(active_only=True)
+    bonus_types = hr_service.get_all_bonus_types(active_only=True)
     return render_template('add_event.html',
                            companies=companies,
                            employees=employees,
@@ -211,9 +214,9 @@ def add_event():
 def add_bonus():
     """Add new bonus page."""
     from datetime import datetime
-    events = get_all_hr_events()
-    employees = get_all_hr_employees()
-    bonus_types = get_all_bonus_types(active_only=True)
+    events = hr_service.get_all_events()
+    employees = hr_service.get_all_employees()
+    bonus_types = hr_service.get_all_bonus_types(active_only=True)
     return render_template('add_bonus.html',
                            events=events,
                            employees=employees,
@@ -229,7 +232,7 @@ def add_bonus():
 @hr_required
 def api_get_events():
     """API: Get all events."""
-    events = get_all_hr_events()
+    events = hr_service.get_all_events()
     return jsonify(events)
 
 
@@ -240,7 +243,7 @@ def api_create_event():
     """API: Create a new event."""
     data = request.get_json()
 
-    event_id = save_hr_event(
+    result = hr_service.create_event(
         name=data['name'],
         start_date=data['start_date'],
         end_date=data['end_date'],
@@ -250,7 +253,9 @@ def api_create_event():
         created_by=current_user.id
     )
 
-    return jsonify({'success': True, 'id': event_id})
+    if result.success:
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/events/<int:event_id>', methods=['GET'])
@@ -258,7 +263,7 @@ def api_create_event():
 @hr_required
 def api_get_event(event_id):
     """API: Get a single event."""
-    event = get_hr_event(event_id)
+    event = hr_service.get_event(event_id)
     if not event:
         return jsonify({'error': 'Event not found'}), 404
     return jsonify(event)
@@ -271,7 +276,7 @@ def api_update_event(event_id):
     """API: Update an event."""
     data = request.get_json()
 
-    update_hr_event(
+    result = hr_service.update_event(
         event_id=event_id,
         name=data['name'],
         start_date=data['start_date'],
@@ -281,7 +286,9 @@ def api_update_event(event_id):
         description=data.get('description')
     )
 
-    return jsonify({'success': True})
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/events/<int:event_id>', methods=['DELETE'])
@@ -289,13 +296,13 @@ def api_update_event(event_id):
 @hr_required
 def api_delete_event(event_id):
     """API: Delete an event."""
-    delete_hr_event(event_id)
-    return jsonify({'success': True})
+    result = hr_service.delete_event(event_id)
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # ============== Employees API Routes ==============
-# Note: Employee management page is now in core Settings (Settings → HR → Employees)
-# These API routes are kept for HR Events module to fetch employees for bonuses
 
 @events_bp.route('/api/employees', methods=['GET'])
 @login_required
@@ -303,7 +310,7 @@ def api_delete_event(event_id):
 def api_get_employees():
     """API: Get all employees."""
     active_only = request.args.get('active_only', 'true').lower() == 'true'
-    employees = get_all_hr_employees(active_only=active_only)
+    employees = hr_service.get_all_employees(active_only=active_only)
     return jsonify(employees)
 
 
@@ -315,7 +322,7 @@ def api_search_employees():
     query = request.args.get('q', '')
     if len(query) < 2:
         return jsonify([])
-    employees = search_hr_employees(query)
+    employees = hr_service.search_employees(query)
     return jsonify(employees)
 
 
@@ -326,9 +333,9 @@ def api_create_employee():
     """API: Create a new employee."""
     data = request.get_json()
 
-    employee_id = save_hr_employee(
+    result = hr_service.create_employee(
         name=data['name'],
-        department=data.get('departments'),  # frontend sends 'departments'
+        department=data.get('departments'),
         subdepartment=data.get('subdepartment'),
         brand=data.get('brand'),
         company=data.get('company'),
@@ -337,7 +344,9 @@ def api_create_employee():
         notify_on_allocation=data.get('notify_on_allocation', True)
     )
 
-    return jsonify({'success': True, 'id': employee_id})
+    if result.success:
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/employees/<int:employee_id>', methods=['GET'])
@@ -345,7 +354,7 @@ def api_create_employee():
 @hr_required
 def api_get_employee(employee_id):
     """API: Get a single employee."""
-    employee = get_hr_employee(employee_id)
+    employee = hr_service.get_employee(employee_id)
     if not employee:
         return jsonify({'error': 'Employee not found'}), 404
     return jsonify(employee)
@@ -358,10 +367,10 @@ def api_update_employee(employee_id):
     """API: Update an employee."""
     data = request.get_json()
 
-    update_hr_employee(
+    result = hr_service.update_employee(
         employee_id=employee_id,
         name=data['name'],
-        department=data.get('departments'),  # frontend sends 'departments'
+        department=data.get('departments'),
         subdepartment=data.get('subdepartment'),
         brand=data.get('brand'),
         company=data.get('company'),
@@ -371,7 +380,9 @@ def api_update_employee(employee_id):
         is_active=data.get('is_active', True)
     )
 
-    return jsonify({'success': True})
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/employees/<int:employee_id>', methods=['DELETE'])
@@ -379,8 +390,10 @@ def api_update_employee(employee_id):
 @hr_required
 def api_delete_employee(employee_id):
     """API: Soft delete an employee."""
-    delete_hr_employee(employee_id)
-    return jsonify({'success': True})
+    result = hr_service.delete_employee(employee_id)
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # ============== Summary/Stats Routes ==============
@@ -391,7 +404,7 @@ def api_delete_employee(employee_id):
 def api_get_summary():
     """API: Get summary statistics."""
     year = request.args.get('year', type=int)
-    summary = get_event_bonuses_summary(year=year)
+    summary = hr_service.get_bonuses_summary(year=year)
     return jsonify(summary)
 
 
@@ -401,7 +414,7 @@ def api_get_summary():
 def api_get_by_month():
     """API: Get bonuses grouped by month."""
     year = request.args.get('year', type=int, default=2025)
-    data = get_bonuses_by_month(year)
+    data = hr_service.get_bonuses_by_month(year)
     return jsonify(data)
 
 
@@ -412,7 +425,7 @@ def api_get_by_employee():
     """API: Get bonuses grouped by employee."""
     year = request.args.get('year', type=int)
     month = request.args.get('month', type=int)
-    data = get_bonuses_by_employee(year=year, month=month)
+    data = hr_service.get_bonuses_by_employee(year=year, month=month)
     return jsonify(data)
 
 
@@ -451,55 +464,9 @@ def api_get_departments(company):
 @login_required
 @hr_required
 def api_get_companies_full():
-    """API: Get all companies with full details including brands from company_brands."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-
-        # Get companies
-        cur.execute("""
-            SELECT id, company, vat, created_at
-            FROM companies
-            ORDER BY company
-        """)
-        companies = []
-        for r in cur.fetchall():
-            companies.append({
-                'id': r['id'],
-                'company': r['company'],
-                'vat': r['vat'],
-                'created_at': r['created_at'].isoformat() if r['created_at'] else None
-            })
-
-        # Get brands for all companies (JOIN with brands table to get name)
-        cur.execute("""
-            SELECT cb.id as cb_id, cb.company_id, cb.brand_id, b.name as brand
-            FROM company_brands cb
-            JOIN brands b ON cb.brand_id = b.id
-            WHERE cb.is_active = TRUE ORDER BY b.name
-        """)
-        brands_by_company = {}
-        for r in cur.fetchall():
-            cid = r['company_id']
-            if cid not in brands_by_company:
-                brands_by_company[cid] = []
-            brands_by_company[cid].append({
-                'id': r['cb_id'],        # company_brands.id for update/delete
-                'brand_id': r['brand_id'],  # brands.id (FK)
-                'brand': r['brand']      # brand name
-            })
-
-        # Add brands to companies
-        for company in companies:
-            brand_list = brands_by_company.get(company['id'], [])
-            company['brands'] = ', '.join(b['brand'] for b in brand_list)
-            company['brands_list'] = brand_list  # Already has {id, brand} structure
-
-        return jsonify(companies)
-    finally:
-        release_db(conn)
+    """API: Get all companies with full details including brands."""
+    companies = hr_service.get_all_companies_full()
+    return jsonify(companies)
 
 
 @events_bp.route('/api/structure/companies', methods=['POST'])
@@ -507,27 +474,14 @@ def api_get_companies_full():
 @hr_required
 def api_create_company():
     """API: Create a new company."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("""
-            INSERT INTO companies (company, vat)
-            VALUES (%s, %s)
-            RETURNING id
-        """, (data['company'], data.get('vat')))
-        company_id = cur.fetchone()['id']
-        conn.commit()
+
+    result = hr_service.create_company(company=data['company'], vat=data.get('vat'))
+
+    if result.success:
         clear_structure_cache()
-        return jsonify({'success': True, 'id': company_id})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/structure/companies/<int:company_id>', methods=['PUT'])
@@ -535,26 +489,14 @@ def api_create_company():
 @hr_required
 def api_update_company(company_id):
     """API: Update a company."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("""
-            UPDATE companies
-            SET company = %s, vat = %s
-            WHERE id = %s
-        """, (data['company'], data.get('vat'), company_id))
-        conn.commit()
+
+    result = hr_service.update_company(company_id=company_id, company=data['company'], vat=data.get('vat'))
+
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/structure/companies/<int:company_id>', methods=['DELETE'])
@@ -562,15 +504,12 @@ def api_update_company(company_id):
 @hr_required
 def api_delete_company(company_id):
     """API: Delete a company."""
-    from jarvis.core.database import get_db_connection
+    result = hr_service.delete_company(company_id)
 
-    with get_db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM companies WHERE id = %s", (company_id,))
-        conn.commit()
-        cur.close()
-
-    return jsonify({'success': True})
+    if result.success:
+        clear_structure_cache()
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # ============== Company Brands CRUD API ==============
@@ -580,37 +519,9 @@ def api_delete_company(company_id):
 @hr_required
 def api_get_company_brands():
     """API: Get all company brands."""
-    from database import get_db, get_cursor, release_db, dict_from_row
-
     company_id = request.args.get('company_id', type=int)
-
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-
-        if company_id:
-            cur.execute("""
-                SELECT cb.id, cb.company_id, c.company, cb.brand_id, b.name as brand, cb.is_active, cb.created_at
-                FROM company_brands cb
-                JOIN companies c ON cb.company_id = c.id
-                JOIN brands b ON cb.brand_id = b.id
-                WHERE cb.company_id = %s AND cb.is_active = TRUE
-                ORDER BY b.name
-            """, (company_id,))
-        else:
-            cur.execute("""
-                SELECT cb.id, cb.company_id, c.company, cb.brand_id, b.name as brand, cb.is_active, cb.created_at
-                FROM company_brands cb
-                JOIN companies c ON cb.company_id = c.id
-                JOIN brands b ON cb.brand_id = b.id
-                WHERE cb.is_active = TRUE
-                ORDER BY c.company, b.name
-            """)
-
-        rows = cur.fetchall()
-        return jsonify([dict_from_row(r) for r in rows])
-    finally:
-        release_db(conn)
+    brands = hr_service.get_company_brands(company_id=company_id)
+    return jsonify(brands)
 
 
 @events_bp.route('/api/structure/company-brands', methods=['POST'])
@@ -618,28 +529,14 @@ def api_get_company_brands():
 @hr_required
 def api_create_company_brand():
     """API: Create a new company brand."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
 
-    try:
-        cur.execute("""
-            INSERT INTO company_brands (company_id, brand_id)
-            VALUES (%s, %s)
-            RETURNING id
-        """, (data['company_id'], data['brand_id']))
-        cb_id = cur.fetchone()['id']
-        conn.commit()
-        release_db(conn)
+    result = hr_service.create_company_brand(company_id=data['company_id'], brand_id=data['brand_id'])
+
+    if result.success:
         clear_structure_cache()
-        return jsonify({'success': True, 'id': cb_id})
-    except Exception as e:
-        conn.rollback()
-        release_db(conn)
-        return jsonify({'success': False, 'error': str(e)}), 400
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/structure/company-brands/<int:brand_id>', methods=['PUT'])
@@ -647,23 +544,18 @@ def api_create_company_brand():
 @hr_required
 def api_update_company_brand(brand_id):
     """API: Update a company brand."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
 
-    cur.execute("""
-        UPDATE company_brands
-        SET brand_id = %s, is_active = %s
-        WHERE id = %s
-    """, (data['brand_id'], data.get('is_active', True), brand_id))
-    conn.commit()
-    release_db(conn)
-    clear_structure_cache()
+    result = hr_service.update_company_brand(
+        brand_id=brand_id,
+        new_brand_id=data['brand_id'],
+        is_active=data.get('is_active', True)
+    )
 
-    return jsonify({'success': True})
+    if result.success:
+        clear_structure_cache()
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/structure/company-brands/<int:brand_id>', methods=['DELETE'])
@@ -671,17 +563,12 @@ def api_update_company_brand(brand_id):
 @hr_required
 def api_delete_company_brand(brand_id):
     """API: Delete a company brand."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
+    result = hr_service.delete_company_brand(brand_id)
 
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("DELETE FROM company_brands WHERE id = %s", (brand_id,))
-    conn.commit()
-    release_db(conn)
-    clear_structure_cache()
-
-    return jsonify({'success': True})
+    if result.success:
+        clear_structure_cache()
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/structure/companies/<int:company_id>/brands', methods=['GET'])
@@ -689,22 +576,8 @@ def api_delete_company_brand(brand_id):
 @hr_required
 def api_get_brands_for_company(company_id):
     """API: Get brands for a specific company."""
-    from database import get_db, get_cursor, release_db, dict_from_row
-
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("""
-            SELECT cb.id, cb.brand_id, b.name as brand, cb.is_active
-            FROM company_brands cb
-            JOIN brands b ON cb.brand_id = b.id
-            WHERE cb.company_id = %s AND cb.is_active = TRUE
-            ORDER BY b.name
-        """, (company_id,))
-        rows = cur.fetchall()
-        return jsonify([dict_from_row(r) for r in rows])
-    finally:
-        release_db(conn)
+    brands = hr_service.get_brands_for_company(company_id)
+    return jsonify(brands)
 
 
 # ============== Departments CRUD API ==============
@@ -714,30 +587,8 @@ def api_get_brands_for_company(company_id):
 @hr_required
 def api_get_departments_full():
     """API: Get all department structure entries with full details."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        # department_structure stores values directly as TEXT, not as foreign keys
-        cur.execute("""
-            SELECT id, company, brand, department, subdepartment, manager, marketing, company_id
-            FROM department_structure
-            ORDER BY company, brand, department, subdepartment
-        """)
-        rows = cur.fetchall()
-        return jsonify([{
-            'id': r['id'],
-            'company': r['company'],
-            'brand': r['brand'],
-            'department': r['department'],
-            'subdepartment': r['subdepartment'],
-            'manager': r['manager'],
-            'marketing': r['marketing'],
-            'company_id': r['company_id']
-        } for r in rows])
-    finally:
-        release_db(conn)
+    departments = hr_service.get_all_department_structures()
+    return jsonify(departments)
 
 
 @events_bp.route('/api/structure/departments', methods=['POST'])
@@ -745,69 +596,20 @@ def api_get_departments_full():
 @hr_required
 def api_create_department():
     """API: Create a new department structure entry."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
 
-        # company_id is a real FK to companies table, look up the company name
-        company_name = None
-        company_id = data.get('company_id')
-        if company_id:
-            cur.execute("SELECT company FROM companies WHERE id = %s", (company_id,))
-            row = cur.fetchone()
-            if row:
-                company_name = row['company']
+    result = hr_service.create_department_structure(
+        company_id=data.get('company_id'),
+        brand_id=data.get('brand_id'),
+        department_id=data.get('department_id'),
+        subdepartment_id=data.get('subdepartment_id'),
+        manager=data.get('manager')
+    )
 
-        # Look up names from master tables if numeric IDs are passed
-        brand_val = data.get('brand_id')
-        dept_val = data.get('department_id')
-        subdept_val = data.get('subdepartment_id')
-
-        brand_name = None
-        if brand_val:
-            if str(brand_val).isdigit():
-                cur.execute("SELECT name FROM brands WHERE id = %s", (int(brand_val),))
-                row = cur.fetchone()
-                brand_name = row['name'] if row else None
-            else:
-                brand_name = brand_val
-
-        dept_name = None
-        if dept_val:
-            if str(dept_val).isdigit():
-                cur.execute("SELECT name FROM departments WHERE id = %s", (int(dept_val),))
-                row = cur.fetchone()
-                dept_name = row['name'] if row else None
-            else:
-                dept_name = dept_val
-
-        subdept_name = None
-        if subdept_val:
-            if str(subdept_val).isdigit():
-                cur.execute("SELECT name FROM subdepartments WHERE id = %s", (int(subdept_val),))
-                row = cur.fetchone()
-                subdept_name = row['name'] if row else None
-            else:
-                subdept_name = subdept_val
-
-        cur.execute("""
-            INSERT INTO department_structure (company_id, company, brand, department, subdepartment, manager)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-        """, (company_id, company_name, brand_name, dept_name, subdept_name, data.get('manager')))
-        dept_id = cur.fetchone()['id']
-        conn.commit()
+    if result.success:
         clear_structure_cache()
-        return jsonify({'success': True, 'id': dept_id})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/structure/departments/<int:dept_id>', methods=['PUT'])
@@ -815,68 +617,21 @@ def api_create_department():
 @hr_required
 def api_update_department(dept_id):
     """API: Update a department structure entry."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
 
-        # company_id is a real FK to companies table, look up the company name
-        company_name = None
-        company_id = data.get('company_id')
-        if company_id:
-            cur.execute("SELECT company FROM companies WHERE id = %s", (company_id,))
-            row = cur.fetchone()
-            if row:
-                company_name = row['company']
+    result = hr_service.update_department_structure(
+        dept_id=dept_id,
+        company_id=data.get('company_id'),
+        brand_id=data.get('brand_id'),
+        department_id=data.get('department_id'),
+        subdepartment_id=data.get('subdepartment_id'),
+        manager=data.get('manager')
+    )
 
-        # Look up names from master tables if numeric IDs are passed
-        brand_val = data.get('brand_id')
-        dept_val = data.get('department_id')
-        subdept_val = data.get('subdepartment_id')
-
-        brand_name = None
-        if brand_val:
-            if str(brand_val).isdigit():
-                cur.execute("SELECT name FROM brands WHERE id = %s", (int(brand_val),))
-                row = cur.fetchone()
-                brand_name = row['name'] if row else None
-            else:
-                brand_name = brand_val
-
-        dept_name = None
-        if dept_val:
-            if str(dept_val).isdigit():
-                cur.execute("SELECT name FROM departments WHERE id = %s", (int(dept_val),))
-                row = cur.fetchone()
-                dept_name = row['name'] if row else None
-            else:
-                dept_name = dept_val
-
-        subdept_name = None
-        if subdept_val:
-            if str(subdept_val).isdigit():
-                cur.execute("SELECT name FROM subdepartments WHERE id = %s", (int(subdept_val),))
-                row = cur.fetchone()
-                subdept_name = row['name'] if row else None
-            else:
-                subdept_name = subdept_val
-
-        cur.execute("""
-            UPDATE department_structure
-            SET company_id = %s, company = %s, brand = %s, department = %s, subdepartment = %s, manager = %s
-            WHERE id = %s
-        """, (company_id, company_name, brand_name, dept_name, subdept_name, data.get('manager'), dept_id))
-        conn.commit()
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/structure/departments/<int:dept_id>', methods=['DELETE'])
@@ -884,21 +639,12 @@ def api_update_department(dept_id):
 @hr_required
 def api_delete_department(dept_id):
     """API: Delete a department."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
+    result = hr_service.delete_department_structure(dept_id)
 
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("DELETE FROM department_structure WHERE id = %s", (dept_id,))
-        conn.commit()
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # ============== Master Tables CRUD API ==============
@@ -910,16 +656,8 @@ def api_delete_department(dept_id):
 @hr_required
 def api_get_master_brands():
     """API: Get all brands from master table."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("SELECT id, name, is_active FROM brands WHERE is_active = TRUE ORDER BY name")
-        rows = cur.fetchall()
-        return jsonify([{'id': r['id'], 'name': r['name'], 'is_active': r['is_active']} for r in rows])
-    finally:
-        release_db(conn)
+    brands = hr_service.get_master_brands()
+    return jsonify(brands)
 
 
 @events_bp.route('/api/master/brands', methods=['POST'])
@@ -927,23 +665,14 @@ def api_get_master_brands():
 @hr_required
 def api_create_master_brand():
     """API: Create a new brand in master table."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (data['name'],))
-        brand_id = cur.fetchone()['id']
-        conn.commit()
+
+    result = hr_service.create_master_brand(name=data['name'])
+
+    if result.success:
         clear_structure_cache()
-        return jsonify({'success': True, 'id': brand_id})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/master/brands/<int:brand_id>', methods=['PUT'])
@@ -951,23 +680,18 @@ def api_create_master_brand():
 @hr_required
 def api_update_master_brand(brand_id):
     """API: Update a brand in master table."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("UPDATE brands SET name = %s, is_active = %s WHERE id = %s",
-                    (data['name'], data.get('is_active', True), brand_id))
-        conn.commit()
+
+    result = hr_service.update_master_brand(
+        brand_id=brand_id,
+        name=data['name'],
+        is_active=data.get('is_active', True)
+    )
+
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/master/brands/<int:brand_id>', methods=['DELETE'])
@@ -975,21 +699,12 @@ def api_update_master_brand(brand_id):
 @hr_required
 def api_delete_master_brand(brand_id):
     """API: Delete a brand from master table (soft delete)."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
+    result = hr_service.delete_master_brand(brand_id)
 
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("UPDATE brands SET is_active = FALSE WHERE id = %s", (brand_id,))
-        conn.commit()
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # --- Departments Master Table ---
@@ -999,16 +714,8 @@ def api_delete_master_brand(brand_id):
 @hr_required
 def api_get_master_departments():
     """API: Get all departments from master table."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("SELECT id, name, is_active FROM departments WHERE is_active = TRUE ORDER BY name")
-        rows = cur.fetchall()
-        return jsonify([{'id': r['id'], 'name': r['name'], 'is_active': r['is_active']} for r in rows])
-    finally:
-        release_db(conn)
+    departments = hr_service.get_master_departments()
+    return jsonify(departments)
 
 
 @events_bp.route('/api/master/departments', methods=['POST'])
@@ -1016,23 +723,14 @@ def api_get_master_departments():
 @hr_required
 def api_create_master_department():
     """API: Create a new department in master table."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("INSERT INTO departments (name) VALUES (%s) RETURNING id", (data['name'],))
-        dept_id = cur.fetchone()['id']
-        conn.commit()
+
+    result = hr_service.create_master_department(name=data['name'])
+
+    if result.success:
         clear_structure_cache()
-        return jsonify({'success': True, 'id': dept_id})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/master/departments/<int:dept_id>', methods=['PUT'])
@@ -1040,23 +738,18 @@ def api_create_master_department():
 @hr_required
 def api_update_master_department(dept_id):
     """API: Update a department in master table."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("UPDATE departments SET name = %s, is_active = %s WHERE id = %s",
-                    (data['name'], data.get('is_active', True), dept_id))
-        conn.commit()
+
+    result = hr_service.update_master_department(
+        dept_id=dept_id,
+        name=data['name'],
+        is_active=data.get('is_active', True)
+    )
+
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/master/departments/<int:dept_id>', methods=['DELETE'])
@@ -1064,21 +757,12 @@ def api_update_master_department(dept_id):
 @hr_required
 def api_delete_master_department(dept_id):
     """API: Delete a department from master table (soft delete)."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
+    result = hr_service.delete_master_department(dept_id)
 
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("UPDATE departments SET is_active = FALSE WHERE id = %s", (dept_id,))
-        conn.commit()
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # --- Subdepartments Master Table ---
@@ -1088,16 +772,8 @@ def api_delete_master_department(dept_id):
 @hr_required
 def api_get_master_subdepartments():
     """API: Get all subdepartments from master table."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("SELECT id, name, is_active FROM subdepartments WHERE is_active = TRUE ORDER BY name")
-        rows = cur.fetchall()
-        return jsonify([{'id': r['id'], 'name': r['name'], 'is_active': r['is_active']} for r in rows])
-    finally:
-        release_db(conn)
+    subdepartments = hr_service.get_master_subdepartments()
+    return jsonify(subdepartments)
 
 
 @events_bp.route('/api/master/subdepartments', methods=['POST'])
@@ -1105,23 +781,14 @@ def api_get_master_subdepartments():
 @hr_required
 def api_create_master_subdepartment():
     """API: Create a new subdepartment in master table."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("INSERT INTO subdepartments (name) VALUES (%s) RETURNING id", (data['name'],))
-        subdept_id = cur.fetchone()['id']
-        conn.commit()
+
+    result = hr_service.create_master_subdepartment(name=data['name'])
+
+    if result.success:
         clear_structure_cache()
-        return jsonify({'success': True, 'id': subdept_id})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/master/subdepartments/<int:subdept_id>', methods=['PUT'])
@@ -1129,23 +796,18 @@ def api_create_master_subdepartment():
 @hr_required
 def api_update_master_subdepartment(subdept_id):
     """API: Update a subdepartment in master table."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("UPDATE subdepartments SET name = %s, is_active = %s WHERE id = %s",
-                    (data['name'], data.get('is_active', True), subdept_id))
-        conn.commit()
+
+    result = hr_service.update_master_subdepartment(
+        subdept_id=subdept_id,
+        name=data['name'],
+        is_active=data.get('is_active', True)
+    )
+
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/master/subdepartments/<int:subdept_id>', methods=['DELETE'])
@@ -1153,21 +815,12 @@ def api_update_master_subdepartment(subdept_id):
 @hr_required
 def api_delete_master_subdepartment(subdept_id):
     """API: Delete a subdepartment from master table (soft delete)."""
-    from database import get_db, get_cursor, release_db
-    from models import clear_structure_cache
+    result = hr_service.delete_master_subdepartment(subdept_id)
 
-    conn = get_db()
-    try:
-        cur = get_cursor(conn)
-        cur.execute("UPDATE subdepartments SET is_active = FALSE WHERE id = %s", (subdept_id,))
-        conn.commit()
+    if result.success:
         clear_structure_cache()
         return jsonify({'success': True})
-    except Exception as e:
-        conn.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 400
-    finally:
-        release_db(conn)
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # ============== Bonus Types API Routes ==============
@@ -1178,7 +831,7 @@ def api_delete_master_subdepartment(subdept_id):
 def api_get_bonus_types():
     """API: Get all bonus types."""
     active_only = request.args.get('active_only', 'true').lower() == 'true'
-    bonus_types = get_all_bonus_types(active_only=active_only)
+    bonus_types = hr_service.get_all_bonus_types(active_only=active_only)
     return jsonify(bonus_types)
 
 
@@ -1189,14 +842,16 @@ def api_create_bonus_type():
     """API: Create a new bonus type."""
     data = request.get_json()
 
-    bonus_type_id = save_bonus_type(
+    result = hr_service.create_bonus_type(
         name=data['name'],
         amount=data['amount'],
         days_per_amount=data.get('days_per_amount', 1),
         description=data.get('description')
     )
 
-    return jsonify({'success': True, 'id': bonus_type_id})
+    if result.success:
+        return jsonify({'success': True, 'id': result.data['id']})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/bonus-types/<int:bonus_type_id>', methods=['GET'])
@@ -1204,7 +859,7 @@ def api_create_bonus_type():
 @hr_required
 def api_get_bonus_type(bonus_type_id):
     """API: Get a single bonus type."""
-    bonus_type = get_bonus_type(bonus_type_id)
+    bonus_type = hr_service.get_bonus_type(bonus_type_id)
     if not bonus_type:
         return jsonify({'error': 'Bonus type not found'}), 404
     return jsonify(bonus_type)
@@ -1217,7 +872,7 @@ def api_update_bonus_type(bonus_type_id):
     """API: Update a bonus type."""
     data = request.get_json()
 
-    update_bonus_type(
+    result = hr_service.update_bonus_type(
         bonus_type_id=bonus_type_id,
         name=data['name'],
         amount=data['amount'],
@@ -1226,7 +881,9 @@ def api_update_bonus_type(bonus_type_id):
         is_active=data.get('is_active', True)
     )
 
-    return jsonify({'success': True})
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 @events_bp.route('/api/bonus-types/<int:bonus_type_id>', methods=['DELETE'])
@@ -1234,8 +891,11 @@ def api_update_bonus_type(bonus_type_id):
 @hr_required
 def api_delete_bonus_type(bonus_type_id):
     """API: Soft delete a bonus type."""
-    delete_bonus_type(bonus_type_id)
-    return jsonify({'success': True})
+    result = hr_service.delete_bonus_type(bonus_type_id)
+
+    if result.success:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': result.error}), 400
 
 
 # ============== Export Routes ==============
@@ -1248,12 +908,12 @@ def api_export_bonuses():
     from flask import Response
     from io import BytesIO
     from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.styles import Font, PatternFill, Alignment
 
     year = request.args.get('year', type=int)
     month = request.args.get('month', type=int)
 
-    bonuses = get_all_event_bonuses(year=year, month=month)
+    bonuses = hr_service.get_all_bonuses(year=year, month=month)
 
     # Create workbook
     wb = Workbook()

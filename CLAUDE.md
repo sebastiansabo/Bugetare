@@ -27,8 +27,9 @@ git push origin main
 
 ## Project Overview
 J.A.R.V.I.S. is a modular enterprise platform with multiple sections:
-- **Accounting** → Bugetare (Invoice Budget Allocation), Statements (Bank Statement Parsing)
+- **Accounting** → Bugetare (Invoice Budget Allocation), Statements (Bank Statement Parsing), e-Factura (ANAF Invoice Import)
 - **HR** → Events (Employee Event Bonus Management)
+- **Core Connectors** → e-Factura (ANAF RO e-Invoicing integration)
 - **Future**: AFS, Sales, etc.
 
 ## Tech Stack
@@ -62,6 +63,16 @@ jarvis/                           # Main application folder
 │   ├── settings/                 # Platform settings
 │   │   ├── __init__.py
 │   │   └── routes.py             # Settings routes
+│   ├── connectors/               # External service connectors
+│   │   └── efactura/             # ANAF e-Factura connector
+│   │       ├── __init__.py       # Blueprint registration
+│   │       ├── routes.py         # API endpoints
+│   │       ├── anaf_client.py    # ANAF API client (OAuth/X.509)
+│   │       ├── xml_parser.py     # UBL 2.1 XML parser
+│   │       ├── models.py         # ParsedInvoice, InvoiceLineItem
+│   │       ├── mock_client.py    # Development mock client
+│   │       └── repositories/
+│   │           └── invoice_repo.py  # Database operations
 │   └── utils/
 │       └── logging_config.py     # Structured logging
 │
@@ -102,7 +113,8 @@ jarvis/                           # Main application folder
     │   │   ├── index.html        # Add Invoice
     │   │   ├── accounting.html   # Dashboard
     │   │   ├── templates.html    # Template management
-    │   │   └── bulk.html         # Bulk processing
+    │   │   ├── bulk.html         # Bulk processing
+    │   │   └── efactura.html     # e-Factura unallocated invoices
     │   └── statements/
     │       └── index.html        # Bank statement upload & review
     └── hr/
@@ -122,6 +134,7 @@ jarvis/                           # Main application folder
 | `/accounting` | Accounting | Bugetare | Dashboard |
 | `/templates` | Accounting | Bugetare | Templates |
 | `/bulk` | Accounting | Bugetare | Bulk processor |
+| `/accounting/efactura` | Accounting | e-Factura | Unallocated invoices |
 | `/statements/` | Accounting | Statements | Bank statement upload |
 | `/statements/mappings` | Accounting | Statements | Vendor mappings |
 | `/hr/events/` | HR | Events | Event bonuses |
@@ -171,6 +184,7 @@ docker run -p 8080:8080 -e DATABASE_URL="..." -e ANTHROPIC_API_KEY="..." bugetar
 - `GOOGLE_CREDENTIALS_JSON` - Google Drive API credentials (service account)
 - `GOOGLE_OAUTH_TOKEN` - Base64-encoded OAuth token for Google Drive (production)
 - `TINYPNG_API_KEY` - TinyPNG API key for image compression (optional, has default)
+- `EFACTURA_MOCK_MODE` - Set to `true` for development without ANAF certificate
 
 ## Database Schema
 
@@ -214,6 +228,7 @@ The platform uses a normalized organizational hierarchy with foreign key referen
 - `connectors` - External service connectors (Google Ads, Anthropic) - DISABLED
 - `vendor_mappings` - Regex patterns to match bank transactions to suppliers
 - `bank_statement_transactions` - Parsed transactions from bank statements
+- `efactura_invoices` - e-Factura invoices imported from ANAF (jarvis_invoice_id links to invoices table)
 
 ### HR Schema (`hr.`)
 The HR module uses a separate PostgreSQL schema for data isolation:
@@ -237,6 +252,7 @@ The HR module uses a separate PostgreSQL schema for data isolation:
 | reinvoice_destinations | org_unit_id | department_structure.id |
 | hr.employees | org_unit_id | department_structure.id |
 | hr.events | company_id | companies.id |
+| efactura_invoices | jarvis_invoice_id | invoices.id |
 
 ## Bank Statement Module
 
@@ -286,6 +302,100 @@ Vendor mappings use regex patterns to match bank transaction descriptions to sup
 4. Internal transfers auto-ignored ("alim card")
 5. Review transactions, add mappings for unmatched vendors
 6. Select matched transactions → Create invoices
+
+## e-Factura Connector
+
+### Overview
+The e-Factura connector (`jarvis/core/connectors/efactura/`) integrates with ANAF's RO e-Invoicing system to fetch invoices automatically and send them to the JARVIS Invoice Module for allocation.
+
+### Architecture
+```
+ANAF SPV API ──────┐
+(X.509 Auth)       │
+                   ▼
+            ┌──────────────┐
+            │ ANAF Client  │  anaf_client.py / mock_client.py
+            └──────┬───────┘
+                   │
+                   ▼
+            ┌──────────────┐
+            │  XML Parser  │  xml_parser.py (UBL 2.1)
+            └──────┬───────┘
+                   │
+                   ▼
+            ┌──────────────┐
+            │   Database   │  efactura_invoices table
+            └──────┬───────┘
+                   │
+    ┌──────────────┼──────────────┐
+    ▼              ▼              ▼
+Unallocated    View Details   Export PDF
+Page           (JSON)         (ANAF API)
+```
+
+### API Routes
+
+| Method | URL | Description |
+|--------|-----|-------------|
+| GET | `/efactura/` | Connector settings page |
+| POST | `/efactura/api/import` | Import invoices from ANAF |
+| GET | `/efactura/api/invoices/unallocated` | List unallocated invoices |
+| GET | `/efactura/api/invoices/unallocated/count` | Count for badge |
+| POST | `/efactura/api/invoices/send-to-module` | Send to Invoice Module |
+| GET | `/efactura/api/invoices/<id>/pdf` | Export PDF from XML |
+| GET | `/efactura/api/messages` | List ANAF messages (SPV inbox) |
+
+### Database Table (`efactura_invoices`)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | SERIAL | Primary key |
+| anaf_message_id | VARCHAR(100) | ANAF message ID (unique) |
+| upload_index | INTEGER | Index in ZIP file |
+| invoice_number | VARCHAR(100) | Invoice number |
+| issue_date | DATE | Issue date |
+| due_date | DATE | Due date |
+| seller_name | VARCHAR(255) | Supplier name |
+| seller_cif | VARCHAR(50) | Supplier VAT |
+| buyer_name | VARCHAR(255) | Customer name |
+| buyer_cif | VARCHAR(50) | Customer VAT |
+| total_amount | DECIMAL(15,2) | Total with VAT |
+| total_vat | DECIMAL(15,2) | VAT amount |
+| currency | VARCHAR(10) | Currency code |
+| direction | VARCHAR(10) | 'inbound' or 'outbound' |
+| xml_content | TEXT | Stored XML for PDF generation |
+| jarvis_invoice_id | INTEGER | FK to invoices table (NULL = unallocated) |
+| created_at | TIMESTAMP | Import timestamp |
+
+### XML Parser (`xml_parser.py`)
+Parses UBL 2.1 e-Factura XML documents:
+- Extracts seller/buyer info (name, CIF, address)
+- Extracts amounts (total, VAT, net)
+- Extracts payment terms and bank account
+- Parses line items with quantities and unit prices
+- Handles VAT breakdown by rate
+
+### Mock Client
+For development without ANAF certificate:
+- Set `EFACTURA_MOCK_MODE=true` in environment
+- Returns simulated messages and invoices
+- Allows testing full workflow without API access
+
+### Accounting Module Integration
+The Unallocated Invoices page (`/accounting/efactura`):
+- Shows e-Factura invoices not yet sent to Invoice Module
+- Filters: Company, Direction (Inbound/Outbound), Date range, Search
+- Bulk selection with "Send to Invoices" action
+- Individual actions: Send to Invoices, View Details, Export PDF
+- Badge in accounting navigation shows unallocated count
+
+### Workflow
+1. **Import from ANAF**: Fetch messages from SPV inbox
+2. **Parse XML**: Extract invoice data using UBL 2.1 parser
+3. **Store**: Save to `efactura_invoices` table with XML content
+4. **Review**: View unallocated invoices in `/accounting/efactura`
+5. **Send to Module**: Create record in main `invoices` table
+6. **Mark Allocated**: Set `jarvis_invoice_id` to link records
 
 ## Deployment
 Configured via `.do/app.yaml` for DigitalOcean App Platform with auto-deploy on push to main branch.
@@ -659,4 +769,8 @@ The `department_structure` table maps companies to brands, departments, and mana
 
 ## Disabled Features
 
-Connector infrastructure (Google Ads, Anthropic invoice fetching) is disabled. Files `google_ads_connector.py` and `anthropic_connector.py` remain for future use.
+Some connector infrastructure remains disabled:
+- **Google Ads connector** (`google_ads_connector.py`) - for future invoice auto-fetching
+- **Anthropic connector** (`anthropic_connector.py`) - for future invoice auto-fetching
+
+**Active connectors**: e-Factura (ANAF RO e-Invoicing) is fully functional in `core/connectors/efactura/`.

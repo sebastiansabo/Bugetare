@@ -1,6 +1,28 @@
 # Changelog
 
 ## 2026-01-26
+### e-Factura Connector - JARVIS Integration
+- Added **e-Factura button** to Accounting navigation (between Invoices and Statements)
+- Created **Unallocated Invoices page** at `/accounting/efactura`
+  - Shows invoices imported from ANAF e-Factura that need allocation
+  - Filters: Company, Direction, Date range, Search
+  - Bulk selection with "Send to Invoices" action
+  - Individual actions: Send to Invoices, View Details, Export PDF
+- Badge in navigation shows count of unallocated invoices
+- **XML Parser module** (`core/connectors/efactura/xml_parser.py`)
+  - Parses UBL 2.1 e-Factura XML format
+  - Extracts seller/buyer info, amounts, dates, line items
+- **Import from ANAF** functionality
+  - Downloads ZIP from ANAF, extracts XML, parses invoice data
+  - Stores XML content in database for PDF generation
+  - Deduplication by ANAF message ID
+- **Send to Invoice Module** workflow
+  - Creates record in main `invoices` table
+  - Marks e-Factura invoice as allocated (`jarvis_invoice_id`)
+- **Database migration** (`002_add_jarvis_integration.sql`)
+  - Added `jarvis_invoice_id` column to track allocation status
+  - Added `xml_content` column for XML storage
+
 ### Company Brands Migration - FK-based Junction Table
 - Migrated `company_brands` from TEXT-based to FK-based storage
 - Schema: `company_brands.brand_id` now references `brands.id` (master table)

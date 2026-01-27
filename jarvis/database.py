@@ -86,6 +86,20 @@ def _set_cache_data(cache_dict: dict, data, key: str = 'data'):
         cache_dict['timestamp'] = time.time()
 
 
+def create_cache(ttl: int = 300) -> dict:
+    """Create a new cache dictionary with specified TTL."""
+    return {
+        'data': None,
+        'timestamp': 0,
+        'ttl': ttl
+    }
+
+
+def get_cache_lock():
+    """Get the shared cache lock for custom cache operations."""
+    return _cache_lock
+
+
 def _get_summary_cache(cache_type: str, cache_key: str):
     """Thread-safe getter for summary cache entries."""
     with _cache_lock:
@@ -186,15 +200,15 @@ if not DATABASE_URL:
 # Connection pool configuration
 # minconn: minimum connections kept open
 # maxconn: maximum connections allowed
-# Note: DigitalOcean managed DB has ~25 max connections total
-# With multiple workers, keep pool small to stay within DO's ~25 connection limit
+# Note: DigitalOcean managed DB has 22 max connections
+# Single unified pool - core/database.py re-exports from here
 _connection_pool = None
 
 # Pool size configuration - can be tuned via environment variables
-# DigitalOcean managed DB has ~25 max connections
-# With 3 Gunicorn workers: 3 workers × 7 max = 21 connections (safe margin)
+# DigitalOcean managed DB has 22 max connections
+# With 3 Gunicorn workers: 3 workers × 6 max = 18 connections (4 reserved for admin)
 POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '2'))
-POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '7'))
+POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '6'))
 
 
 def _get_pool():
@@ -3697,6 +3711,156 @@ def get_connector_sync_logs(connector_id: int, limit: int = 20) -> list[dict]:
     logs = [dict_from_row(row) for row in cursor.fetchall()]
     release_db(conn)
     return logs
+
+
+# ============ e-Factura OAuth Token Functions ============
+
+def get_efactura_oauth_tokens(company_cif: str) -> Optional[dict]:
+    """
+    Get OAuth tokens for a company's e-Factura connection.
+
+    Args:
+        company_cif: Company CIF (without RO prefix)
+
+    Returns:
+        Dict with tokens or None if not found
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT credentials FROM connectors
+        WHERE connector_type = 'efactura'
+        AND name = %s
+        AND status = 'connected'
+    ''', (company_cif,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row and row['credentials']:
+        return row['credentials']
+    return None
+
+
+def save_efactura_oauth_tokens(company_cif: str, tokens: dict) -> bool:
+    """
+    Save OAuth tokens for a company's e-Factura connection.
+    Creates connector if not exists, updates if exists.
+
+    Args:
+        company_cif: Company CIF (without RO prefix)
+        tokens: Dict with access_token, refresh_token, expires_at, etc.
+
+    Returns:
+        True if successful
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    try:
+        # Check if connector exists
+        cursor.execute('''
+            SELECT id FROM connectors
+            WHERE connector_type = 'efactura' AND name = %s
+        ''', (company_cif,))
+        existing = cursor.fetchone()
+
+        if existing:
+            # Update existing connector
+            cursor.execute('''
+                UPDATE connectors
+                SET credentials = %s,
+                    status = 'connected',
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            ''', (json.dumps(tokens), existing['id']))
+        else:
+            # Create new connector
+            cursor.execute('''
+                INSERT INTO connectors (connector_type, name, status, credentials, config)
+                VALUES ('efactura', %s, 'connected', %s, '{}')
+            ''', (company_cif, json.dumps(tokens)))
+
+        conn.commit()
+        return True
+
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def delete_efactura_oauth_tokens(company_cif: str) -> bool:
+    """
+    Remove OAuth tokens for a company (disconnect).
+
+    Args:
+        company_cif: Company CIF
+
+    Returns:
+        True if tokens were removed
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    try:
+        cursor.execute('''
+            UPDATE connectors
+            SET credentials = '{}',
+                status = 'disconnected',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE connector_type = 'efactura' AND name = %s
+        ''', (company_cif,))
+
+        affected = cursor.rowcount
+        conn.commit()
+        return affected > 0
+
+    except Exception as e:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def get_efactura_oauth_status(company_cif: str) -> dict:
+    """
+    Get OAuth authentication status for a company.
+
+    Args:
+        company_cif: Company CIF
+
+    Returns:
+        Dict with authenticated, expires_at, etc.
+    """
+    tokens = get_efactura_oauth_tokens(company_cif)
+
+    if not tokens or not tokens.get('access_token'):
+        return {
+            'authenticated': False,
+            'expires_at': None,
+            'cif': company_cif,
+        }
+
+    from datetime import datetime
+    expires_at = tokens.get('expires_at')
+    is_expired = False
+
+    if expires_at:
+        if isinstance(expires_at, str):
+            expires_dt = datetime.fromisoformat(expires_at.replace('Z', ''))
+        else:
+            expires_dt = expires_at
+        is_expired = datetime.utcnow() >= expires_dt
+
+    return {
+        'authenticated': True,
+        'expires_at': expires_at,
+        'is_expired': is_expired,
+        'cif': company_cif,
+    }
 
 
 # ============ Role Management Functions ============
