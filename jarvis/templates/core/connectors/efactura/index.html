@@ -916,7 +916,10 @@
 
         function updateAnafSelectionCount() {
             const checked = document.querySelectorAll('.anaf-checkbox:checked').length;
-            document.getElementById('anafSelectedCount').textContent = checked;
+            const countEl = document.getElementById('anafSelectedCount');
+            if (countEl) {
+                countEl.textContent = checked;
+            }
             document.getElementById('importSelectedBtn').disabled = checked === 0;
         }
 
