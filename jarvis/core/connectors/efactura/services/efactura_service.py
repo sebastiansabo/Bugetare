@@ -407,7 +407,7 @@ class EFacturaService:
         })
 
     def get_invoice(self, invoice_id: int) -> ServiceResult:
-        """Get invoice details with artifacts."""
+        """Get invoice details with artifacts and full partner info from XML."""
         invoice = self.invoice_repo.get_by_id(invoice_id)
 
         if invoice is None:
@@ -415,6 +415,29 @@ class EFacturaService:
 
         external_ref = self.invoice_repo.get_external_ref(invoice_id)
         artifacts = self.invoice_repo.get_artifacts(invoice_id)
+
+        # Parse XML to get full seller/buyer details
+        seller_info = {}
+        buyer_info = {}
+        try:
+            xml_content = self.invoice_repo.get_xml_content(invoice_id)
+            if xml_content:
+                from ..xml_parser import parse_efactura_xml
+                parsed = parse_efactura_xml(xml_content)
+                if parsed:
+                    seller_info = {
+                        'name': parsed.seller_name,
+                        'cif': parsed.seller_cif,
+                        'address': parsed.seller_address,
+                        'reg_number': parsed.seller_reg_number,
+                    }
+                    buyer_info = {
+                        'name': parsed.buyer_name,
+                        'cif': parsed.buyer_cif,
+                        'address': parsed.buyer_address,
+                    }
+        except Exception as e:
+            logger.warning(f"Could not parse XML for invoice {invoice_id}: {e}")
 
         return ServiceResult(success=True, data={
             'id': invoice.id,
@@ -433,6 +456,8 @@ class EFacturaService:
             'status': invoice.status.value,
             'created_at': invoice.created_at.isoformat() if invoice.created_at else None,
             'updated_at': invoice.updated_at.isoformat() if invoice.updated_at else None,
+            'seller': seller_info,
+            'buyer': buyer_info,
             'external_ref': {
                 'message_id': external_ref.message_id,
                 'upload_id': external_ref.upload_id,
