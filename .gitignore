@@ -60,3 +60,16 @@ node_modules/
 /playwright/.cache/
 /playwright/.auth/
 /HR/
+
+# Duplicate/development modules
+jarvis/accounting/efactura/
+
+# Backups
+backups/
+
+# Downloaded reference materials
+anaf-php-main.zip
+anaf-php-main/
+
+# Claude Code internal
+.claude-code/
