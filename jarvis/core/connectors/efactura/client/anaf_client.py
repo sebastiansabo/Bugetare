@@ -410,14 +410,21 @@ class ANAFClient:
             }
         )
 
+        # ANAF API requires startTime and endTime as Unix timestamps in milliseconds
+        # (NOT the 'zile' parameter which is deprecated/not recognized)
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=days)
+
         params = {
             'cif': company_cif,
-            'zile': days,
+            'startTime': int(start_time.timestamp() * 1000),  # Unix ms
+            'endTime': int(end_time.timestamp() * 1000),      # Unix ms
             'pagina': page,
-            # ANAF requires filtru parameter - default to 'E' (both) if not specified
-            # P=Primite (received), T=Trimise (sent), E=Both (toate)
-            'filtru': filter_type if filter_type else 'E',
         }
+
+        # Add filter only if specified (P=Primite/received, T=Trimise/sent, E=Both)
+        if filter_type:
+            params['filtru'] = filter_type
 
         response = self._make_request(
             'GET',
