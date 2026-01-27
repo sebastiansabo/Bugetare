@@ -783,6 +783,83 @@ def sync_all():
         }), 500
 
 
+@efactura_bp.route('/api/sync/companies', methods=['GET'])
+@api_login_required
+def get_sync_companies():
+    """
+    Get list of companies available for sync.
+
+    Returns list of connected companies with their CIF and display name.
+    Used by frontend to drive progress-aware sync.
+    """
+    try:
+        connections = efactura_service.get_all_connections()
+
+        return jsonify({
+            'success': True,
+            'companies': [
+                {
+                    'cif': c['cif'],
+                    'display_name': c.get('display_name', c['cif']),
+                }
+                for c in connections
+            ],
+            'count': len(connections),
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting sync companies: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/sync/company', methods=['POST'])
+@api_login_required
+def sync_single_company():
+    """
+    Sync invoices for a single company.
+
+    Request body:
+        cif: Company CIF (required)
+        days: Number of days to look back (default 60)
+
+    Returns:
+        Results for this company's sync operation
+    """
+    try:
+        data = request.get_json() or {}
+        cif = data.get('cif')
+        days = int(data.get('days', 60))
+
+        if not cif:
+            return jsonify({
+                'success': False,
+                'error': "Missing required field: cif",
+            }), 400
+
+        result = efactura_service.sync_single_company(cif, days=days)
+
+        if not result.success:
+            return jsonify({
+                'success': False,
+                'error': result.error,
+            }), 400
+
+        return jsonify({
+            'success': True,
+            **result.data,
+        })
+
+    except Exception as e:
+        logger.error(f"Error syncing company: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
 # ============================================================
 # API: Unallocated Invoices
 # ============================================================

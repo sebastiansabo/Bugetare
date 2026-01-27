@@ -906,6 +906,103 @@ class EFacturaService:
             'company_results': company_results,
         })
 
+    def sync_single_company(self, cif: str, days: int = 60) -> ServiceResult:
+        """
+        Sync invoices for a single company.
+
+        Fetches messages from ANAF and imports them.
+        Used by frontend for progress-aware sync.
+
+        Args:
+            cif: Company CIF to sync
+            days: Number of days to look back (default 60)
+
+        Returns:
+            ServiceResult with sync results for this company
+        """
+        logger.info(f"Syncing single company", extra={'cif': cif, 'days': days})
+
+        # Find company display name
+        connections = self.get_all_connections()
+        display_name = cif
+        for conn in connections:
+            if conn['cif'] == cif:
+                display_name = conn.get('display_name', cif)
+                break
+
+        try:
+            # Fetch all messages from ANAF (all pages)
+            all_message_ids = []
+            page = 1
+            max_pages = 50  # Safety limit
+
+            while page <= max_pages:
+                fetch_result = self.fetch_anaf_messages(
+                    cif=cif,
+                    days=days,
+                    page=page,
+                    filter_type=None,  # Get both received and sent
+                )
+
+                if not fetch_result.success:
+                    return ServiceResult(
+                        success=False,
+                        error=f"Failed to fetch messages: {fetch_result.error}"
+                    )
+
+                messages = fetch_result.data.get('messages', [])
+                if not messages:
+                    break
+
+                # Extract message IDs
+                for msg in messages:
+                    msg_id = str(msg.get('id', ''))
+                    if msg_id:
+                        all_message_ids.append(msg_id)
+
+                # Check if there are more pages
+                pagination = fetch_result.data.get('pagination', {})
+                if not pagination.get('has_more', False):
+                    break
+
+                page += 1
+
+            if not all_message_ids:
+                return ServiceResult(success=True, data={
+                    'company': display_name,
+                    'cif': cif,
+                    'fetched': 0,
+                    'imported': 0,
+                    'skipped': 0,
+                    'errors': [],
+                })
+
+            # Import all messages (duplicates are automatically skipped)
+            import_result = self.import_from_anaf(cif, all_message_ids)
+
+            if import_result.success:
+                imported = import_result.data.get('imported', 0)
+                skipped = import_result.data.get('skipped', 0)
+                import_errors = import_result.data.get('errors', []) or []
+
+                return ServiceResult(success=True, data={
+                    'company': display_name,
+                    'cif': cif,
+                    'fetched': len(all_message_ids),
+                    'imported': imported,
+                    'skipped': skipped,
+                    'errors': import_errors,
+                })
+            else:
+                return ServiceResult(
+                    success=False,
+                    error=f"Import failed: {import_result.error}"
+                )
+
+        except Exception as e:
+            logger.error(f"Error syncing company {cif}: {e}")
+            return ServiceResult(success=False, error=str(e))
+
     # ============== Unallocated Invoices ==============
 
     def list_unallocated_invoices(

@@ -433,7 +433,7 @@
             }, delay);
         }
 
-        // Sync all invoices from all connected companies
+        // Sync all invoices from all connected companies with real progress
         async function syncAll() {
             const syncBtn = document.getElementById('syncBtn');
             const originalContent = syncBtn.innerHTML;
@@ -442,87 +442,148 @@
             syncBtn.disabled = true;
             syncBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Syncing...';
 
-            // Show progress indicator in summary area
-            showSyncProgress('Syncing...', 'Connecting to ANAF...', null, 'syncing');
+            // Show progress indicator
+            showSyncProgress('Starting...', 'Getting company list...', 0, 'syncing');
+
+            // Totals for summary
+            let totalImported = 0;
+            let totalSkipped = 0;
+            let totalFetched = 0;
+            let allErrors = [];
+            let companyResults = [];
 
             try {
-                // Simulate progress phases (since we can't get real-time progress from single API call)
-                const progressPhases = [
-                    { delay: 500, status: 'Syncing...', detail: 'Fetching messages from ANAF...', progress: null },
-                    { delay: 2000, status: 'Syncing...', detail: 'Downloading invoices...', progress: null },
-                    { delay: 4000, status: 'Syncing...', detail: 'Importing to database...', progress: null },
-                ];
+                // Step 1: Get list of companies to sync
+                const companiesRes = await fetch('/efactura/api/sync/companies');
+                const companiesData = await companiesRes.json();
 
-                // Start progress animation
-                progressPhases.forEach(phase => {
-                    setTimeout(() => {
-                        if (syncBtn.disabled) { // Only update if still syncing
-                            showSyncProgress(phase.status, phase.detail, phase.progress, 'syncing');
-                        }
-                    }, phase.delay);
-                });
+                if (!companiesData.success || !companiesData.companies || companiesData.companies.length === 0) {
+                    showSyncProgress('No companies', companiesData.error || 'No connected companies found', 100, 'error');
+                    alert(companiesData.error || 'No connected companies found. Go to Connector Settings to add a connection.');
+                    hideSyncProgress(3000);
+                    return;
+                }
 
-                const res = await fetch('/efactura/api/sync', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ days: 60 })
-                });
-                const data = await res.json();
+                const companies = companiesData.companies;
+                const totalCompanies = companies.length;
 
-                if (data.success) {
-                    const hasErrors = data.errors && data.errors.length > 0;
-                    const state = hasErrors ? 'error' : 'completed';
-                    const icon = hasErrors ? 'exclamation-triangle' : 'check-circle';
+                // Step 2: Sync each company one by one
+                for (let i = 0; i < companies.length; i++) {
+                    const company = companies[i];
+                    const progress = Math.round(((i) / totalCompanies) * 100);
 
-                    // Show completion in progress bar
+                    // Update progress bar
                     showSyncProgress(
-                        hasErrors ? 'Completed with errors' : 'Sync Complete!',
-                        `${data.total_imported} imported, ${data.total_skipped} skipped` +
-                        (hasErrors ? `, ${data.errors.length} errors` : ''),
-                        100,
-                        state
+                        `Syncing ${i + 1}/${totalCompanies}`,
+                        `${company.display_name} (${company.cif})...`,
+                        progress,
+                        'syncing'
                     );
 
-                    // Build detailed summary for console/tooltip
-                    console.log('Sync Results:', {
-                        companies_synced: data.companies_synced,
-                        total_fetched: data.total_fetched,
-                        total_imported: data.total_imported,
-                        total_skipped: data.total_skipped,
-                        errors: data.errors,
-                        company_results: data.company_results
-                    });
+                    try {
+                        const syncRes = await fetch('/efactura/api/sync/company', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ cif: company.cif, days: 60 })
+                        });
+                        const syncData = await syncRes.json();
 
-                    // If there are errors or notable results, show a brief toast-like notification
-                    if (data.total_imported > 0 || hasErrors) {
-                        let msg = `Sync completed!\n\n`;
-                        msg += `Imported: ${data.total_imported} invoice(s)\n`;
-                        msg += `Skipped: ${data.total_skipped} (already imported)`;
+                        if (syncData.success) {
+                            totalImported += syncData.imported || 0;
+                            totalSkipped += syncData.skipped || 0;
+                            totalFetched += syncData.fetched || 0;
 
-                        if (hasErrors) {
-                            msg += `\n\n⚠️ ${data.errors.length} errors occurred:\n`;
-                            msg += data.errors.slice(0, 5).join('\n');
-                            if (data.errors.length > 5) {
-                                msg += `\n... and ${data.errors.length - 5} more (check console)`;
+                            if (syncData.errors && syncData.errors.length > 0) {
+                                allErrors.push(...syncData.errors.map(e => `${company.display_name}: ${e}`));
                             }
-                        }
 
-                        // Show alert only if there's something notable
-                        if (data.total_imported > 0 || hasErrors) {
-                            alert(msg);
+                            companyResults.push({
+                                company: company.display_name,
+                                cif: company.cif,
+                                fetched: syncData.fetched || 0,
+                                imported: syncData.imported || 0,
+                                skipped: syncData.skipped || 0,
+                                errors: (syncData.errors || []).length
+                            });
+                        } else {
+                            allErrors.push(`${company.display_name}: ${syncData.error || 'Unknown error'}`);
+                            companyResults.push({
+                                company: company.display_name,
+                                cif: company.cif,
+                                fetched: 0,
+                                imported: 0,
+                                skipped: 0,
+                                errors: 1
+                            });
+                        }
+                    } catch (companyErr) {
+                        allErrors.push(`${company.display_name}: ${companyErr.message}`);
+                        companyResults.push({
+                            company: company.display_name,
+                            cif: company.cif,
+                            fetched: 0,
+                            imported: 0,
+                            skipped: 0,
+                            errors: 1
+                        });
+                    }
+
+                    // Update progress after each company
+                    const newProgress = Math.round(((i + 1) / totalCompanies) * 100);
+                    showSyncProgress(
+                        `Syncing ${i + 1}/${totalCompanies}`,
+                        `${totalImported} imported, ${totalSkipped} skipped`,
+                        newProgress,
+                        'syncing'
+                    );
+                }
+
+                // Step 3: Show completion
+                const hasErrors = allErrors.length > 0;
+                const state = hasErrors ? 'error' : 'completed';
+
+                showSyncProgress(
+                    hasErrors ? 'Completed with errors' : 'Sync Complete!',
+                    `${totalImported} imported, ${totalSkipped} skipped` +
+                    (hasErrors ? `, ${allErrors.length} errors` : ''),
+                    100,
+                    state
+                );
+
+                // Log detailed results
+                console.log('Sync Results:', {
+                    companies_synced: totalCompanies,
+                    total_fetched: totalFetched,
+                    total_imported: totalImported,
+                    total_skipped: totalSkipped,
+                    errors: allErrors,
+                    company_results: companyResults
+                });
+
+                // Show alert with summary
+                if (totalImported > 0 || hasErrors) {
+                    let msg = `Sync completed!\n\n`;
+                    msg += `Companies synced: ${totalCompanies}\n`;
+                    msg += `Imported: ${totalImported} invoice(s)\n`;
+                    msg += `Skipped: ${totalSkipped} (already imported)`;
+
+                    if (hasErrors) {
+                        msg += `\n\n⚠️ ${allErrors.length} errors occurred:\n`;
+                        msg += allErrors.slice(0, 5).join('\n');
+                        if (allErrors.length > 5) {
+                            msg += `\n... and ${allErrors.length - 5} more (check console)`;
                         }
                     }
 
-                    // Reload the invoices list
-                    loadUnallocatedInvoices();
-
-                    // Hide progress after a delay
-                    hideSyncProgress(3000);
-                } else {
-                    showSyncProgress('Sync Failed', data.error || 'Unknown error', 100, 'error');
-                    alert('Sync failed: ' + (data.error || 'Unknown error'));
-                    hideSyncProgress(5000);
+                    alert(msg);
                 }
+
+                // Reload the invoices list
+                loadUnallocatedInvoices();
+
+                // Hide progress after a delay
+                hideSyncProgress(3000);
+
             } catch (err) {
                 showSyncProgress('Sync Failed', err.message, 100, 'error');
                 alert('Error: ' + err.message);
