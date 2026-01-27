@@ -1691,6 +1691,153 @@ def init_db():
 
         conn.commit()
 
+    # ============================================================
+    # e-Factura Connector Tables
+    # ============================================================
+
+    # Company connections for e-Factura sync
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_company_connections (
+            id SERIAL PRIMARY KEY,
+            cif VARCHAR(20) NOT NULL UNIQUE,
+            display_name VARCHAR(255) NOT NULL,
+            environment VARCHAR(20) NOT NULL DEFAULT 'test',
+            last_sync_at TIMESTAMP,
+            last_received_cursor VARCHAR(100),
+            last_sent_cursor VARCHAR(100),
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            status_message TEXT,
+            config JSONB DEFAULT '{}'::JSONB,
+            cert_fingerprint VARCHAR(64),
+            cert_expires_at TIMESTAMP,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # e-Factura invoices
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_invoices (
+            id SERIAL PRIMARY KEY,
+            cif_owner VARCHAR(20) NOT NULL,
+            direction VARCHAR(20) NOT NULL,
+            partner_cif VARCHAR(20) NOT NULL,
+            partner_name VARCHAR(500),
+            invoice_number VARCHAR(100) NOT NULL,
+            invoice_series VARCHAR(50),
+            issue_date DATE,
+            due_date DATE,
+            total_amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
+            total_vat NUMERIC(15, 2) NOT NULL DEFAULT 0,
+            total_without_vat NUMERIC(15, 2) NOT NULL DEFAULT 0,
+            currency VARCHAR(3) NOT NULL DEFAULT 'RON',
+            status VARCHAR(20) NOT NULL DEFAULT 'processed',
+            company_id INTEGER REFERENCES companies(id),
+            jarvis_invoice_id INTEGER REFERENCES invoices(id),
+            xml_content TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # e-Factura invoice references (ANAF IDs)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_invoice_refs (
+            id SERIAL PRIMARY KEY,
+            invoice_id INTEGER NOT NULL REFERENCES efactura_invoices(id) ON DELETE CASCADE,
+            external_system VARCHAR(20) NOT NULL DEFAULT 'anaf',
+            message_id VARCHAR(100) NOT NULL,
+            upload_id VARCHAR(100),
+            download_id VARCHAR(100),
+            xml_hash VARCHAR(64),
+            signature_hash VARCHAR(64),
+            raw_response_hash VARCHAR(64),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # e-Factura invoice artifacts (ZIP, XML, PDF)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_invoice_artifacts (
+            id SERIAL PRIMARY KEY,
+            invoice_id INTEGER NOT NULL REFERENCES efactura_invoices(id) ON DELETE CASCADE,
+            artifact_type VARCHAR(20) NOT NULL,
+            storage_uri TEXT NOT NULL,
+            original_filename VARCHAR(255),
+            mime_type VARCHAR(100),
+            checksum VARCHAR(64),
+            size_bytes INTEGER DEFAULT 0,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # e-Factura sync runs tracking
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_sync_runs (
+            id SERIAL PRIMARY KEY,
+            run_id VARCHAR(36) NOT NULL UNIQUE,
+            company_cif VARCHAR(20) NOT NULL,
+            started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            finished_at TIMESTAMP,
+            success BOOLEAN DEFAULT FALSE,
+            direction VARCHAR(20),
+            messages_checked INTEGER DEFAULT 0,
+            invoices_fetched INTEGER DEFAULT 0,
+            invoices_created INTEGER DEFAULT 0,
+            invoices_updated INTEGER DEFAULT 0,
+            invoices_skipped INTEGER DEFAULT 0,
+            errors_count INTEGER DEFAULT 0,
+            cursor_before VARCHAR(100),
+            cursor_after VARCHAR(100),
+            error_summary TEXT
+        )
+    ''')
+
+    # e-Factura sync errors
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_sync_errors (
+            id SERIAL PRIMARY KEY,
+            run_id VARCHAR(36) NOT NULL,
+            message_id VARCHAR(100),
+            invoice_ref VARCHAR(100),
+            error_type VARCHAR(20) NOT NULL,
+            error_code VARCHAR(50),
+            error_message TEXT NOT NULL,
+            request_hash VARCHAR(64),
+            response_hash VARCHAR(64),
+            stack_trace TEXT,
+            is_retryable BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # e-Factura OAuth tokens storage
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_oauth_tokens (
+            id SERIAL PRIMARY KEY,
+            cif VARCHAR(20) NOT NULL UNIQUE,
+            access_token TEXT NOT NULL,
+            refresh_token TEXT,
+            token_type VARCHAR(20) DEFAULT 'Bearer',
+            expires_at TIMESTAMP,
+            scope VARCHAR(100),
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    ''')
+
+    # Create indexes for e-Factura tables
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_connections_status ON efactura_company_connections(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_owner ON efactura_invoices(cif_owner, direction)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_date ON efactura_invoices(issue_date)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_status ON efactura_invoices(status)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_jarvis ON efactura_invoices(jarvis_invoice_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_refs_message ON efactura_invoice_refs(message_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_sync_runs_cif ON efactura_sync_runs(company_cif)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_oauth_cif ON efactura_oauth_tokens(cif)')
+
+    conn.commit()
+
     # Seed initial data if tables are empty
     cursor.execute('SELECT COUNT(*) FROM department_structure')
     result = cursor.fetchone()
