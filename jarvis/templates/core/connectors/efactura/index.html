@@ -958,7 +958,14 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    alert(`Imported ${data.imported} invoice(s). ${data.skipped || 0} skipped (already imported).`);
+                    let msg = `Imported ${data.imported} invoice(s). ${data.skipped || 0} skipped (already imported).`;
+                    if (data.errors && data.errors.length > 0) {
+                        msg += `\n\n${data.errors.length} errors:\n${data.errors.slice(0, 10).join('\n')}`;
+                        if (data.errors.length > 10) {
+                            msg += `\n... and ${data.errors.length - 10} more`;
+                        }
+                    }
+                    alert(msg);
                     // Refresh unallocated count
                     loadUnallocatedCount();
                 } else {
@@ -1000,7 +1007,14 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    alert(`Imported ${data.imported} invoice(s). ${data.skipped || 0} skipped (already imported).`);
+                    let msg = `Imported ${data.imported} invoice(s). ${data.skipped || 0} skipped (already imported).`;
+                    if (data.errors && data.errors.length > 0) {
+                        msg += `\n\n${data.errors.length} errors:\n${data.errors.slice(0, 10).join('\n')}`;
+                        if (data.errors.length > 10) {
+                            msg += `\n... and ${data.errors.length - 10} more`;
+                        }
+                    }
+                    alert(msg);
                     // Clear checkboxes
                     document.querySelectorAll('.anaf-checkbox').forEach(cb => cb.checked = false);
                     document.getElementById('selectAllAnafCheckbox').checked = false;
