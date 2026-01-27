@@ -71,6 +71,9 @@
                     <a href="/efactura/" class="btn btn-sm btn-outline-secondary" title="Go to e-Factura Connector settings">
                         <i class="bi bi-gear"></i> Connector Settings
                     </a>
+                    <button class="btn btn-sm btn-success" onclick="syncAll()" id="syncBtn" title="Fetch and import all invoices from all connected companies">
+                        <i class="bi bi-cloud-arrow-down"></i> Sync
+                    </button>
                     <button class="btn btn-sm btn-outline-primary" onclick="loadUnallocatedInvoices()">
                         <i class="bi bi-arrow-clockwise"></i> Refresh
                     </button>
@@ -325,6 +328,65 @@
                 tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-danger py-4">
                     <i class="bi bi-exclamation-triangle"></i> Error: ${err.message}
                 </td></tr>`;
+            }
+        }
+
+        // Sync all invoices from all connected companies
+        async function syncAll() {
+            const syncBtn = document.getElementById('syncBtn');
+            const originalContent = syncBtn.innerHTML;
+
+            // Disable button and show loading state
+            syncBtn.disabled = true;
+            syncBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Syncing...';
+
+            try {
+                const res = await fetch('/efactura/api/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ days: 60 })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    // Build summary message
+                    let msg = `Sync completed!\n\n`;
+                    msg += `Companies synced: ${data.companies_synced}\n`;
+                    msg += `Total fetched: ${data.total_fetched}\n`;
+                    msg += `Imported: ${data.total_imported}\n`;
+                    msg += `Skipped (duplicates): ${data.total_skipped}`;
+
+                    // Show per-company results if available
+                    if (data.company_results && data.company_results.length > 0) {
+                        msg += `\n\n--- Per Company ---`;
+                        data.company_results.forEach(cr => {
+                            msg += `\n${cr.company}: ${cr.imported} imported, ${cr.skipped} skipped`;
+                            if (cr.errors > 0) msg += ` (${cr.errors} errors)`;
+                        });
+                    }
+
+                    // Show errors if any
+                    if (data.errors && data.errors.length > 0) {
+                        msg += `\n\n--- Errors (${data.errors.length}) ---\n`;
+                        msg += data.errors.slice(0, 10).join('\n');
+                        if (data.errors.length > 10) {
+                            msg += `\n... and ${data.errors.length - 10} more`;
+                        }
+                    }
+
+                    alert(msg);
+
+                    // Reload the invoices list
+                    loadUnallocatedInvoices();
+                } else {
+                    alert('Sync failed: ' + (data.error || 'Unknown error'));
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            } finally {
+                // Restore button state
+                syncBtn.disabled = false;
+                syncBtn.innerHTML = originalContent;
             }
         }
 

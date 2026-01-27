@@ -757,6 +757,155 @@ class EFacturaService:
             'company_id': company_id,
         })
 
+    def sync_all(self, days: int = 60) -> ServiceResult:
+        """
+        Sync all invoices from all connected companies.
+
+        Fetches messages from ANAF for all active connections and imports them.
+        Automatically skips duplicates (already imported invoices).
+
+        Args:
+            days: Number of days to look back (default 60)
+
+        Returns:
+            ServiceResult with summary of sync operation
+        """
+        logger.info("Starting sync_all operation", extra={'days': days})
+
+        # Get all active company connections
+        connections = self.get_all_connections()
+
+        if not connections:
+            return ServiceResult(
+                success=False,
+                error="No active company connections found. Go to Connector Settings to add a connection."
+            )
+
+        total_fetched = 0
+        total_imported = 0
+        total_skipped = 0
+        all_errors = []
+        company_results = []
+
+        for conn in connections:
+            cif = conn['cif']
+            display_name = conn.get('display_name', cif)
+
+            try:
+                logger.info(f"Syncing company {display_name} ({cif})")
+
+                # Fetch all messages from ANAF (all pages)
+                all_message_ids = []
+                page = 1
+                max_pages = 50  # Safety limit
+
+                while page <= max_pages:
+                    fetch_result = self.fetch_anaf_messages(
+                        cif=cif,
+                        days=days,
+                        page=page,
+                        filter_type=None,  # Get both received and sent
+                    )
+
+                    if not fetch_result.success:
+                        all_errors.append(f"{display_name}: Failed to fetch - {fetch_result.error}")
+                        break
+
+                    messages = fetch_result.data.get('messages', [])
+                    if not messages:
+                        break
+
+                    # Extract message IDs
+                    for msg in messages:
+                        msg_id = str(msg.get('id', ''))
+                        if msg_id:
+                            all_message_ids.append(msg_id)
+
+                    # Check if there are more pages
+                    pagination = fetch_result.data.get('pagination', {})
+                    if not pagination.get('has_more', False):
+                        break
+
+                    page += 1
+
+                total_fetched += len(all_message_ids)
+
+                if not all_message_ids:
+                    company_results.append({
+                        'company': display_name,
+                        'cif': cif,
+                        'fetched': 0,
+                        'imported': 0,
+                        'skipped': 0,
+                        'errors': 0,
+                    })
+                    continue
+
+                # Import all messages (duplicates are automatically skipped)
+                import_result = self.import_from_anaf(cif, all_message_ids)
+
+                if import_result.success:
+                    imported = import_result.data.get('imported', 0)
+                    skipped = import_result.data.get('skipped', 0)
+                    errors = import_result.data.get('errors', [])
+
+                    total_imported += imported
+                    total_skipped += skipped
+
+                    if errors:
+                        all_errors.extend([f"{display_name}: {e}" for e in errors])
+
+                    company_results.append({
+                        'company': display_name,
+                        'cif': cif,
+                        'fetched': len(all_message_ids),
+                        'imported': imported,
+                        'skipped': skipped,
+                        'errors': len(errors) if errors else 0,
+                    })
+                else:
+                    all_errors.append(f"{display_name}: Import failed - {import_result.error}")
+                    company_results.append({
+                        'company': display_name,
+                        'cif': cif,
+                        'fetched': len(all_message_ids),
+                        'imported': 0,
+                        'skipped': 0,
+                        'errors': 1,
+                    })
+
+            except Exception as e:
+                logger.error(f"Error syncing company {cif}: {e}")
+                all_errors.append(f"{display_name}: {str(e)}")
+                company_results.append({
+                    'company': display_name,
+                    'cif': cif,
+                    'fetched': 0,
+                    'imported': 0,
+                    'skipped': 0,
+                    'errors': 1,
+                })
+
+        logger.info(
+            "Sync_all completed",
+            extra={
+                'companies_synced': len(connections),
+                'total_fetched': total_fetched,
+                'total_imported': total_imported,
+                'total_skipped': total_skipped,
+                'total_errors': len(all_errors),
+            }
+        )
+
+        return ServiceResult(success=True, data={
+            'companies_synced': len(connections),
+            'total_fetched': total_fetched,
+            'total_imported': total_imported,
+            'total_skipped': total_skipped,
+            'errors': all_errors if all_errors else None,
+            'company_results': company_results,
+        })
+
     # ============== Unallocated Invoices ==============
 
     def list_unallocated_invoices(

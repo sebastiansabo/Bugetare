@@ -741,6 +741,48 @@ def import_from_anaf():
         }), 500
 
 
+@efactura_bp.route('/api/sync', methods=['POST'])
+@api_login_required
+def sync_all():
+    """
+    Sync all invoices from all connected companies.
+
+    Fetches messages from ANAF for all active connections and imports them.
+    Automatically skips duplicates (already imported invoices).
+
+    Request body (optional):
+        days: Number of days to look back (default 60)
+    """
+    try:
+        data = request.get_json() or {}
+        days = int(data.get('days', 60))
+
+        result = efactura_service.sync_all(days=days)
+
+        if not result.success:
+            return jsonify({
+                'success': False,
+                'error': result.error,
+            }), 400
+
+        return jsonify({
+            'success': True,
+            'companies_synced': result.data['companies_synced'],
+            'total_fetched': result.data['total_fetched'],
+            'total_imported': result.data['total_imported'],
+            'total_skipped': result.data['total_skipped'],
+            'errors': result.data['errors'],
+            'company_results': result.data['company_results'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error in sync_all: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
 # ============================================================
 # API: Unallocated Invoices
 # ============================================================
