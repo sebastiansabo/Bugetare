@@ -520,14 +520,14 @@ class InvoiceRepository:
         """
         List invoices that haven't been sent to the main Invoice Module.
 
-        Unallocated = jarvis_invoice_id IS NULL AND ignored = FALSE
+        Unallocated = jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL
         """
         conn = get_db()
         try:
             cursor = get_cursor(conn)
 
-            # Build WHERE clause - exclude ignored invoices
-            conditions = ['jarvis_invoice_id IS NULL', 'ignored = FALSE']
+            # Build WHERE clause - exclude ignored and deleted invoices
+            conditions = ['jarvis_invoice_id IS NULL', 'ignored = FALSE', 'deleted_at IS NULL']
             params = {'limit': limit, 'offset': offset}
 
             if cif_owner:
@@ -580,21 +580,392 @@ class InvoiceRepository:
             release_db(conn)
 
     def count_unallocated(self, cif_owner: Optional[str] = None) -> int:
-        """Count unallocated invoices (excluding ignored)."""
+        """Count unallocated invoices (excluding ignored and deleted)."""
         conn = get_db()
         try:
             cursor = get_cursor(conn)
             if cif_owner:
                 cursor.execute("""
                     SELECT COUNT(*) as total FROM efactura_invoices
-                    WHERE jarvis_invoice_id IS NULL AND ignored = FALSE AND cif_owner = %s
+                    WHERE jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL AND cif_owner = %s
                 """, (cif_owner,))
             else:
                 cursor.execute("""
                     SELECT COUNT(*) as total FROM efactura_invoices
-                    WHERE jarvis_invoice_id IS NULL AND ignored = FALSE
+                    WHERE jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL
                 """)
             return cursor.fetchone()['total']
+        finally:
+            release_db(conn)
+
+    # ============================================
+    # Hidden Invoices (soft delete / ignored)
+    # ============================================
+
+    def list_hidden(
+        self,
+        cif_owner: Optional[str] = None,
+        company_id: Optional[int] = None,
+        direction: Optional[InvoiceDirection] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[Invoice], int]:
+        """
+        List hidden (ignored) invoices.
+
+        Hidden = ignored = TRUE AND deleted_at IS NULL
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+
+            conditions = ['ignored = TRUE', 'deleted_at IS NULL']
+            params = {'limit': limit, 'offset': offset}
+
+            if cif_owner:
+                conditions.append('cif_owner = %(cif_owner)s')
+                params['cif_owner'] = cif_owner
+
+            if company_id is not None:
+                conditions.append('company_id = %(company_id)s')
+                params['company_id'] = company_id
+
+            if direction is not None:
+                conditions.append('direction = %(direction)s')
+                params['direction'] = direction.value
+
+            if start_date:
+                conditions.append('issue_date >= %(start_date)s')
+                params['start_date'] = start_date
+
+            if end_date:
+                conditions.append('issue_date <= %(end_date)s')
+                params['end_date'] = end_date
+
+            if search:
+                conditions.append(
+                    "(invoice_number ILIKE %(search)s OR partner_name ILIKE %(search)s OR partner_cif ILIKE %(search)s)"
+                )
+                params['search'] = f'%{search}%'
+
+            where_clause = ' AND '.join(conditions)
+
+            cursor.execute(f"""
+                SELECT COUNT(*) as total FROM efactura_invoices
+                WHERE {where_clause}
+            """, params)
+            total = cursor.fetchone()['total']
+
+            cursor.execute(f"""
+                SELECT * FROM efactura_invoices
+                WHERE {where_clause}
+                ORDER BY updated_at DESC, id DESC
+                LIMIT %(limit)s OFFSET %(offset)s
+            """, params)
+
+            invoices = [self._row_to_invoice(row) for row in cursor.fetchall()]
+
+            return invoices, total
+        finally:
+            release_db(conn)
+
+    def count_hidden(self) -> int:
+        """Count hidden (ignored) invoices."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT COUNT(*) as total FROM efactura_invoices
+                WHERE ignored = TRUE AND deleted_at IS NULL
+            """)
+            return cursor.fetchone()['total']
+        finally:
+            release_db(conn)
+
+    def restore_from_hidden(self, invoice_id: int) -> bool:
+        """Restore an invoice from hidden (unignore)."""
+        return self.ignore_invoice(invoice_id, ignored=False)
+
+    def bulk_hide(self, invoice_ids: List[int]) -> int:
+        """Hide multiple invoices (set ignored = TRUE)."""
+        if not invoice_ids:
+            return 0
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            placeholders = ','.join(['%s'] * len(invoice_ids))
+            cursor.execute(f"""
+                UPDATE efactura_invoices
+                SET ignored = TRUE, updated_at = NOW()
+                WHERE id IN ({placeholders}) AND ignored = FALSE AND deleted_at IS NULL
+            """, invoice_ids)
+            count = cursor.rowcount
+            conn.commit()
+            logger.info(f"Bulk hidden {count} invoices")
+            return count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to bulk hide invoices: {e}")
+            return 0
+        finally:
+            release_db(conn)
+
+    def bulk_restore_from_hidden(self, invoice_ids: List[int]) -> int:
+        """Restore multiple invoices from hidden (set ignored = FALSE)."""
+        if not invoice_ids:
+            return 0
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            placeholders = ','.join(['%s'] * len(invoice_ids))
+            cursor.execute(f"""
+                UPDATE efactura_invoices
+                SET ignored = FALSE, updated_at = NOW()
+                WHERE id IN ({placeholders}) AND ignored = TRUE AND deleted_at IS NULL
+            """, invoice_ids)
+            count = cursor.rowcount
+            conn.commit()
+            logger.info(f"Bulk restored {count} invoices from hidden")
+            return count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to bulk restore invoices from hidden: {e}")
+            return 0
+        finally:
+            release_db(conn)
+
+    # ============================================
+    # Bin (soft delete / deleted_at)
+    # ============================================
+
+    def list_deleted(
+        self,
+        cif_owner: Optional[str] = None,
+        company_id: Optional[int] = None,
+        direction: Optional[InvoiceDirection] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        List deleted invoices (bin).
+
+        Deleted = deleted_at IS NOT NULL
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+
+            conditions = ['deleted_at IS NOT NULL']
+            params = {'limit': limit, 'offset': offset}
+
+            if cif_owner:
+                conditions.append('cif_owner = %(cif_owner)s')
+                params['cif_owner'] = cif_owner
+
+            if company_id is not None:
+                conditions.append('company_id = %(company_id)s')
+                params['company_id'] = company_id
+
+            if direction is not None:
+                conditions.append('direction = %(direction)s')
+                params['direction'] = direction.value
+
+            if start_date:
+                conditions.append('issue_date >= %(start_date)s')
+                params['start_date'] = start_date
+
+            if end_date:
+                conditions.append('issue_date <= %(end_date)s')
+                params['end_date'] = end_date
+
+            if search:
+                conditions.append(
+                    "(invoice_number ILIKE %(search)s OR partner_name ILIKE %(search)s OR partner_cif ILIKE %(search)s)"
+                )
+                params['search'] = f'%{search}%'
+
+            where_clause = ' AND '.join(conditions)
+
+            cursor.execute(f"""
+                SELECT COUNT(*) as total FROM efactura_invoices
+                WHERE {where_clause}
+            """, params)
+            total = cursor.fetchone()['total']
+
+            cursor.execute(f"""
+                SELECT *, deleted_at FROM efactura_invoices
+                WHERE {where_clause}
+                ORDER BY deleted_at DESC, id DESC
+                LIMIT %(limit)s OFFSET %(offset)s
+            """, params)
+
+            invoices = []
+            for row in cursor.fetchall():
+                inv = self._row_to_invoice(row)
+                # Add deleted_at to the result
+                invoices.append({
+                    **inv.__dict__,
+                    'deleted_at': row.get('deleted_at'),
+                })
+
+            return invoices, total
+        finally:
+            release_db(conn)
+
+    def count_deleted(self) -> int:
+        """Count deleted invoices (bin)."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT COUNT(*) as total FROM efactura_invoices
+                WHERE deleted_at IS NOT NULL
+            """)
+            return cursor.fetchone()['total']
+        finally:
+            release_db(conn)
+
+    def delete_invoice(self, invoice_id: int) -> bool:
+        """Move an invoice to the bin (set deleted_at)."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                UPDATE efactura_invoices
+                SET deleted_at = NOW(), updated_at = NOW()
+                WHERE id = %s AND deleted_at IS NULL
+            """, (invoice_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            if deleted:
+                logger.info(f"Invoice {invoice_id} moved to bin")
+            return deleted
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to delete invoice: {e}")
+            return False
+        finally:
+            release_db(conn)
+
+    def restore_from_bin(self, invoice_id: int) -> bool:
+        """Restore an invoice from the bin."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                UPDATE efactura_invoices
+                SET deleted_at = NULL, updated_at = NOW()
+                WHERE id = %s AND deleted_at IS NOT NULL
+            """, (invoice_id,))
+            restored = cursor.rowcount > 0
+            conn.commit()
+            if restored:
+                logger.info(f"Invoice {invoice_id} restored from bin")
+            return restored
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to restore invoice from bin: {e}")
+            return False
+        finally:
+            release_db(conn)
+
+    def permanent_delete(self, invoice_id: int) -> bool:
+        """Permanently delete an invoice from the bin."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            # Only allow permanent delete if already in bin
+            cursor.execute("""
+                DELETE FROM efactura_invoices
+                WHERE id = %s AND deleted_at IS NOT NULL
+            """, (invoice_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            if deleted:
+                logger.info(f"Invoice {invoice_id} permanently deleted")
+            return deleted
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to permanently delete invoice: {e}")
+            return False
+        finally:
+            release_db(conn)
+
+    def bulk_delete(self, invoice_ids: List[int]) -> int:
+        """Move multiple invoices to the bin."""
+        if not invoice_ids:
+            return 0
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            placeholders = ','.join(['%s'] * len(invoice_ids))
+            cursor.execute(f"""
+                UPDATE efactura_invoices
+                SET deleted_at = NOW(), updated_at = NOW()
+                WHERE id IN ({placeholders}) AND deleted_at IS NULL
+            """, invoice_ids)
+            count = cursor.rowcount
+            conn.commit()
+            logger.info(f"Bulk deleted {count} invoices to bin")
+            return count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to bulk delete invoices: {e}")
+            return 0
+        finally:
+            release_db(conn)
+
+    def bulk_restore_from_bin(self, invoice_ids: List[int]) -> int:
+        """Restore multiple invoices from the bin."""
+        if not invoice_ids:
+            return 0
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            placeholders = ','.join(['%s'] * len(invoice_ids))
+            cursor.execute(f"""
+                UPDATE efactura_invoices
+                SET deleted_at = NULL, updated_at = NOW()
+                WHERE id IN ({placeholders}) AND deleted_at IS NOT NULL
+            """, invoice_ids)
+            count = cursor.rowcount
+            conn.commit()
+            logger.info(f"Bulk restored {count} invoices from bin")
+            return count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to bulk restore invoices from bin: {e}")
+            return 0
+        finally:
+            release_db(conn)
+
+    def bulk_permanent_delete(self, invoice_ids: List[int]) -> int:
+        """Permanently delete multiple invoices from the bin."""
+        if not invoice_ids:
+            return 0
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            placeholders = ','.join(['%s'] * len(invoice_ids))
+            # Only delete if already in bin
+            cursor.execute(f"""
+                DELETE FROM efactura_invoices
+                WHERE id IN ({placeholders}) AND deleted_at IS NOT NULL
+            """, invoice_ids)
+            count = cursor.rowcount
+            conn.commit()
+            logger.info(f"Bulk permanently deleted {count} invoices")
+            return count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to bulk permanently delete invoices: {e}")
+            return 0
         finally:
             release_db(conn)
 
@@ -793,3 +1164,260 @@ class InvoiceRepository:
             created_at=row['created_at'],
             updated_at=row['updated_at'],
         )
+
+
+class SupplierMappingRepository:
+    """Repository for e-Factura supplier mappings."""
+
+    def get_all(self, active_only: bool = True) -> List[Dict[str, Any]]:
+        """Get all supplier mappings.
+
+        Args:
+            active_only: If True, only return active mappings
+
+        Returns:
+            List of mapping dictionaries
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            if active_only:
+                cursor.execute("""
+                    SELECT id, partner_name, partner_cif, supplier_name, supplier_note,
+                           supplier_vat, kod_konto, is_active, created_at, updated_at
+                    FROM efactura_supplier_mappings
+                    WHERE is_active = TRUE
+                    ORDER BY partner_name
+                """)
+            else:
+                cursor.execute("""
+                    SELECT id, partner_name, partner_cif, supplier_name, supplier_note,
+                           supplier_vat, kod_konto, is_active, created_at, updated_at
+                    FROM efactura_supplier_mappings
+                    ORDER BY partner_name
+                """)
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)
+
+    def get_by_id(self, mapping_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single supplier mapping by ID."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT id, partner_name, partner_cif, supplier_name, supplier_note,
+                       supplier_vat, kod_konto, is_active, created_at, updated_at
+                FROM efactura_supplier_mappings
+                WHERE id = %s
+            """, (mapping_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            release_db(conn)
+
+    def find_by_partner(
+        self,
+        partner_name: str,
+        partner_cif: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Find a mapping by partner name and optionally CIF.
+
+        Tries exact CIF match first, then falls back to name-only match.
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+
+            # Try exact match with CIF first
+            if partner_cif:
+                cursor.execute("""
+                    SELECT id, partner_name, partner_cif, supplier_name, supplier_note,
+                           supplier_vat, kod_konto, is_active, created_at, updated_at
+                    FROM efactura_supplier_mappings
+                    WHERE LOWER(partner_name) = LOWER(%s) AND partner_cif = %s AND is_active = TRUE
+                    LIMIT 1
+                """, (partner_name, partner_cif))
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+
+            # Fallback to name-only match
+            cursor.execute("""
+                SELECT id, partner_name, partner_cif, supplier_name, supplier_note,
+                       supplier_vat, kod_konto, is_active, created_at, updated_at
+                FROM efactura_supplier_mappings
+                WHERE LOWER(partner_name) = LOWER(%s) AND is_active = TRUE
+                LIMIT 1
+            """, (partner_name,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        finally:
+            release_db(conn)
+
+    def create(
+        self,
+        partner_name: str,
+        supplier_name: str,
+        partner_cif: Optional[str] = None,
+        supplier_note: Optional[str] = None,
+        supplier_vat: Optional[str] = None,
+        kod_konto: Optional[str] = None,
+    ) -> int:
+        """Create a new supplier mapping.
+
+        Args:
+            partner_name: The e-Factura partner name (as it appears on invoices)
+            supplier_name: The standardized supplier name to map to
+            partner_cif: Optional VAT number from e-Factura
+            supplier_note: Optional notes about the supplier
+            supplier_vat: The standardized VAT number
+            kod_konto: The accounting code
+
+        Returns:
+            The new mapping ID
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                INSERT INTO efactura_supplier_mappings
+                (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto))
+            mapping_id = cursor.fetchone()['id']
+            conn.commit()
+            logger.info(f"Created supplier mapping {mapping_id}: {partner_name} -> {supplier_name}")
+            return mapping_id
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to create supplier mapping: {e}")
+            raise
+        finally:
+            release_db(conn)
+
+    def update(
+        self,
+        mapping_id: int,
+        partner_name: Optional[str] = None,
+        partner_cif: Optional[str] = None,
+        supplier_name: Optional[str] = None,
+        supplier_note: Optional[str] = None,
+        supplier_vat: Optional[str] = None,
+        kod_konto: Optional[str] = None,
+        is_active: Optional[bool] = None,
+    ) -> bool:
+        """Update a supplier mapping.
+
+        Args:
+            mapping_id: The mapping ID
+            partner_name: New partner name
+            partner_cif: New partner CIF
+            supplier_name: New supplier name
+            supplier_note: New supplier note
+            supplier_vat: New supplier VAT
+            kod_konto: New accounting code
+            is_active: Whether mapping is active
+
+        Returns:
+            True if successful
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+
+            updates = ['updated_at = NOW()']
+            params = []
+
+            if partner_name is not None:
+                updates.append('partner_name = %s')
+                params.append(partner_name)
+            if partner_cif is not None:
+                updates.append('partner_cif = %s')
+                params.append(partner_cif if partner_cif else None)
+            if supplier_name is not None:
+                updates.append('supplier_name = %s')
+                params.append(supplier_name)
+            if supplier_note is not None:
+                updates.append('supplier_note = %s')
+                params.append(supplier_note if supplier_note else None)
+            if supplier_vat is not None:
+                updates.append('supplier_vat = %s')
+                params.append(supplier_vat if supplier_vat else None)
+            if kod_konto is not None:
+                updates.append('kod_konto = %s')
+                params.append(kod_konto if kod_konto else None)
+            if is_active is not None:
+                updates.append('is_active = %s')
+                params.append(is_active)
+
+            params.append(mapping_id)
+
+            cursor.execute(f"""
+                UPDATE efactura_supplier_mappings
+                SET {', '.join(updates)}
+                WHERE id = %s
+            """, tuple(params))
+
+            success = cursor.rowcount > 0
+            conn.commit()
+            if success:
+                logger.info(f"Updated supplier mapping {mapping_id}")
+            return success
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to update supplier mapping: {e}")
+            return False
+        finally:
+            release_db(conn)
+
+    def delete(self, mapping_id: int) -> bool:
+        """Delete a supplier mapping.
+
+        Args:
+            mapping_id: The mapping ID
+
+        Returns:
+            True if successful
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                DELETE FROM efactura_supplier_mappings WHERE id = %s
+            """, (mapping_id,))
+            success = cursor.rowcount > 0
+            conn.commit()
+            if success:
+                logger.info(f"Deleted supplier mapping {mapping_id}")
+            return success
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to delete supplier mapping: {e}")
+            return False
+        finally:
+            release_db(conn)
+
+    def get_distinct_partners(self) -> List[Dict[str, Any]]:
+        """
+        Get distinct partner names and CIFs from e-Factura invoices.
+
+        Returns:
+            List of distinct partner name/CIF combinations from imported invoices
+        """
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT DISTINCT partner_name, partner_cif, COUNT(*) as invoice_count
+                FROM efactura_invoices
+                WHERE partner_name IS NOT NULL
+                  AND deleted_at IS NULL
+                GROUP BY partner_name, partner_cif
+                ORDER BY COUNT(*) DESC, partner_name
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)

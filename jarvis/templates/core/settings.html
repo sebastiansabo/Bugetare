@@ -111,6 +111,11 @@
                     <i class="bi bi-people"></i> HR
                 </button>
             </li>
+            <li class="nav-item">
+                <button class="nav-link" id="connectors-tab" data-bs-toggle="tab" data-bs-target="#connectors-settings" type="button">
+                    <i class="bi bi-plug"></i> Connectors
+                </button>
+            </li>
         </ul>
 
         <div class="tab-content">
@@ -1277,6 +1282,105 @@
                                     <p class="mt-2">No bonus types configured. Click "Add Bonus Type" to create one.</p>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Connectors Tab -->
+            <div class="tab-pane fade" id="connectors-settings">
+                <div class="card border-top-0 rounded-top-0">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="bi bi-plug"></i> Connector Settings</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- ANAF e-Factura Connector -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0"><i class="bi bi-cloud-download"></i> ANAF e-Factura</h6>
+                                <a href="/efactura/" class="btn btn-sm btn-outline-primary">
+                                    <i class="bi bi-gear"></i> Open Connector
+                                </a>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted small mb-3">
+                                    Configure default settings for the ANAF e-Factura connector. These values will be used as defaults in the e-Factura module.
+                                </p>
+
+                                <form id="anafSettingsForm">
+                                    <div class="row">
+                                        <!-- Sync Settings -->
+                                        <div class="col-md-6">
+                                            <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-arrow-repeat"></i> Sync Settings</h6>
+
+                                            <div class="mb-3">
+                                                <label class="form-label">Default Sync Period (Days)</label>
+                                                <select class="form-select" id="anafDefaultSyncDays">
+                                                    <option value="1">1 day</option>
+                                                    <option value="2">2 days</option>
+                                                    <option value="3">3 days</option>
+                                                    <option value="7">7 days</option>
+                                                    <option value="14">14 days</option>
+                                                    <option value="30">30 days</option>
+                                                </select>
+                                                <small class="text-muted">Number of days to look back when syncing invoices</small>
+                                            </div>
+
+                                            <div class="mb-3">
+                                                <label class="form-label">Default Invoice Direction</label>
+                                                <select class="form-select" id="anafDefaultDirection">
+                                                    <option value="received">Received (Primite)</option>
+                                                    <option value="sent">Sent (Trimise)</option>
+                                                    <option value="all">All</option>
+                                                </select>
+                                                <small class="text-muted">Default filter for invoice direction</small>
+                                            </div>
+                                        </div>
+
+                                        <!-- Display Settings -->
+                                        <div class="col-md-6">
+                                            <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-eye"></i> Display Settings</h6>
+
+                                            <div class="mb-3">
+                                                <label class="form-label">Default Items Per Page</label>
+                                                <select class="form-select" id="anafDefaultPageSize">
+                                                    <option value="25">25</option>
+                                                    <option value="50">50</option>
+                                                    <option value="100">100</option>
+                                                    <option value="200">200</option>
+                                                </select>
+                                                <small class="text-muted">Number of invoices to display per page</small>
+                                            </div>
+
+                                            <div class="mb-3">
+                                                <div class="form-check form-switch">
+                                                    <input class="form-check-input" type="checkbox" id="anafAutoRefresh">
+                                                    <label class="form-check-label" for="anafAutoRefresh">Auto-refresh on page load</label>
+                                                </div>
+                                                <small class="text-muted">Automatically fetch new invoices when opening the page</small>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <hr>
+
+                                    <div class="d-flex justify-content-end">
+                                        <button type="button" class="btn btn-outline-secondary me-2" onclick="resetAnafSettings()">
+                                            <i class="bi bi-arrow-counterclockwise"></i> Reset to Defaults
+                                        </button>
+                                        <button type="button" class="btn btn-primary" onclick="saveAnafSettings()">
+                                            <i class="bi bi-check-lg"></i> Save Settings
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+
+                        <!-- Future Connectors Placeholder -->
+                        <div class="text-center text-muted py-4 border rounded">
+                            <i class="bi bi-plug display-4"></i>
+                            <p class="mt-2 mb-0">More connectors coming soon...</p>
+                            <small>Google Ads, Anthropic, and other integrations</small>
                         </div>
                     </div>
                 </div>

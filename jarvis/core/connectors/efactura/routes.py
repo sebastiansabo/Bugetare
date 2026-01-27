@@ -1021,6 +1021,421 @@ def ignore_invoice(invoice_id: int):
         }), 500
 
 
+# ============================================================
+# API: Hidden Invoices
+# ============================================================
+
+@efactura_bp.route('/api/invoices/hidden', methods=['GET'])
+@api_login_required
+def list_hidden_invoices():
+    """
+    List hidden (ignored) invoices.
+
+    Query params:
+        direction: 'received' or 'sent'
+        start_date: Filter from date (YYYY-MM-DD)
+        end_date: Filter to date (YYYY-MM-DD)
+        search: Search string
+        page: Page number (default 1)
+        limit: Page size (default 50, max 200)
+    """
+    try:
+        direction = request.args.get('direction')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        search = request.args.get('search')
+        page = int(request.args.get('page', 1))
+        limit = min(int(request.args.get('limit', 50)), 200)
+
+        direction_enum = None
+        if direction:
+            try:
+                direction_enum = InvoiceDirection(direction)
+            except ValueError:
+                pass
+
+        start = date.fromisoformat(start_date) if start_date else None
+        end = date.fromisoformat(end_date) if end_date else None
+
+        result = efactura_service.list_hidden_invoices(
+            direction=direction_enum,
+            start_date=start,
+            end_date=end,
+            search=search,
+            page=page,
+            limit=limit,
+        )
+
+        return jsonify({
+            'success': True,
+            'data': result.data['invoices'],
+            'pagination': result.data['pagination'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error listing hidden invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/hidden/count', methods=['GET'])
+@api_login_required
+def get_hidden_count():
+    """Get count of hidden invoices for badge."""
+    try:
+        count = efactura_service.get_hidden_count()
+
+        return jsonify({
+            'success': True,
+            'count': count,
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting hidden count: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/bulk-hide', methods=['POST'])
+@api_login_required
+def bulk_hide_invoices():
+    """
+    Hide multiple invoices.
+
+    Request body:
+        invoice_ids: List of invoice IDs to hide
+    """
+    try:
+        data = request.get_json()
+        invoice_ids = data.get('invoice_ids', [])
+
+        if not invoice_ids:
+            return jsonify({
+                'success': False,
+                'error': "No invoices selected",
+            }), 400
+
+        result = efactura_service.bulk_hide_invoices(invoice_ids)
+
+        return jsonify({
+            'success': True,
+            'hidden': result.data['hidden'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error bulk hiding invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/bulk-restore-hidden', methods=['POST'])
+@api_login_required
+def bulk_restore_from_hidden():
+    """
+    Restore multiple invoices from hidden.
+
+    Request body:
+        invoice_ids: List of invoice IDs to restore
+    """
+    try:
+        data = request.get_json()
+        invoice_ids = data.get('invoice_ids', [])
+
+        if not invoice_ids:
+            return jsonify({
+                'success': False,
+                'error': "No invoices selected",
+            }), 400
+
+        result = efactura_service.bulk_restore_from_hidden(invoice_ids)
+
+        return jsonify({
+            'success': True,
+            'restored': result.data['restored'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error bulk restoring invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+# ============================================================
+# API: Bin (Deleted Invoices)
+# ============================================================
+
+@efactura_bp.route('/api/invoices/bin', methods=['GET'])
+@api_login_required
+def list_deleted_invoices():
+    """
+    List deleted invoices (bin).
+
+    Query params:
+        direction: 'received' or 'sent'
+        start_date: Filter from date (YYYY-MM-DD)
+        end_date: Filter to date (YYYY-MM-DD)
+        search: Search string
+        page: Page number (default 1)
+        limit: Page size (default 50, max 200)
+    """
+    try:
+        direction = request.args.get('direction')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        search = request.args.get('search')
+        page = int(request.args.get('page', 1))
+        limit = min(int(request.args.get('limit', 50)), 200)
+
+        direction_enum = None
+        if direction:
+            try:
+                direction_enum = InvoiceDirection(direction)
+            except ValueError:
+                pass
+
+        start = date.fromisoformat(start_date) if start_date else None
+        end = date.fromisoformat(end_date) if end_date else None
+
+        result = efactura_service.list_deleted_invoices(
+            direction=direction_enum,
+            start_date=start,
+            end_date=end,
+            search=search,
+            page=page,
+            limit=limit,
+        )
+
+        return jsonify({
+            'success': True,
+            'data': result.data['invoices'],
+            'pagination': result.data['pagination'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error listing deleted invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/bin/count', methods=['GET'])
+@api_login_required
+def get_bin_count():
+    """Get count of deleted invoices for badge."""
+    try:
+        count = efactura_service.get_bin_count()
+
+        return jsonify({
+            'success': True,
+            'count': count,
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting bin count: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/<int:invoice_id>/delete', methods=['POST'])
+@api_login_required
+def delete_invoice(invoice_id: int):
+    """
+    Move an invoice to the bin.
+    """
+    try:
+        result = efactura_service.delete_invoice(invoice_id)
+
+        if not result.success:
+            return jsonify({
+                'success': False,
+                'error': result.error,
+            }), 400
+
+        return jsonify({
+            'success': True,
+            'invoice_id': invoice_id,
+            'message': 'Invoice moved to bin',
+        })
+
+    except Exception as e:
+        logger.error(f"Error deleting invoice: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/<int:invoice_id>/restore', methods=['POST'])
+@api_login_required
+def restore_invoice(invoice_id: int):
+    """
+    Restore an invoice from the bin.
+    """
+    try:
+        result = efactura_service.restore_from_bin(invoice_id)
+
+        if not result.success:
+            return jsonify({
+                'success': False,
+                'error': result.error,
+            }), 400
+
+        return jsonify({
+            'success': True,
+            'invoice_id': invoice_id,
+            'message': 'Invoice restored from bin',
+        })
+
+    except Exception as e:
+        logger.error(f"Error restoring invoice: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/<int:invoice_id>/permanent-delete', methods=['POST'])
+@api_login_required
+def permanent_delete_invoice(invoice_id: int):
+    """
+    Permanently delete an invoice from the bin.
+    """
+    try:
+        result = efactura_service.permanent_delete(invoice_id)
+
+        if not result.success:
+            return jsonify({
+                'success': False,
+                'error': result.error,
+            }), 400
+
+        return jsonify({
+            'success': True,
+            'invoice_id': invoice_id,
+            'message': 'Invoice permanently deleted',
+        })
+
+    except Exception as e:
+        logger.error(f"Error permanently deleting invoice: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/bulk-delete', methods=['POST'])
+@api_login_required
+def bulk_delete_invoices():
+    """
+    Move multiple invoices to the bin.
+
+    Request body:
+        invoice_ids: List of invoice IDs to delete
+    """
+    try:
+        data = request.get_json()
+        invoice_ids = data.get('invoice_ids', [])
+
+        if not invoice_ids:
+            return jsonify({
+                'success': False,
+                'error': "No invoices selected",
+            }), 400
+
+        result = efactura_service.bulk_delete_invoices(invoice_ids)
+
+        return jsonify({
+            'success': True,
+            'deleted': result.data['deleted'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error bulk deleting invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/bulk-restore-bin', methods=['POST'])
+@api_login_required
+def bulk_restore_from_bin():
+    """
+    Restore multiple invoices from the bin.
+
+    Request body:
+        invoice_ids: List of invoice IDs to restore
+    """
+    try:
+        data = request.get_json()
+        invoice_ids = data.get('invoice_ids', [])
+
+        if not invoice_ids:
+            return jsonify({
+                'success': False,
+                'error': "No invoices selected",
+            }), 400
+
+        result = efactura_service.bulk_restore_from_bin(invoice_ids)
+
+        return jsonify({
+            'success': True,
+            'restored': result.data['restored'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error bulk restoring invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/bulk-permanent-delete', methods=['POST'])
+@api_login_required
+def bulk_permanent_delete_invoices():
+    """
+    Permanently delete multiple invoices from the bin.
+
+    Request body:
+        invoice_ids: List of invoice IDs to permanently delete
+    """
+    try:
+        data = request.get_json()
+        invoice_ids = data.get('invoice_ids', [])
+
+        if not invoice_ids:
+            return jsonify({
+                'success': False,
+                'error': "No invoices selected",
+            }), 400
+
+        result = efactura_service.bulk_permanent_delete(invoice_ids)
+
+        return jsonify({
+            'success': True,
+            'deleted': result.data['deleted'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error bulk permanently deleting invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
 @efactura_bp.route('/api/invoices/<int:invoice_id>/pdf', methods=['GET'])
 @api_login_required
 def get_invoice_pdf(invoice_id: int):
@@ -1472,6 +1887,280 @@ def oauth_refresh():
         }), 400
     except Exception as e:
         logger.error(f"Error refreshing OAuth token: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+# ============================================================
+# API: Supplier Mappings
+# ============================================================
+
+from .repositories.invoice_repo import SupplierMappingRepository
+
+supplier_mapping_repo = SupplierMappingRepository()
+
+
+@efactura_bp.route('/api/mappings', methods=['GET'])
+@api_login_required
+def list_supplier_mappings():
+    """
+    List all supplier mappings.
+
+    Query params:
+        active_only: Whether to show only active mappings (default true)
+    """
+    try:
+        active_only = request.args.get('active_only', 'true').lower() == 'true'
+
+        mappings = supplier_mapping_repo.get_all(active_only=active_only)
+
+        return jsonify({
+            'success': True,
+            'mappings': mappings,
+            'count': len(mappings),
+        })
+
+    except Exception as e:
+        logger.error(f"Error listing supplier mappings: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/mappings/<int:mapping_id>', methods=['GET'])
+@api_login_required
+def get_supplier_mapping(mapping_id: int):
+    """Get a single supplier mapping by ID."""
+    try:
+        mapping = supplier_mapping_repo.get_by_id(mapping_id)
+
+        if not mapping:
+            return jsonify({
+                'success': False,
+                'error': 'Mapping not found',
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'mapping': mapping,
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting supplier mapping: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/mappings', methods=['POST'])
+@api_login_required
+def create_supplier_mapping():
+    """
+    Create a new supplier mapping.
+
+    Request body:
+        partner_name: The e-Factura partner name (required)
+        supplier_name: The standardized supplier name (required)
+        partner_cif: Optional VAT number from e-Factura
+        supplier_note: Optional notes about the supplier
+        supplier_vat: The standardized VAT number
+        kod_konto: The accounting code
+    """
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': "No data provided",
+            }), 400
+
+        partner_name = data.get('partner_name', '').strip()
+        supplier_name = data.get('supplier_name', '').strip()
+
+        if not partner_name:
+            return jsonify({
+                'success': False,
+                'error': "partner_name is required",
+            }), 400
+
+        if not supplier_name:
+            return jsonify({
+                'success': False,
+                'error': "supplier_name is required",
+            }), 400
+
+        mapping_id = supplier_mapping_repo.create(
+            partner_name=partner_name,
+            supplier_name=supplier_name,
+            partner_cif=data.get('partner_cif', '').strip() or None,
+            supplier_note=data.get('supplier_note', '').strip() or None,
+            supplier_vat=data.get('supplier_vat', '').strip() or None,
+            kod_konto=data.get('kod_konto', '').strip() or None,
+        )
+
+        return jsonify({
+            'success': True,
+            'id': mapping_id,
+            'message': 'Mapping created successfully',
+        }), 201
+
+    except Exception as e:
+        logger.error(f"Error creating supplier mapping: {e}")
+        # Check for unique constraint violation
+        if 'unique constraint' in str(e).lower() or 'duplicate' in str(e).lower():
+            return jsonify({
+                'success': False,
+                'error': 'A mapping for this partner already exists',
+            }), 409
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/mappings/<int:mapping_id>', methods=['PUT'])
+@api_login_required
+def update_supplier_mapping(mapping_id: int):
+    """
+    Update a supplier mapping.
+
+    Request body:
+        partner_name: New partner name
+        partner_cif: New partner CIF
+        supplier_name: New supplier name
+        supplier_note: New supplier note
+        supplier_vat: New supplier VAT
+        kod_konto: New accounting code
+        is_active: Whether mapping is active
+    """
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({
+                'success': False,
+                'error': "No data provided",
+            }), 400
+
+        success = supplier_mapping_repo.update(
+            mapping_id,
+            partner_name=data.get('partner_name'),
+            partner_cif=data.get('partner_cif'),
+            supplier_name=data.get('supplier_name'),
+            supplier_note=data.get('supplier_note'),
+            supplier_vat=data.get('supplier_vat'),
+            kod_konto=data.get('kod_konto'),
+            is_active=data.get('is_active'),
+        )
+
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': 'Mapping not found or update failed',
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Mapping updated successfully',
+        })
+
+    except Exception as e:
+        logger.error(f"Error updating supplier mapping: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/mappings/<int:mapping_id>', methods=['DELETE'])
+@api_login_required
+def delete_supplier_mapping(mapping_id: int):
+    """Delete a supplier mapping."""
+    try:
+        success = supplier_mapping_repo.delete(mapping_id)
+
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': 'Mapping not found',
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Mapping deleted successfully',
+        })
+
+    except Exception as e:
+        logger.error(f"Error deleting supplier mapping: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/partners/distinct', methods=['GET'])
+@api_login_required
+def get_distinct_partners():
+    """
+    Get distinct partner names and CIFs from e-Factura invoices.
+
+    Returns list of distinct partner name/CIF combinations for auto-suggest.
+    """
+    try:
+        partners = supplier_mapping_repo.get_distinct_partners()
+
+        return jsonify({
+            'success': True,
+            'partners': partners,
+            'count': len(partners),
+        })
+
+    except Exception as e:
+        logger.error(f"Error getting distinct partners: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/mappings/lookup', methods=['GET'])
+@api_login_required
+def lookup_supplier_mapping():
+    """
+    Find a mapping for a partner name/CIF combination.
+
+    Query params:
+        partner_name: Partner name to look up (required)
+        partner_cif: Partner CIF (optional, improves match accuracy)
+
+    Returns:
+        The matching mapping if found, or null
+    """
+    try:
+        partner_name = request.args.get('partner_name', '').strip()
+        partner_cif = request.args.get('partner_cif', '').strip() or None
+
+        if not partner_name:
+            return jsonify({
+                'success': False,
+                'error': "partner_name is required",
+            }), 400
+
+        mapping = supplier_mapping_repo.find_by_partner(partner_name, partner_cif)
+
+        return jsonify({
+            'success': True,
+            'mapping': mapping,
+            'found': mapping is not None,
+        })
+
+    except Exception as e:
+        logger.error(f"Error looking up supplier mapping: {e}")
         return jsonify({
             'success': False,
             'error': str(e),

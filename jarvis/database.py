@@ -1736,6 +1736,7 @@ def init_db():
             jarvis_invoice_id INTEGER REFERENCES invoices(id),
             xml_content TEXT,
             ignored BOOLEAN NOT NULL DEFAULT FALSE,
+            deleted_at TIMESTAMP,
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
@@ -1750,6 +1751,19 @@ def init_db():
                 WHERE table_name = 'efactura_invoices' AND column_name = 'ignored'
             ) THEN
                 ALTER TABLE efactura_invoices ADD COLUMN ignored BOOLEAN NOT NULL DEFAULT FALSE;
+            END IF;
+        END $$;
+    ''')
+
+    # Add deleted_at column if not exists (migration for existing databases - bin functionality)
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'efactura_invoices' AND column_name = 'deleted_at'
+            ) THEN
+                ALTER TABLE efactura_invoices ADD COLUMN deleted_at TIMESTAMP;
             END IF;
         END $$;
     ''')
@@ -1840,15 +1854,49 @@ def init_db():
         )
     ''')
 
+    # e-Factura supplier mappings - maps e-Factura partner names to standardized supplier names
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_supplier_mappings (
+            id SERIAL PRIMARY KEY,
+            partner_name VARCHAR(255) NOT NULL,
+            partner_cif VARCHAR(50),
+            supplier_name VARCHAR(255) NOT NULL,
+            supplier_note TEXT,
+            supplier_vat VARCHAR(50),
+            kod_konto VARCHAR(50),
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            UNIQUE(partner_name, partner_cif)
+        )
+    ''')
+
+    # Migration: Add kod_konto column if it doesn't exist
+    cursor.execute('''
+        DO $
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'kod_konto'
+            ) THEN
+                ALTER TABLE efactura_supplier_mappings ADD COLUMN kod_konto VARCHAR(50);
+            END IF;
+        END $;
+    ''')
+
     # Create indexes for e-Factura tables
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_connections_status ON efactura_company_connections(status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_owner ON efactura_invoices(cif_owner, direction)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_date ON efactura_invoices(issue_date)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_status ON efactura_invoices(status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_jarvis ON efactura_invoices(jarvis_invoice_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_ignored ON efactura_invoices(ignored)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_deleted_at ON efactura_invoices(deleted_at)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_refs_message ON efactura_invoice_refs(message_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_sync_runs_cif ON efactura_sync_runs(company_cif)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_oauth_cif ON efactura_oauth_tokens(cif)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_supplier_mappings_partner ON efactura_supplier_mappings(partner_name)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_supplier_mappings_cif ON efactura_supplier_mappings(partner_cif)')
 
     conn.commit()
 
