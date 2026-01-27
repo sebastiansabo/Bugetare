@@ -384,10 +384,20 @@ class ANAFOAuthClient:
                 )
 
             if response.status_code >= 400:
+                error_body = response.text[:1000] if response.text else 'No response body'
+                logger.error(
+                    "ANAF API error response",
+                    extra={
+                        'status_code': response.status_code,
+                        'url': url,
+                        'params': params,
+                        'response_body': error_body,
+                    }
+                )
                 raise APIError(
-                    message=f"ANAF API error: {response.status_code}",
+                    message=f"ANAF API error: {response.status_code} - {error_body}",
                     status_code=response.status_code,
-                    response_body=response.text[:500] if response.text else None,
+                    response_body=error_body,
                 )
 
             if expect_binary:
