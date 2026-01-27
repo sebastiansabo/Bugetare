@@ -1617,7 +1617,10 @@
 
         function updateUnallocatedSelectionCount() {
             const checked = document.querySelectorAll('.unallocated-checkbox:checked').length;
-            document.getElementById('selectedCount').textContent = checked;
+            const countEl = document.getElementById('selectedCount');
+            if (countEl) {
+                countEl.textContent = checked;
+            }
             document.getElementById('sendToInvoiceModuleBtn').disabled = checked === 0;
         }
 
@@ -1689,7 +1692,11 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    alert(`${data.sent} invoice(s) sent to Invoice Module successfully!`);
+                    let msg = `${data.sent} invoice(s) sent to Invoice Module successfully!`;
+                    if (data.errors && data.errors.length > 0) {
+                        msg += `\n\nErrors:\n${data.errors.join('\n')}`;
+                    }
+                    alert(msg);
                     // Clear checkboxes
                     document.querySelectorAll('.unallocated-checkbox').forEach(cb => cb.checked = false);
                     document.getElementById('selectAllCheckbox').checked = false;
