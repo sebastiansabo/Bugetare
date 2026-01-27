@@ -607,6 +607,90 @@ def anaf_status():
         }), 500
 
 
+@efactura_bp.route('/api/company/lookup', methods=['GET'])
+@api_login_required
+def lookup_company():
+    """
+    Lookup company info from ANAF public API by CIF.
+
+    Query params:
+        cif: Company CIF (required)
+
+    Returns:
+        Company info (name, address, VAT status)
+    """
+    try:
+        cif = request.args.get('cif')
+
+        if not cif:
+            return jsonify({
+                'success': False,
+                'error': "CIF parameter is required",
+            }), 400
+
+        result = efactura_service.lookup_company_by_cif(cif)
+
+        if not result.success:
+            return jsonify({
+                'success': False,
+                'error': result.error,
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'data': result.data,
+        })
+
+    except Exception as e:
+        logger.error(f"Error looking up company: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/company/lookup-batch', methods=['POST'])
+@api_login_required
+def lookup_companies_batch():
+    """
+    Lookup multiple companies from ANAF public API.
+
+    Request body:
+        cifs: List of CIFs to lookup
+
+    Returns:
+        Dict mapping CIF -> company info
+    """
+    try:
+        data = request.get_json()
+
+        if not data or not data.get('cifs'):
+            return jsonify({
+                'success': False,
+                'error': "cifs array is required",
+            }), 400
+
+        result = efactura_service.lookup_companies_by_cifs(data['cifs'])
+
+        if not result.success:
+            return jsonify({
+                'success': False,
+                'error': result.error,
+            }), 500
+
+        return jsonify({
+            'success': True,
+            'data': result.data,
+        })
+
+    except Exception as e:
+        logger.error(f"Error looking up companies: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
 # ============================================================
 # API: Import from ANAF
 # ============================================================

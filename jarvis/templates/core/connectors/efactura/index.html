@@ -538,11 +538,56 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script>
+        // Global state for OAuth-authenticated CIFs
+        let oauthTokensList = [];
+
         // Hide loading overlay
         document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('loadingOverlay').style.display = 'none';
-            loadConnections();
+            // First load OAuth tokens, then connections (to know which CIFs have tokens)
+            loadOAuthTokensFirst().then(() => loadConnections());
         });
+
+        // Load OAuth tokens first to know which CIFs are authenticated
+        async function loadOAuthTokensFirst() {
+            try {
+                const res = await fetch('/efactura/api/anaf/status');
+                const data = await res.json();
+
+                if (data.success && data.data.oauth_connections) {
+                    oauthTokensList = data.data.oauth_connections;
+                    console.log('[DEBUG] OAuth tokens:', oauthTokensList);
+
+                    // Fetch company names from ANAF for all OAuth CIFs
+                    if (oauthTokensList.length > 0) {
+                        const cifs = oauthTokensList.map(t => t.cif);
+                        try {
+                            const lookupRes = await fetch('/efactura/api/company/lookup-batch', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ cifs: cifs })
+                            });
+                            const lookupData = await lookupRes.json();
+
+                            if (lookupData.success) {
+                                // Enrich OAuth tokens with company names
+                                oauthTokensList.forEach(token => {
+                                    const company = lookupData.data[token.cif];
+                                    if (company) {
+                                        token.company_name = company.name;
+                                    }
+                                });
+                                console.log('[DEBUG] OAuth tokens with names:', oauthTokensList);
+                            }
+                        } catch (lookupErr) {
+                            console.warn('Could not fetch company names:', lookupErr);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Error loading OAuth tokens:', err);
+            }
+        }
 
         // Load connections
         async function loadConnections() {
@@ -561,7 +606,7 @@
                         select.innerHTML += `<option value="${c.cif}">${c.display_name} (${c.cif})</option>`;
                     });
 
-                    // Also populate ANAF filter
+                    // Also populate ANAF filter (only OAuth-authenticated companies)
                     updateAnafCompanyFilter(data.data);
 
                     // Also populate unallocated filter
@@ -1073,9 +1118,20 @@
         function updateAnafCompanyFilter(connections) {
             const select = document.getElementById('anafCompanyFilter');
             select.innerHTML = '<option value="">Select company...</option>';
-            connections.forEach(c => {
-                select.innerHTML += `<option value="${c.cif}">${c.display_name} (${c.cif})</option>`;
-            });
+
+            // Use OAuth tokens list (only show authenticated companies)
+            if (oauthTokensList.length > 0) {
+                oauthTokensList.forEach(token => {
+                    const displayName = token.company_name || `CIF ${token.cif}`;
+                    select.innerHTML += `<option value="${token.cif}">${displayName} (${token.cif})</option>`;
+                });
+                console.log('[DEBUG] ANAF filter populated with', oauthTokensList.length, 'OAuth-authenticated companies');
+            } else {
+                // Fallback to connections if no OAuth tokens
+                connections.forEach(c => {
+                    select.innerHTML += `<option value="${c.cif}">${c.display_name} (${c.cif})</option>`;
+                });
+            }
         }
 
         // Initialize on page load
@@ -1086,14 +1142,45 @@
             loadOAuthTokens();
         });
 
-        // Load OAuth tokens list
+        // Load OAuth tokens list (also refreshes company names)
         async function loadOAuthTokens() {
             try {
                 const res = await fetch('/efactura/api/anaf/status');
                 const data = await res.json();
 
                 if (data.success && data.data.oauth_connections) {
-                    renderOAuthTokens(data.data.oauth_connections);
+                    let tokens = data.data.oauth_connections;
+
+                    // Fetch company names from ANAF
+                    if (tokens.length > 0) {
+                        const cifs = tokens.map(t => t.cif);
+                        try {
+                            const lookupRes = await fetch('/efactura/api/company/lookup-batch', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ cifs: cifs })
+                            });
+                            const lookupData = await lookupRes.json();
+
+                            if (lookupData.success) {
+                                tokens.forEach(token => {
+                                    const company = lookupData.data[token.cif];
+                                    if (company) {
+                                        token.company_name = company.name;
+                                    }
+                                });
+                            }
+                        } catch (lookupErr) {
+                            console.warn('Could not fetch company names:', lookupErr);
+                        }
+                    }
+
+                    // Update global state and re-render
+                    oauthTokensList = tokens;
+                    renderOAuthTokens(tokens);
+
+                    // Also update the ANAF company filter dropdown
+                    updateAnafCompanyFilter([]);
                 }
             } catch (err) {
                 console.error('Error loading OAuth tokens:', err);

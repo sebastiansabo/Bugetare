@@ -142,6 +142,136 @@ class EFacturaService:
 
         return status
 
+    # ============== ANAF Company Lookup ==============
+
+    def lookup_company_by_cif(self, cif: str) -> ServiceResult:
+        """
+        Lookup company information from ANAF public API.
+
+        Uses the ANAF PlatitorTva API to get company name, address, VAT status.
+        This is a public API - no authentication required.
+
+        Args:
+            cif: Company CIF (without RO prefix)
+
+        Returns:
+            ServiceResult with company info or error
+        """
+        import requests
+        from datetime import date
+
+        # Clean CIF - remove RO prefix and spaces
+        clean_cif = cif.replace('RO', '').replace(' ', '').strip()
+
+        try:
+            response = requests.post(
+                'https://webservicesp.anaf.ro/PlatitorTvaRest/api/v8/ws/tva',
+                json=[{
+                    'cui': int(clean_cif),
+                    'data': date.today().strftime('%Y-%m-%d')
+                }],
+                headers={'Content-Type': 'application/json'},
+                timeout=10,
+            )
+
+            if response.status_code != 200:
+                return ServiceResult(
+                    success=False,
+                    error=f"ANAF API returned {response.status_code}"
+                )
+
+            data = response.json()
+
+            if not data.get('found') or not data['found']:
+                return ServiceResult(
+                    success=False,
+                    error=f"CIF {cif} not found in ANAF database"
+                )
+
+            company = data['found'][0]
+
+            return ServiceResult(success=True, data={
+                'cif': clean_cif,
+                'name': company.get('denumire', ''),
+                'address': company.get('adresa', ''),
+                'is_vat_payer': company.get('scpTVA', False),
+                'is_active': company.get('statusInactivi', False) is False,
+                'registration_date': company.get('data_inregistrare'),
+            })
+
+        except requests.exceptions.Timeout:
+            return ServiceResult(success=False, error="ANAF API timeout")
+        except requests.exceptions.RequestException as e:
+            return ServiceResult(success=False, error=f"ANAF API error: {e}")
+        except Exception as e:
+            logger.error(f"Error looking up company {cif}: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    def lookup_companies_by_cifs(self, cifs: List[str]) -> ServiceResult:
+        """
+        Lookup multiple companies from ANAF in one request.
+
+        Args:
+            cifs: List of CIFs to lookup
+
+        Returns:
+            ServiceResult with dict mapping CIF -> company info
+        """
+        import requests
+        from datetime import date
+
+        if not cifs:
+            return ServiceResult(success=True, data={})
+
+        # Build request payload
+        today = date.today().strftime('%Y-%m-%d')
+        payload = []
+        for cif in cifs:
+            clean_cif = str(cif).replace('RO', '').replace(' ', '').strip()
+            try:
+                payload.append({
+                    'cui': int(clean_cif),
+                    'data': today
+                })
+            except ValueError:
+                logger.warning(f"Invalid CIF format: {cif}")
+                continue
+
+        if not payload:
+            return ServiceResult(success=True, data={})
+
+        try:
+            response = requests.post(
+                'https://webservicesp.anaf.ro/PlatitorTvaRest/api/v8/ws/tva',
+                json=payload,
+                headers={'Content-Type': 'application/json'},
+                timeout=15,
+            )
+
+            if response.status_code != 200:
+                return ServiceResult(
+                    success=False,
+                    error=f"ANAF API returned {response.status_code}"
+                )
+
+            data = response.json()
+            result = {}
+
+            for company in data.get('found', []):
+                cif = str(company.get('cui', ''))
+                result[cif] = {
+                    'cif': cif,
+                    'name': company.get('denumire', ''),
+                    'address': company.get('adresa', ''),
+                    'is_vat_payer': company.get('scpTVA', False),
+                }
+
+            return ServiceResult(success=True, data=result)
+
+        except Exception as e:
+            logger.error(f"Error looking up companies: {e}")
+            return ServiceResult(success=False, error=str(e))
+
     # ============== Company Connections ==============
 
     def get_all_connections(self) -> List[Dict[str, Any]]:
