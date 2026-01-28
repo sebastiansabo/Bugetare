@@ -2815,10 +2815,10 @@
                 m.partner_name.toLowerCase() === inv.partner_name.toLowerCase()
             );
 
-            // Get mapping defaults
-            const mappingType = inv.type_name && !inv.type_override ? inv.type_name : (mapping?.type_names?.join(', ') || null);
-            const mappingDept = inv.department && !inv.department_override ? inv.department : (mapping?.department || null);
-            const mappingSubdept = inv.subdepartment && !inv.subdepartment_override ? inv.subdepartment : (mapping?.subdepartment || null);
+            // Get mapping defaults - use the mapping values directly from API response
+            const mappingType = inv.type_names?.length > 0 ? inv.type_names.join(', ') : (mapping?.type_names?.join(', ') || null);
+            const mappingDept = inv.mapping_department || mapping?.department || null;
+            const mappingSubdept = inv.mapping_subdepartment || mapping?.subdepartment || null;
 
             document.getElementById('editInvoiceId').value = invoiceId;
             document.getElementById('editInvoiceInfo').innerHTML = `

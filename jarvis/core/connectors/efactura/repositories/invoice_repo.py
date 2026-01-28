@@ -770,9 +770,11 @@ class InvoiceRepository:
                 inv_dict['type_name'] = row.get('type_override') or (', '.join(type_names) if type_names else None)
                 # Department: use override if set, otherwise use mapping
                 inv_dict['department_override'] = row.get('department_override')
+                inv_dict['mapping_department'] = row.get('mapping_department')  # Keep mapping value separate for frontend
                 inv_dict['department'] = row.get('department_override') or row.get('mapping_department')
                 # Subdepartment: use override if set, otherwise use mapping
                 inv_dict['subdepartment_override'] = row.get('subdepartment_override')
+                inv_dict['mapping_subdepartment'] = row.get('mapping_subdepartment')  # Keep mapping value separate for frontend
                 inv_dict['subdepartment'] = row.get('subdepartment_override') or row.get('mapping_subdepartment')
                 invoices.append(inv_dict)
 
