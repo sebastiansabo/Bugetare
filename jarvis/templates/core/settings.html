@@ -1373,6 +1373,40 @@
                                         </button>
                                     </div>
                                 </form>
+
+                                <hr>
+
+                                <!-- Partner Types Section -->
+                                <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-tags"></i> Partner Types</h6>
+                                <p class="text-muted small mb-3">
+                                    Configure partner types for e-Factura supplier mappings. Use "Hide in Filter" to control which types are hidden when the "Hide Typed" toggle is enabled.
+                                </p>
+
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <span class="text-muted small">
+                                        Types with "Hide in Filter" enabled will be hidden when using the "Hide Typed" filter on the Unallocated Invoices page.
+                                    </span>
+                                    <button class="btn btn-sm btn-outline-primary" onclick="showAddPartnerTypeModal()">
+                                        <i class="bi bi-plus-lg"></i> Add Type
+                                    </button>
+                                </div>
+
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-hover" id="partnerTypesTable">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Name</th>
+                                                <th>Description</th>
+                                                <th class="text-center" style="width: 120px;">Hide in Filter</th>
+                                                <th class="text-center" style="width: 80px;">Active</th>
+                                                <th style="width: 80px;">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="partnerTypesTableBody">
+                                            <tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
 
@@ -1470,6 +1504,87 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" onclick="updateBonusType()">
+                        <i class="bi bi-check-lg"></i> Update
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Partner Type Modal -->
+    <div class="modal fade" id="addPartnerTypeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-plus-lg"></i> Add Partner Type</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addPartnerTypeForm">
+                        <div class="mb-3">
+                            <label class="form-label">Name <span class="text-danger">*</span></label>
+                            <input type="text" id="addPartnerTypeName" class="form-control" required placeholder="e.g., Service, Merchandise">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea id="addPartnerTypeDescription" class="form-control" rows="2" placeholder="Optional description"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="addPartnerTypeHideInFilter" checked>
+                                <label class="form-check-label" for="addPartnerTypeHideInFilter">Hide in Filter</label>
+                            </div>
+                            <small class="text-muted">When enabled, invoices with this type will be hidden when "Hide Typed" filter is on</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="savePartnerType()">
+                        <i class="bi bi-check-lg"></i> Save
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Partner Type Modal -->
+    <div class="modal fade" id="editPartnerTypeModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Partner Type</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editPartnerTypeForm">
+                        <input type="hidden" id="editPartnerTypeId">
+                        <div class="mb-3">
+                            <label class="form-label">Name <span class="text-danger">*</span></label>
+                            <input type="text" id="editPartnerTypeName" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Description</label>
+                            <textarea id="editPartnerTypeDescription" class="form-control" rows="2"></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="editPartnerTypeHideInFilter">
+                                <label class="form-check-label" for="editPartnerTypeHideInFilter">Hide in Filter</label>
+                            </div>
+                            <small class="text-muted">When enabled, invoices with this type will be hidden when "Hide Typed" filter is on</small>
+                        </div>
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="editPartnerTypeIsActive">
+                                <label class="form-check-label" for="editPartnerTypeIsActive">Active</label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="updatePartnerType()">
                         <i class="bi bi-check-lg"></i> Update
                     </button>
                 </div>
@@ -6151,6 +6266,201 @@
                 alert('Error deleting structure entry');
             }
         }
+
+        // ============================================
+        // Partner Types (e-Factura Settings)
+        // ============================================
+
+        let partnerTypesData = [];
+
+        async function loadPartnerTypes() {
+            const tbody = document.getElementById('partnerTypesTableBody');
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>';
+
+            try {
+                const resp = await fetch('/efactura/api/partner-types?include_inactive=true');
+                const data = await resp.json();
+                if (data.success) {
+                    partnerTypesData = data.data || [];
+                    renderPartnerTypes();
+                } else {
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3"><i class="bi bi-exclamation-triangle"></i> ${data.error || 'Failed to load partner types'}</td></tr>`;
+                }
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3"><i class="bi bi-exclamation-triangle"></i> Error: ${err.message}</td></tr>`;
+            }
+        }
+
+        function renderPartnerTypes() {
+            const tbody = document.getElementById('partnerTypesTableBody');
+            if (partnerTypesData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-tags"></i> No partner types configured. Click "Add Type" to create one.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = partnerTypesData.map(type => `
+                <tr class="${type.is_active ? '' : 'table-secondary'}">
+                    <td><strong>${escapeHtml(type.name)}</strong></td>
+                    <td class="text-muted small">${escapeHtml(type.description || '-')}</td>
+                    <td class="text-center">
+                        <div class="form-check form-switch d-inline-block">
+                            <input class="form-check-input" type="checkbox" ${type.hide_in_filter ? 'checked' : ''}
+                                   onchange="togglePartnerTypeHideInFilter(${type.id}, this.checked)"
+                                   ${type.is_active ? '' : 'disabled'}>
+                        </div>
+                    </td>
+                    <td class="text-center">
+                        <span class="badge ${type.is_active ? 'bg-success' : 'bg-secondary'}">${type.is_active ? 'Active' : 'Inactive'}</span>
+                    </td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="showEditPartnerTypeModal(${type.id})" title="Edit">
+                            <i class="bi bi-pencil"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function togglePartnerTypeHideInFilter(typeId, hideInFilter) {
+            try {
+                const resp = await fetch(`/efactura/api/partner-types/${typeId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hide_in_filter: hideInFilter })
+                });
+                if (!resp.ok) {
+                    alert('Failed to update partner type');
+                    loadPartnerTypes(); // Reload to reset state
+                }
+            } catch (err) {
+                console.error('Error:', err);
+                alert('Failed to update partner type');
+                loadPartnerTypes();
+            }
+        }
+
+        function showAddPartnerTypeModal() {
+            document.getElementById('addPartnerTypeName').value = '';
+            document.getElementById('addPartnerTypeDescription').value = '';
+            document.getElementById('addPartnerTypeHideInFilter').checked = true;
+            new bootstrap.Modal(document.getElementById('addPartnerTypeModal')).show();
+        }
+
+        async function savePartnerType() {
+            const name = document.getElementById('addPartnerTypeName').value.trim();
+            const description = document.getElementById('addPartnerTypeDescription').value.trim();
+            const hide_in_filter = document.getElementById('addPartnerTypeHideInFilter').checked;
+
+            if (!name) {
+                alert('Name is required');
+                return;
+            }
+
+            try {
+                const resp = await fetch('/efactura/api/partner-types', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description, hide_in_filter })
+                });
+                if (resp.ok) {
+                    bootstrap.Modal.getInstance(document.getElementById('addPartnerTypeModal')).hide();
+                    loadPartnerTypes();
+                } else {
+                    const data = await resp.json();
+                    alert(data.error || 'Failed to create partner type');
+                }
+            } catch (err) {
+                console.error('Error:', err);
+                alert('Failed to create partner type');
+            }
+        }
+
+        function showEditPartnerTypeModal(typeId) {
+            const type = partnerTypesData.find(t => t.id === typeId);
+            if (!type) return;
+
+            document.getElementById('editPartnerTypeId').value = typeId;
+            document.getElementById('editPartnerTypeName').value = type.name || '';
+            document.getElementById('editPartnerTypeDescription').value = type.description || '';
+            document.getElementById('editPartnerTypeHideInFilter').checked = type.hide_in_filter;
+            document.getElementById('editPartnerTypeIsActive').checked = type.is_active;
+            new bootstrap.Modal(document.getElementById('editPartnerTypeModal')).show();
+        }
+
+        async function updatePartnerType() {
+            const typeId = document.getElementById('editPartnerTypeId').value;
+            const name = document.getElementById('editPartnerTypeName').value.trim();
+            const description = document.getElementById('editPartnerTypeDescription').value.trim();
+            const hide_in_filter = document.getElementById('editPartnerTypeHideInFilter').checked;
+            const is_active = document.getElementById('editPartnerTypeIsActive').checked;
+
+            if (!name) {
+                alert('Name is required');
+                return;
+            }
+
+            try {
+                const resp = await fetch(`/efactura/api/partner-types/${typeId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description, hide_in_filter, is_active })
+                });
+                if (resp.ok) {
+                    bootstrap.Modal.getInstance(document.getElementById('editPartnerTypeModal')).hide();
+                    loadPartnerTypes();
+                } else {
+                    const data = await resp.json();
+                    alert(data.error || 'Failed to update partner type');
+                }
+            } catch (err) {
+                console.error('Error:', err);
+                alert('Failed to update partner type');
+            }
+        }
+
+        // ANAF Settings functions (placeholder implementations)
+        function saveAnafSettings() {
+            const settings = {
+                defaultSyncDays: document.getElementById('anafDefaultSyncDays').value,
+                defaultDirection: document.getElementById('anafDefaultDirection').value,
+                defaultPageSize: document.getElementById('anafDefaultPageSize').value,
+                autoRefresh: document.getElementById('anafAutoRefresh').checked
+            };
+            localStorage.setItem('anafSettings', JSON.stringify(settings));
+            alert('Settings saved successfully');
+        }
+
+        function resetAnafSettings() {
+            document.getElementById('anafDefaultSyncDays').value = '7';
+            document.getElementById('anafDefaultDirection').value = 'received';
+            document.getElementById('anafDefaultPageSize').value = '50';
+            document.getElementById('anafAutoRefresh').checked = false;
+            localStorage.removeItem('anafSettings');
+            alert('Settings reset to defaults');
+        }
+
+        function loadAnafSettings() {
+            const saved = localStorage.getItem('anafSettings');
+            if (saved) {
+                const settings = JSON.parse(saved);
+                document.getElementById('anafDefaultSyncDays').value = settings.defaultSyncDays || '7';
+                document.getElementById('anafDefaultDirection').value = settings.defaultDirection || 'received';
+                document.getElementById('anafDefaultPageSize').value = settings.defaultPageSize || '50';
+                document.getElementById('anafAutoRefresh').checked = settings.autoRefresh || false;
+            }
+        }
+
+        // Load partner types when Connectors tab is shown
+        document.getElementById('connectors-tab')?.addEventListener('shown.bs.tab', function() {
+            loadPartnerTypes();
+            loadAnafSettings();
+        });
     </script>
 
     <script src="/static/js/online-users.js"></script>

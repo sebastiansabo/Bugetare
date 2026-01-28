@@ -684,6 +684,7 @@ class InvoiceRepository:
             if hide_typed:
                 # Hide invoices that have types with hide_in_filter=TRUE
                 # Type comes from: type_override (if set) OR supplier mapping types
+                # Note: Use %% to escape % in psycopg2 with named parameters
                 conditions.append("""
                     NOT (
                         -- Has a hidden type via override
@@ -691,7 +692,7 @@ class InvoiceRepository:
                             SELECT 1 FROM efactura_partner_types pt
                             WHERE pt.is_active = TRUE
                                 AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
-                                AND i.type_override ILIKE '%' || pt.name || '%'
+                                AND i.type_override ILIKE '%%' || pt.name || '%%'
                         ))
                         OR
                         -- Has a hidden type via supplier mapping (only when no override)
@@ -1797,12 +1798,14 @@ class PartnerTypeRepository:
         self,
         name: str,
         description: Optional[str] = None,
+        hide_in_filter: bool = True,
     ) -> int:
         """Create a new partner type.
 
         Args:
             name: The type name (e.g., "Service", "Merchandise")
             description: Optional description
+            hide_in_filter: Whether to hide invoices with this type when "Hide Typed" filter is on
 
         Returns:
             The new type ID
@@ -1811,10 +1814,10 @@ class PartnerTypeRepository:
         try:
             cursor = get_cursor(conn)
             cursor.execute("""
-                INSERT INTO efactura_partner_types (name, description)
-                VALUES (%s, %s)
+                INSERT INTO efactura_partner_types (name, description, hide_in_filter)
+                VALUES (%s, %s, %s)
                 RETURNING id
-            """, (name, description))
+            """, (name, description, hide_in_filter))
             type_id = cursor.fetchone()['id']
             conn.commit()
             logger.info(f"Created partner type {type_id}: {name}")

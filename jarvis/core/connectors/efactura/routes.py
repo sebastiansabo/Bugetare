@@ -2559,14 +2559,18 @@ def list_partner_types():
 
     Query params:
         active_only: Whether to show only active types (default true)
+        include_inactive: Include inactive types (overrides active_only to false)
     """
     try:
-        active_only = request.args.get('active_only', 'true').lower() == 'true'
+        # Support both active_only and include_inactive parameters
+        include_inactive = request.args.get('include_inactive', '').lower() == 'true'
+        active_only = not include_inactive and request.args.get('active_only', 'true').lower() == 'true'
 
         types = partner_type_repo.get_all(active_only=active_only)
 
         return jsonify({
             'success': True,
+            'data': types,  # Also return as 'data' for consistency
             'types': types,
             'count': len(types),
         })
@@ -2614,6 +2618,7 @@ def create_partner_type():
     Request body:
         name: The type name (required)
         description: Optional description
+        hide_in_filter: Whether to hide invoices with this type when "Hide Typed" filter is on (default true)
     """
     try:
         data = request.get_json()
@@ -2632,9 +2637,15 @@ def create_partner_type():
                 'error': "name is required",
             }), 400
 
+        # hide_in_filter defaults to True if not specified
+        hide_in_filter = data.get('hide_in_filter', True)
+        if isinstance(hide_in_filter, str):
+            hide_in_filter = hide_in_filter.lower() == 'true'
+
         type_id = partner_type_repo.create(
             name=name,
             description=data.get('description', '').strip() or None,
+            hide_in_filter=hide_in_filter,
         )
 
         return jsonify({
