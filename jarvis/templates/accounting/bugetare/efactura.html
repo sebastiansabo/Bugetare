@@ -231,10 +231,6 @@
                                         <i class="bi bi-search"></i>
                                     </button>
                                 </div>
-                                <div class="form-check form-switch mb-0" id="hideTypesSwitchContainer" title="Hide invoices that have Type assigned">
-                                    <input class="form-check-input" type="checkbox" id="hideTypesSwitch" onchange="toggleHideTypes()">
-                                    <label class="form-check-label small text-nowrap" for="hideTypesSwitch">Hide Typed</label>
-                                </div>
                                 <button class="btn btn-danger btn-sm d-none" id="refreshDataBtn" onclick="refreshAfterMappingChange()" title="Mapping types changed - click to refresh data">
                                     <i class="bi bi-arrow-clockwise"></i> Refresh
                                 </button>
@@ -1052,8 +1048,8 @@
         let unallocatedLoaded = false; // Tab loaded flag
         let lastUnallocatedFilters = ''; // Track last used filter state
 
-        // Hide typed invoices toggle (server-side filtering)
-        let hideTypedInvoices = localStorage.getItem('efacturaHideTyped') === 'true';
+        // Auto-hide typed invoices (always enabled, controlled by Partner Type settings)
+        const hideTypedInvoices = true;
 
         // Sorting state - Hidden table
         let hiddenSortColumn = localStorage.getItem('efacturaHiddenSortColumn') || 'issue_date';
@@ -1489,15 +1485,13 @@
             renderTableHeader();
             loadBadgeCounts();
 
-            // Initialize hide typed switch
-            document.getElementById('hideTypesSwitch').checked = hideTypedInvoices;
-
             // Check if partner types were changed in Settings page while away
             const partnerTypesChanged = localStorage.getItem('efacturaPartnerTypesChanged');
             if (partnerTypesChanged) {
-                // Clear the flag and invalidate caches
+                // Clear the flag and show refresh button
                 localStorage.removeItem('efacturaPartnerTypesChanged');
-                invalidateCaches('all');
+                // Delay showing button until after initial load
+                setTimeout(() => showRefreshButton(), 500);
             }
 
             // Restore saved tab or default to unallocated
@@ -1531,17 +1525,8 @@
                 if (e.key === 'efacturaPartnerTypesChanged' && e.newValue) {
                     // Clear the flag
                     localStorage.removeItem('efacturaPartnerTypesChanged');
-                    // Invalidate caches and refresh current tab
-                    invalidateCaches('all');
-                    loadBadgeCounts();
-
-                    // Reload the active tab data
-                    const activeTabId = localStorage.getItem('efacturaActiveTab') || 'unallocatedTab';
-                    switch(activeTabId) {
-                        case 'hiddenTab': loadHiddenInvoices(1, true); break;
-                        case 'unallocatedTab': loadUnallocatedInvoices(1, true); break;
-                    }
-
+                    // Show refresh button to let user know settings changed
+                    showRefreshButton();
                     // Reload partner types for dropdown
                     loadPartnerTypesForDropdown();
                 }
@@ -2095,15 +2080,6 @@
             select.value = currentValue;
         }
 
-        // Toggle hide typed invoices switch
-        function toggleHideTypes() {
-            hideTypedInvoices = document.getElementById('hideTypesSwitch').checked;
-            localStorage.setItem('efacturaHideTyped', hideTypedInvoices.toString());
-            // Reload from server with new filter (server-side filtering)
-            currentPage = 1;
-            loadUnallocatedInvoices(1);
-        }
-
         // Show refresh button when mapping types are changed
         function showRefreshButton(autoHiddenCount = 0) {
             const btn = document.getElementById('refreshDataBtn');
@@ -2145,10 +2121,8 @@
                     message = `<i class="bi bi-search"></i> No invoices found matching "<strong>${searchTerm}</strong>".<br><small>Try a different search term.</small>`;
                 } else if (hasFilters) {
                     message = `<i class="bi bi-funnel"></i> No invoices match your filters.<br><small>Try adjusting your filter criteria.</small>`;
-                } else if (hideTypedInvoices) {
-                    message = `<i class="bi bi-funnel"></i> No untyped invoices found.<br><small>All invoices have partner types assigned.</small>`;
                 } else {
-                    message = `<i class="bi bi-check-circle text-success"></i> No unallocated invoices!<br><small>All e-Factura invoices have been processed.</small>`;
+                    message = `<i class="bi bi-check-circle text-success"></i> No unallocated invoices!<br><small>All invoices have been processed or moved to Hidden.</small>`;
                 }
                 tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-muted py-4">${message}</td></tr>`;
                 return;
@@ -4060,7 +4034,7 @@
             }).join('');
         }
 
-        // Toggle hide_in_filter for a partner type and refresh Unallocated/Hidden tabs
+        // Toggle hide_in_filter for a partner type and show refresh button
         async function togglePartnerTypeHideInFilter(typeId, hideInFilter) {
             try {
                 const res = await fetch(`/efactura/api/partner-types/${typeId}`, {
@@ -4071,23 +4045,8 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    // Refresh Unallocated and Hidden tabs data
-                    unallocatedLoaded = false;
-                    hiddenLoaded = false;
-
-                    // Reload current tab if it's Unallocated or Hidden
-                    const activeTab = document.querySelector('.nav-link.active[data-bs-toggle="tab"]');
-                    if (activeTab) {
-                        const tabId = activeTab.getAttribute('href') || activeTab.dataset.bsTarget;
-                        if (tabId === '#unallocated') {
-                            loadUnallocatedInvoices(1, true);
-                        } else if (tabId === '#hidden') {
-                            loadHiddenInvoices(1, true);
-                        }
-                    }
-
-                    // Refresh badge counts (hidden count may have changed)
-                    loadBadgeCounts();
+                    // Show refresh button to let user refresh when ready
+                    showRefreshButton();
 
                     // Update cache for dropdown
                     loadPartnerTypesForDropdown();
