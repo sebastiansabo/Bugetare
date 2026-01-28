@@ -536,7 +536,7 @@
                                         <th>Name</th>
                                         <th>Description</th>
                                         <th>Status</th>
-                                        <th title="When enabled, invoices with this type will be hidden when 'Hide Typed' filter is ON">
+                                        <th title="When enabled, invoices with this type will be hidden from the Unallocated tab">
                                             Hide in Filter
                                             <i class="bi bi-info-circle text-muted ms-1" style="cursor: help;"></i>
                                         </th>
@@ -551,6 +551,13 @@
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+
+                        <!-- Save Button -->
+                        <div class="d-flex justify-content-end mt-3 pt-3 border-top">
+                            <button class="btn btn-primary" id="savePartnerTypesBtn" onclick="savePartnerTypeChanges()" disabled>
+                                <i class="bi bi-check-lg"></i> Save Changes
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1840,6 +1847,9 @@
         // Partner Types Management
         // ==========================================
 
+        let partnerTypesData = []; // Original data from server
+        let pendingTypeChanges = {}; // Track pending hide_in_filter changes: {typeId: newValue}
+
         // Load partner types when tab is shown
         document.getElementById('partnertypes-tab').addEventListener('shown.bs.tab', function() {
             loadPartnerTypesTable();
@@ -1847,7 +1857,7 @@
 
         async function loadPartnerTypesTable() {
             const tbody = document.getElementById('partnerTypesTableBody');
-            tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">
+            tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">
                 <span class="spinner-border spinner-border-sm"></span> Loading...
             </td></tr>`;
 
@@ -1856,7 +1866,10 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    renderPartnerTypesTable(data.types || []);
+                    partnerTypesData = data.types || [];
+                    pendingTypeChanges = {}; // Reset pending changes
+                    updateSaveButton();
+                    renderPartnerTypesTable(partnerTypesData);
                 } else {
                     tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">${data.error}</td></tr>`;
                 }
@@ -1880,7 +1893,9 @@
                     ? '<span class="badge bg-success">Active</span>'
                     : '<span class="badge bg-secondary">Inactive</span>';
 
-                const hideChecked = t.hide_in_filter ? 'checked' : '';
+                // Check if there's a pending change, otherwise use original value
+                const hideValue = pendingTypeChanges.hasOwnProperty(t.id) ? pendingTypeChanges[t.id] : t.hide_in_filter;
+                const hideChecked = hideValue ? 'checked' : '';
 
                 return `<tr data-id="${t.id}">
                     <td><strong>${t.name || '-'}</strong></td>
@@ -1889,7 +1904,7 @@
                     <td>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="hideFilter${t.id}"
-                                   ${hideChecked} onchange="toggleHideInFilter(${t.id}, this.checked)">
+                                   ${hideChecked} onchange="trackHideInFilterChange(${t.id}, this.checked)">
                         </div>
                     </td>
                     <td>
@@ -1903,23 +1918,77 @@
             }).join('');
         }
 
-        async function toggleHideInFilter(typeId, hideInFilter) {
-            try {
-                const res = await fetch(`/efactura/api/partner-types/${typeId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hide_in_filter: hideInFilter })
-                });
-                const data = await res.json();
+        function trackHideInFilterChange(typeId, hideInFilter) {
+            // Find the original value
+            const originalType = partnerTypesData.find(t => t.id === typeId);
+            const originalValue = originalType ? originalType.hide_in_filter : false;
 
-                if (!data.success) {
-                    alert(data.error || 'Failed to update setting');
-                    loadPartnerTypesTable(); // Reload to reset checkbox state
-                }
-            } catch (err) {
-                alert('Error: ' + err.message);
-                loadPartnerTypesTable(); // Reload to reset checkbox state
+            // If new value equals original, remove from pending changes
+            if (hideInFilter === originalValue) {
+                delete pendingTypeChanges[typeId];
+            } else {
+                pendingTypeChanges[typeId] = hideInFilter;
             }
+
+            updateSaveButton();
+        }
+
+        function updateSaveButton() {
+            const btn = document.getElementById('savePartnerTypesBtn');
+            const hasChanges = Object.keys(pendingTypeChanges).length > 0;
+            btn.disabled = !hasChanges;
+            if (hasChanges) {
+                btn.innerHTML = `<i class="bi bi-check-lg"></i> Save Changes (${Object.keys(pendingTypeChanges).length})`;
+            } else {
+                btn.innerHTML = `<i class="bi bi-check-lg"></i> Save Changes`;
+            }
+        }
+
+        async function savePartnerTypeChanges() {
+            const btn = document.getElementById('savePartnerTypesBtn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Saving...`;
+
+            const errors = [];
+
+            // Save each pending change
+            for (const [typeId, hideInFilter] of Object.entries(pendingTypeChanges)) {
+                try {
+                    const res = await fetch(`/efactura/api/partner-types/${typeId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ hide_in_filter: hideInFilter })
+                    });
+                    const data = await res.json();
+
+                    if (!data.success) {
+                        errors.push(`Type ${typeId}: ${data.error}`);
+                    }
+                } catch (err) {
+                    errors.push(`Type ${typeId}: ${err.message}`);
+                }
+            }
+
+            if (errors.length > 0) {
+                alert('Some changes failed to save:\n' + errors.join('\n'));
+            } else {
+                // Signal e-Factura page to refresh
+                localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
+
+                // Show success feedback
+                btn.innerHTML = `<i class="bi bi-check-circle"></i> Saved!`;
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-success');
+                setTimeout(() => {
+                    btn.classList.remove('btn-success');
+                    btn.classList.add('btn-primary');
+                    btn.innerHTML = originalText;
+                }, 2000);
+            }
+
+            // Reload to get fresh data
+            await loadPartnerTypesTable();
         }
 
         async function addPartnerType() {

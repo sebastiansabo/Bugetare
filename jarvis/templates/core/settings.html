@@ -1379,12 +1379,12 @@
                                 <!-- Partner Types Section -->
                                 <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-tags"></i> Partner Types</h6>
                                 <p class="text-muted small mb-3">
-                                    Configure partner types for e-Factura supplier mappings. Use "Hide in Filter" to control which types are hidden when the "Hide Typed" toggle is enabled.
+                                    Configure partner types for e-Factura supplier mappings. Types with "Hide in Filter" enabled will be automatically hidden from the Unallocated tab.
                                 </p>
 
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <span class="text-muted small">
-                                        Types with "Hide in Filter" enabled will be hidden when using the "Hide Typed" filter on the Unallocated Invoices page.
+                                        Invoices with hidden types are moved to the Hidden tab automatically.
                                     </span>
                                     <button class="btn btn-sm btn-outline-primary" onclick="showAddPartnerTypeModal()">
                                         <i class="bi bi-plus-lg"></i> Add Type
@@ -1406,6 +1406,13 @@
                                             <tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
                                         </tbody>
                                     </table>
+                                </div>
+
+                                <!-- Save Button -->
+                                <div class="d-flex justify-content-end mt-3 pt-3 border-top">
+                                    <button class="btn btn-primary" id="savePartnerTypesBtn" onclick="savePartnerTypeChanges()" disabled>
+                                        <i class="bi bi-check-lg"></i> Save Changes
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -6272,6 +6279,7 @@
         // ============================================
 
         let partnerTypesData = [];
+        let pendingTypeChanges = {}; // Track pending hide_in_filter changes: {typeId: newValue}
 
         async function loadPartnerTypes() {
             const tbody = document.getElementById('partnerTypesTableBody');
@@ -6282,7 +6290,9 @@
                 const data = await resp.json();
                 if (data.success) {
                     partnerTypesData = data.data || [];
+                    pendingTypeChanges = {}; // Reset pending changes when data is reloaded
                     renderPartnerTypes();
+                    updateSaveButton();
                 } else {
                     tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3"><i class="bi bi-exclamation-triangle"></i> ${data.error || 'Failed to load partner types'}</td></tr>`;
                 }
@@ -6304,8 +6314,9 @@
                     <td class="text-muted small">${escapeHtml(type.description || '-')}</td>
                     <td class="text-center">
                         <div class="form-check form-switch d-inline-block">
-                            <input class="form-check-input" type="checkbox" ${type.hide_in_filter ? 'checked' : ''}
-                                   onchange="togglePartnerTypeHideInFilter(${type.id}, this.checked, this)"
+                            <input class="form-check-input" type="checkbox" id="hideToggle_${type.id}"
+                                   ${type.hide_in_filter ? 'checked' : ''}
+                                   onchange="trackHideInFilterChange(${type.id}, this.checked)"
                                    ${type.is_active ? '' : 'disabled'}>
                         </div>
                     </td>
@@ -6327,38 +6338,82 @@
             return div.innerHTML;
         }
 
-        async function togglePartnerTypeHideInFilter(typeId, hideInFilter, toggleElement) {
-            // Show saving indicator
-            const row = toggleElement ? toggleElement.closest('tr') : null;
-            const cell = row ? row.querySelector('td:nth-child(3)') : null;
-            let savedIndicator = null;
+        function trackHideInFilterChange(typeId, hideInFilter) {
+            // Compare to original value to determine if this is a change
+            const originalType = partnerTypesData.find(t => t.id === typeId);
+            const originalValue = originalType ? originalType.hide_in_filter : false;
+
+            if (hideInFilter === originalValue) {
+                // Value is back to original, remove from pending changes
+                delete pendingTypeChanges[typeId];
+            } else {
+                // Track the new value
+                pendingTypeChanges[typeId] = hideInFilter;
+            }
+            updateSaveButton();
+        }
+
+        function updateSaveButton() {
+            const btn = document.getElementById('savePartnerTypesBtn');
+            const hasChanges = Object.keys(pendingTypeChanges).length > 0;
+            btn.disabled = !hasChanges;
+            if (hasChanges) {
+                btn.innerHTML = `<i class="bi bi-check-lg"></i> Save Changes (${Object.keys(pendingTypeChanges).length})`;
+            } else {
+                btn.innerHTML = `<i class="bi bi-check-lg"></i> Save Changes`;
+            }
+        }
+
+        async function savePartnerTypeChanges() {
+            const btn = document.getElementById('savePartnerTypesBtn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
 
             try {
-                const resp = await fetch(`/efactura/api/partner-types/${typeId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hide_in_filter: hideInFilter })
-                });
-                if (!resp.ok) {
-                    alert('Failed to update partner type');
-                    loadPartnerTypes(); // Reload to reset state
-                } else {
+                // Save all pending changes
+                const promises = Object.entries(pendingTypeChanges).map(([typeId, hideInFilter]) =>
+                    fetch(`/efactura/api/partner-types/${typeId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ hide_in_filter: hideInFilter })
+                    })
+                );
+
+                const results = await Promise.all(promises);
+                const allSuccessful = results.every(r => r.ok);
+
+                if (allSuccessful) {
+                    // Clear pending changes
+                    pendingTypeChanges = {};
+
                     // Signal e-Factura page to refresh when it becomes visible
                     localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
 
-                    // Show "Saved" indicator
-                    if (cell) {
-                        savedIndicator = document.createElement('span');
-                        savedIndicator.className = 'text-success ms-2 small';
-                        savedIndicator.innerHTML = '<i class="bi bi-check-circle"></i> Saved';
-                        cell.appendChild(savedIndicator);
-                        setTimeout(() => savedIndicator?.remove(), 2000);
-                    }
+                    // Show success feedback
+                    btn.innerHTML = '<i class="bi bi-check-circle"></i> Saved!';
+                    btn.classList.remove('btn-primary');
+                    btn.classList.add('btn-success');
+
+                    // Reload data to reflect changes
+                    await loadPartnerTypes();
+
+                    // Reset button after delay
+                    setTimeout(() => {
+                        btn.classList.remove('btn-success');
+                        btn.classList.add('btn-primary');
+                        updateSaveButton();
+                    }, 2000);
+                } else {
+                    alert('Some changes could not be saved');
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
                 }
             } catch (err) {
-                console.error('Error:', err);
-                alert('Failed to update partner type');
-                loadPartnerTypes();
+                console.error('Error saving partner type changes:', err);
+                alert('Failed to save changes');
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             }
         }
 
