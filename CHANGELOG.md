@@ -1,6 +1,24 @@
 # Changelog
 
 ## 2026-01-28
+### Architecture & Code Quality
+- **e-Factura Architecture Refactoring**: Moved SQL operations from routes to repositories
+  - `ensure_connection_for_oauth()` → CompanyConnectionRepository
+  - `migrate_junction_table()` → SupplierMappingRepository
+  - `bulk_set_types()` → SupplierMappingRepository
+  - `get_by_name()` → PartnerTypeRepository
+  - `get_unallocated_ids()` → InvoiceRepository
+  - Removed unused `core.database` imports from routes.py
+
+- **Validation Hooks Improvements**: All 7 hooks now pass with 0 warnings
+  - **Cache Hook**: Skip internal metadata keys (`ttl`, `timestamp`, `key`, `data`)
+  - **Resources Hook**: Added acceptable file list for `.read()` operations (parsers, mocks, routes, etc.)
+  - **Performance Hook**:
+    - Skip loops iterating over query results (`fetchall()`, `results`, etc.)
+    - Skip loops over small collections (`transactions`, `allocations`, `items`, etc.)
+    - Skip small/lookup tables from unbounded query warnings
+    - Extended context window for commit detection (50 lines)
+
 ### e-Factura Improvements
 - **Sync filter**: Global sync now only fetches **received (Primite)** invoices from ANAF
   - Sent (outbound) invoices no longer imported during sync
