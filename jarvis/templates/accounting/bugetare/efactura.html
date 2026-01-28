@@ -1160,7 +1160,7 @@
         // Column definitions for Hidden tab
         const hiddenAllColumns = [
             { id: 'checkbox', label: '', fixed: true, width: '40px' },
-            { id: 'company', label: 'Company', visible: true },
+            { id: 'company', label: 'Company', visible: false },
             { id: 'direction', label: 'Direction', visible: true },
             { id: 'invoice_number', label: 'Invoice #', visible: true },
             { id: 'partner_name', label: 'Supplier / Partner', visible: true },
@@ -1174,7 +1174,7 @@
             { id: 'actions', label: 'Actions', fixed: true, width: '120px' }
         ];
 
-        const HIDDEN_COLUMN_CONFIG_VERSION = 1;
+        const HIDDEN_COLUMN_CONFIG_VERSION = 2;
 
         function getHiddenColumnConfig() {
             const saved = localStorage.getItem('efacturaHiddenColumnConfig');
