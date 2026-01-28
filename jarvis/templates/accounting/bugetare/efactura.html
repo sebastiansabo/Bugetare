@@ -231,6 +231,10 @@
                                         <i class="bi bi-search"></i>
                                     </button>
                                 </div>
+                                <div class="form-check form-switch mb-0" id="hideTypesSwitchContainer" title="Hide invoices that have Type assigned">
+                                    <input class="form-check-input" type="checkbox" id="hideTypesSwitch" onchange="toggleHideTypes()">
+                                    <label class="form-check-label small text-nowrap" for="hideTypesSwitch">Hide Typed</label>
+                                </div>
                                 <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse">
                                     <i class="bi bi-funnel"></i> Filters
                                 </button>
@@ -1044,6 +1048,10 @@
         let unallocatedLoaded = false; // Tab loaded flag
         let lastUnallocatedFilters = ''; // Track last used filter state
 
+        // Hide typed invoices - types to hide when switch is ON
+        const HIDE_TYPES_LIST = ['Service', 'Merchandise']; // Configure which types to hide
+        let hideTypedInvoices = localStorage.getItem('efacturaHideTyped') === 'true';
+
         // Sorting state - Hidden table
         let hiddenSortColumn = localStorage.getItem('efacturaHiddenSortColumn') || 'issue_date';
         let hiddenSortDirection = localStorage.getItem('efacturaHiddenSortDir') || 'desc';
@@ -1474,6 +1482,9 @@
             document.getElementById('loadingOverlay').style.display = 'none';
             renderTableHeader();
             loadBadgeCounts();
+
+            // Initialize hide typed switch
+            document.getElementById('hideTypesSwitch').checked = hideTypedInvoices;
 
             // Restore saved tab or default to unallocated
             const savedTab = localStorage.getItem('efacturaActiveTab') || 'unallocatedTab';
@@ -2042,20 +2053,41 @@
             select.value = currentValue;
         }
 
+        // Toggle hide typed invoices switch
+        function toggleHideTypes() {
+            hideTypedInvoices = document.getElementById('hideTypesSwitch').checked;
+            localStorage.setItem('efacturaHideTyped', hideTypedInvoices.toString());
+            // Re-render with current cache
+            renderInvoices(invoicesCache);
+            updateSummary(invoicesCache);
+        }
+
         function renderInvoices(invoices) {
             const tbody = document.getElementById('invoicesTableBody');
             const cols = getVisibleColumns();
             const colCount = cols.length;
 
-            if (!invoices || invoices.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-muted py-4">
-                    <i class="bi bi-check-circle text-success"></i> No unallocated invoices!
-                    <br><small>All e-Factura invoices have been processed.</small>
-                </td></tr>`;
+            // Filter out typed invoices if switch is ON
+            let filteredInvoices = invoices;
+            if (hideTypedInvoices && invoices) {
+                filteredInvoices = invoices.filter(inv => {
+                    // If invoice has any of the HIDE_TYPES_LIST types, hide it
+                    if (!inv.type_name) return true; // No type = show
+                    const invTypes = inv.type_name.split(', ').map(t => t.trim());
+                    // Hide if ANY of the invoice types is in the hide list
+                    return !invTypes.some(t => HIDE_TYPES_LIST.includes(t));
+                });
+            }
+
+            if (!filteredInvoices || filteredInvoices.length === 0) {
+                const message = hideTypedInvoices && invoices && invoices.length > 0
+                    ? `<i class="bi bi-funnel"></i> ${invoices.length} invoices hidden by "Hide Typed" filter.`
+                    : `<i class="bi bi-check-circle text-success"></i> No unallocated invoices!<br><small>All e-Factura invoices have been processed.</small>`;
+                tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-muted py-4">${message}</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = invoices.map(inv => {
+            tbody.innerHTML = filteredInvoices.map(inv => {
                 const isReceived = inv.direction === 'received';
                 const issueDate = inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ro-RO') : '-';
                 const importedDate = inv.created_at ? new Date(inv.created_at).toLocaleDateString('ro-RO') : '-';
@@ -2771,9 +2803,22 @@
         }
 
         function updateSummary(invoices, pagination) {
-            document.getElementById('unallocatedCount').textContent = pagination?.total || invoices?.length || 0;
+            // Apply same filter as renderInvoices for consistent counts
+            let filteredInvoices = invoices || [];
+            if (hideTypedInvoices && filteredInvoices.length > 0) {
+                filteredInvoices = filteredInvoices.filter(inv => {
+                    if (!inv.type_name) return true;
+                    const invTypes = inv.type_name.split(', ').map(t => t.trim());
+                    return !invTypes.some(t => HIDE_TYPES_LIST.includes(t));
+                });
+            }
 
-            const totalValue = (invoices || []).reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
+            const displayCount = hideTypedInvoices
+                ? `${filteredInvoices.length} / ${pagination?.total || invoices?.length || 0}`
+                : (pagination?.total || invoices?.length || 0);
+            document.getElementById('unallocatedCount').textContent = displayCount;
+
+            const totalValue = filteredInvoices.reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
             document.getElementById('totalValueUnallocated').textContent = totalValue.toLocaleString('ro-RO', {minimumFractionDigits: 2}) + ' RON';
         }
 
