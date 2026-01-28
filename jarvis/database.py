@@ -2000,7 +2000,7 @@ def init_db():
 
     # Migration: Add hide_in_filter column to partner_types (for "Hide Typed" filter configuration)
     cursor.execute('''
-        DO $
+        DO $$
         BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
@@ -2008,7 +2008,7 @@ def init_db():
             ) THEN
                 ALTER TABLE efactura_partner_types ADD COLUMN hide_in_filter BOOLEAN NOT NULL DEFAULT TRUE;
             END IF;
-        END $;
+        END $$;
     ''')
 
     # Create indexes for e-Factura tables
