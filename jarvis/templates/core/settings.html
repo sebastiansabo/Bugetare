@@ -6337,6 +6337,9 @@
                 if (!resp.ok) {
                     alert('Failed to update partner type');
                     loadPartnerTypes(); // Reload to reset state
+                } else {
+                    // Signal e-Factura page to refresh when it becomes visible
+                    localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
                 }
             } catch (err) {
                 console.error('Error:', err);
@@ -6371,6 +6374,8 @@
                 if (resp.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('addPartnerTypeModal')).hide();
                     loadPartnerTypes();
+                    // Signal e-Factura page to refresh when it becomes visible
+                    localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
                 } else {
                     const data = await resp.json();
                     alert(data.error || 'Failed to create partner type');
@@ -6414,6 +6419,8 @@
                 if (resp.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('editPartnerTypeModal')).hide();
                     loadPartnerTypes();
+                    // Signal e-Factura page to refresh when it becomes visible
+                    localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
                 } else {
                     const data = await resp.json();
                     alert(data.error || 'Failed to update partner type');

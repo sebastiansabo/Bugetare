@@ -1492,6 +1492,14 @@
             // Initialize hide typed switch
             document.getElementById('hideTypesSwitch').checked = hideTypedInvoices;
 
+            // Check if partner types were changed in Settings page while away
+            const partnerTypesChanged = localStorage.getItem('efacturaPartnerTypesChanged');
+            if (partnerTypesChanged) {
+                // Clear the flag and invalidate caches
+                localStorage.removeItem('efacturaPartnerTypesChanged');
+                invalidateCaches('all');
+            }
+
             // Restore saved tab or default to unallocated
             const savedTab = localStorage.getItem('efacturaActiveTab') || 'unallocatedTab';
             const tabLink = document.querySelector(`a[href="#${savedTab}"]`);
@@ -1516,6 +1524,27 @@
                     const tabId = e.target.getAttribute('href').substring(1);
                     localStorage.setItem('efacturaActiveTab', tabId);
                 });
+            });
+
+            // Listen for partner type changes from Settings page (in another tab)
+            window.addEventListener('storage', function(e) {
+                if (e.key === 'efacturaPartnerTypesChanged' && e.newValue) {
+                    // Clear the flag
+                    localStorage.removeItem('efacturaPartnerTypesChanged');
+                    // Invalidate caches and refresh current tab
+                    invalidateCaches('all');
+                    loadBadgeCounts();
+
+                    // Reload the active tab data
+                    const activeTabId = localStorage.getItem('efacturaActiveTab') || 'unallocatedTab';
+                    switch(activeTabId) {
+                        case 'hiddenTab': loadHiddenInvoices(1, true); break;
+                        case 'unallocatedTab': loadUnallocatedInvoices(1, true); break;
+                    }
+
+                    // Reload partner types for dropdown
+                    loadPartnerTypesForDropdown();
+                }
             });
         });
 
