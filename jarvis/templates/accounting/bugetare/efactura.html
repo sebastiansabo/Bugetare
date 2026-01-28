@@ -226,7 +226,7 @@
                             <span><i class="bi bi-table"></i> Unallocated Invoices <span id="unallocatedResultCount" class="badge bg-secondary ms-2"></span></span>
                             <div class="d-flex gap-2 align-items-center">
                                 <div class="input-group input-group-sm" style="width: 200px;">
-                                    <input type="text" class="form-control" id="searchInput" placeholder="Search supplier or invoice #..." onkeyup="if(event.key==='Enter') loadUnallocatedInvoices()">
+                                    <input type="text" class="form-control" id="searchInput" placeholder="Search supplier or invoice #..." oninput="debouncedSearch()">
                                     <button class="btn btn-outline-secondary" type="button" onclick="loadUnallocatedInvoices()">
                                         <i class="bi bi-search"></i>
                                     </button>
@@ -338,7 +338,7 @@
                             <span><i class="bi bi-eye-slash"></i> Hidden Invoices <span id="hiddenResultCount" class="badge bg-secondary ms-2"></span></span>
                             <div class="d-flex gap-2 align-items-center">
                                 <div class="input-group input-group-sm" style="width: 200px;">
-                                    <input type="text" class="form-control" id="hiddenSearchInput" placeholder="Search supplier or invoice #..." onkeyup="if(event.key==='Enter') loadHiddenInvoices(1, true)">
+                                    <input type="text" class="form-control" id="hiddenSearchInput" placeholder="Search supplier or invoice #..." oninput="debouncedHiddenSearch()">
                                     <button class="btn btn-outline-secondary" type="button" onclick="loadHiddenInvoices(1, true)">
                                         <i class="bi bi-search"></i>
                                     </button>
@@ -448,7 +448,7 @@
                             <span><i class="bi bi-trash3"></i> Deleted Invoices (Bin) - Auto-deleted after 30 days <span id="binResultCount" class="badge bg-secondary ms-2"></span></span>
                             <div class="d-flex gap-2 align-items-center">
                                 <div class="input-group input-group-sm" style="width: 200px;">
-                                    <input type="text" class="form-control" id="binSearchInput" placeholder="Search supplier or invoice #..." onkeyup="if(event.key==='Enter') loadBinInvoices(1, true)">
+                                    <input type="text" class="form-control" id="binSearchInput" placeholder="Search supplier or invoice #..." oninput="debouncedBinSearch()">
                                     <button class="btn btn-outline-secondary" type="button" onclick="loadBinInvoices(1, true)">
                                         <i class="bi bi-search"></i>
                                     </button>
@@ -599,6 +599,17 @@
                         <div class="collapse" id="mappingsFiltersCollapse">
                             <div class="row mb-3 g-2">
                                 <div class="col-md-2">
+                                    <label class="form-label small mb-1">Partner</label>
+                                    <select class="form-select form-select-sm" id="mappingsPartnerFilter" onchange="filterMappings()">
+                                        <option value="">All Partners</option>
+                                        <!-- Populated dynamically -->
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <label class="form-label small mb-1">Partner VAT</label>
+                                    <input type="text" class="form-control form-control-sm" id="mappingsVatFilter" placeholder="Filter by VAT..." onkeyup="if(event.key==='Enter') filterMappings()">
+                                </div>
+                                <div class="col-md-2">
                                     <label class="form-label small mb-1">Supplier</label>
                                     <input type="text" class="form-control form-control-sm" id="mappingsSupplierFilter" placeholder="Filter by supplier..." onkeyup="if(event.key==='Enter') filterMappings()">
                                 </div>
@@ -606,9 +617,7 @@
                                     <label class="form-label small mb-1">Type</label>
                                     <select class="form-select form-select-sm" id="mappingsTypeFilter" onchange="filterMappings()">
                                         <option value="">All Types</option>
-                                        <option value="Service">Service</option>
-                                        <option value="Merchandise">Merchandise</option>
-                                        <option value="none">No Type</option>
+                                        <!-- Populated dynamically from partnerTypesCache -->
                                     </select>
                                 </div>
                                 <div class="col-md-2">
@@ -1285,6 +1294,20 @@
             mappingsCurrentPage = page;
             sortAndRenderMappings();
         }
+
+        // Debounce utility - waits for user to stop typing
+        function debounce(func, wait) {
+            let timeout;
+            return function(...args) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => func.apply(this, args), wait);
+            };
+        }
+
+        // Debounced search functions (300ms delay)
+        const debouncedSearch = debounce(() => loadUnallocatedInvoices(), 300);
+        const debouncedHiddenSearch = debounce(() => loadHiddenInvoices(), 300);
+        const debouncedBinSearch = debounce(() => loadBinInvoices(), 300);
 
         // Hide loading overlay
         document.addEventListener('DOMContentLoaded', function() {
@@ -2657,9 +2680,11 @@
         let mappingsPageSize = parseInt(localStorage.getItem('efacturaMappingsPageSize')) || 50;
         let mappingsCurrentPage = 1;
 
-        // Filter mappings based on search and type filter
+        // Filter mappings based on search and filters
         function filterMappings() {
             const searchTerm = document.getElementById('mappingsSearchInput').value.toLowerCase().trim();
+            const partnerFilter = document.getElementById('mappingsPartnerFilter')?.value || '';
+            const vatFilter = document.getElementById('mappingsVatFilter')?.value.toLowerCase().trim() || '';
             const supplierFilter = document.getElementById('mappingsSupplierFilter')?.value.toLowerCase().trim() || '';
             const typeFilter = document.getElementById('mappingsTypeFilter').value;
 
@@ -2670,20 +2695,28 @@
                     (m.partner_cif && m.partner_cif.toLowerCase().includes(searchTerm)) ||
                     (m.kod_konto && m.kod_konto.toLowerCase().includes(searchTerm));
 
+                // Partner filter (exact match by partner_name)
+                const matchesPartner = !partnerFilter || m.partner_name === partnerFilter;
+
+                // VAT filter (partner_cif)
+                const matchesVat = !vatFilter ||
+                    (m.partner_cif && m.partner_cif.toLowerCase().includes(vatFilter));
+
                 // Supplier filter (supplier name, supplier VAT)
                 const matchesSupplier = !supplierFilter ||
                     (m.supplier_name && m.supplier_name.toLowerCase().includes(supplierFilter)) ||
                     (m.supplier_vat && m.supplier_vat.toLowerCase().includes(supplierFilter));
 
-                // Type filter
+                // Type filter - check type_names array
                 let matchesType = true;
+                const typeNames = m.type_names || (m.type_name ? [m.type_name] : []);
                 if (typeFilter === 'none') {
-                    matchesType = !m.type_name;
+                    matchesType = typeNames.length === 0;
                 } else if (typeFilter) {
-                    matchesType = m.type_name === typeFilter;
+                    matchesType = typeNames.includes(typeFilter);
                 }
 
-                return matchesSearch && matchesSupplier && matchesType;
+                return matchesSearch && matchesPartner && matchesVat && matchesSupplier && matchesType;
             });
 
             mappingsCurrentPage = 1;
@@ -2699,11 +2732,32 @@
 
         function clearMappingsFilters() {
             document.getElementById('mappingsSearchInput').value = '';
+            document.getElementById('mappingsPartnerFilter').value = '';
+            document.getElementById('mappingsVatFilter').value = '';
             document.getElementById('mappingsSupplierFilter').value = '';
             document.getElementById('mappingsTypeFilter').value = '';
             filteredMappingsCache = [...mappingsCache];
             mappingsCurrentPage = 1;
             sortAndRenderMappings();
+        }
+
+        // Populate Partner and Type filter dropdowns
+        function populateMappingsFilterDropdowns() {
+            // Populate Partner dropdown
+            const partnerSelect = document.getElementById('mappingsPartnerFilter');
+            if (partnerSelect) {
+                const partnerNames = [...new Set(mappingsCache.map(m => m.partner_name).filter(Boolean))].sort();
+                partnerSelect.innerHTML = '<option value="">All Partners</option>' +
+                    partnerNames.map(name => `<option value="${name}">${name}</option>`).join('');
+            }
+
+            // Populate Type dropdown from partnerTypesCache
+            const typeSelect = document.getElementById('mappingsTypeFilter');
+            if (typeSelect && partnerTypesCache.length > 0) {
+                typeSelect.innerHTML = '<option value="">All Types</option>' +
+                    partnerTypesCache.map(t => `<option value="${t.name}">${t.name}</option>`).join('') +
+                    '<option value="none">No Type</option>';
+            }
         }
 
         async function loadSupplierMappings(forceReload = false) {
@@ -2727,6 +2781,7 @@
                     filteredMappingsCache = [...mappingsCache]; // Initialize filtered cache
                     mappingsLoaded = true; // Mark as loaded
                     updateMappingsTableHeaders();
+                    populateMappingsFilterDropdowns(); // Populate Partner and Type dropdowns
                     sortAndRenderMappings();
                     updateBadge('mappingsBadge', data.count || 0);
                     // Restore page size from localStorage

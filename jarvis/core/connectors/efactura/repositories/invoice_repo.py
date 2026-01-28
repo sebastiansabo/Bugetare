@@ -591,13 +591,19 @@ class InvoiceRepository:
             """, params)
             total = cursor.fetchone()['total']
 
-            # Get invoices with type_name from supplier mappings
+            # Get invoices with type_names from supplier mappings (via junction table)
             cursor.execute(f"""
-                SELECT i.*, pt.name as type_name
+                SELECT i.*,
+                    COALESCE(
+                        (SELECT array_agg(pt.name ORDER BY pt.name)
+                         FROM efactura_supplier_mapping_types smt
+                         JOIN efactura_partner_types pt ON smt.type_id = pt.id
+                         WHERE smt.mapping_id = sm.id),
+                        ARRAY[]::text[]
+                    ) as type_names
                 FROM efactura_invoices i
                 LEFT JOIN efactura_supplier_mappings sm
                     ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
-                LEFT JOIN efactura_partner_types pt ON sm.type_id = pt.id
                 WHERE {where_clause}
                 ORDER BY {order_clause}
                 LIMIT %(limit)s OFFSET %(offset)s
@@ -607,7 +613,9 @@ class InvoiceRepository:
             for row in cursor.fetchall():
                 inv = self._row_to_invoice(row)
                 inv_dict = inv.__dict__.copy()
-                inv_dict['type_name'] = row.get('type_name')
+                type_names = row.get('type_names') or []
+                inv_dict['type_names'] = type_names
+                inv_dict['type_name'] = ', '.join(type_names) if type_names else None
                 invoices.append(inv_dict)
 
             return invoices, total
@@ -657,51 +665,69 @@ class InvoiceRepository:
         try:
             cursor = get_cursor(conn)
 
-            conditions = ['ignored = TRUE', 'deleted_at IS NULL']
+            conditions = ['i.ignored = TRUE', 'i.deleted_at IS NULL']
             params = {'limit': limit, 'offset': offset}
 
             if cif_owner:
-                conditions.append('cif_owner = %(cif_owner)s')
+                conditions.append('i.cif_owner = %(cif_owner)s')
                 params['cif_owner'] = cif_owner
 
             if company_id is not None:
-                conditions.append('company_id = %(company_id)s')
+                conditions.append('i.company_id = %(company_id)s')
                 params['company_id'] = company_id
 
             if direction is not None:
-                conditions.append('direction = %(direction)s')
+                conditions.append('i.direction = %(direction)s')
                 params['direction'] = direction.value
 
             if start_date:
-                conditions.append('issue_date >= %(start_date)s')
+                conditions.append('i.issue_date >= %(start_date)s')
                 params['start_date'] = start_date
 
             if end_date:
-                conditions.append('issue_date <= %(end_date)s')
+                conditions.append('i.issue_date <= %(end_date)s')
                 params['end_date'] = end_date
 
             if search:
                 conditions.append(
-                    "(invoice_number ILIKE %(search)s OR partner_name ILIKE %(search)s OR partner_cif ILIKE %(search)s)"
+                    "(i.invoice_number ILIKE %(search)s OR i.partner_name ILIKE %(search)s OR i.partner_cif ILIKE %(search)s)"
                 )
                 params['search'] = f'%{search}%'
 
             where_clause = ' AND '.join(conditions)
 
             cursor.execute(f"""
-                SELECT COUNT(*) as total FROM efactura_invoices
+                SELECT COUNT(*) as total FROM efactura_invoices i
                 WHERE {where_clause}
             """, params)
             total = cursor.fetchone()['total']
 
+            # Get invoices with type_names from supplier mappings (via junction table)
             cursor.execute(f"""
-                SELECT * FROM efactura_invoices
+                SELECT i.*,
+                    COALESCE(
+                        (SELECT array_agg(pt.name ORDER BY pt.name)
+                         FROM efactura_supplier_mapping_types smt
+                         JOIN efactura_partner_types pt ON smt.type_id = pt.id
+                         WHERE smt.mapping_id = sm.id),
+                        ARRAY[]::text[]
+                    ) as type_names
+                FROM efactura_invoices i
+                LEFT JOIN efactura_supplier_mappings sm
+                    ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
                 WHERE {where_clause}
-                ORDER BY updated_at DESC, id DESC
+                ORDER BY i.updated_at DESC, i.id DESC
                 LIMIT %(limit)s OFFSET %(offset)s
             """, params)
 
-            invoices = [self._row_to_invoice(row) for row in cursor.fetchall()]
+            invoices = []
+            for row in cursor.fetchall():
+                inv = self._row_to_invoice(row)
+                inv_dict = inv.__dict__.copy()
+                type_names = row.get('type_names') or []
+                inv_dict['type_names'] = type_names
+                inv_dict['type_name'] = ', '.join(type_names) if type_names else None
+                invoices.append(inv_dict)
 
             return invoices, total
         finally:
@@ -796,57 +822,70 @@ class InvoiceRepository:
         try:
             cursor = get_cursor(conn)
 
-            conditions = ['deleted_at IS NOT NULL']
+            conditions = ['i.deleted_at IS NOT NULL']
             params = {'limit': limit, 'offset': offset}
 
             if cif_owner:
-                conditions.append('cif_owner = %(cif_owner)s')
+                conditions.append('i.cif_owner = %(cif_owner)s')
                 params['cif_owner'] = cif_owner
 
             if company_id is not None:
-                conditions.append('company_id = %(company_id)s')
+                conditions.append('i.company_id = %(company_id)s')
                 params['company_id'] = company_id
 
             if direction is not None:
-                conditions.append('direction = %(direction)s')
+                conditions.append('i.direction = %(direction)s')
                 params['direction'] = direction.value
 
             if start_date:
-                conditions.append('issue_date >= %(start_date)s')
+                conditions.append('i.issue_date >= %(start_date)s')
                 params['start_date'] = start_date
 
             if end_date:
-                conditions.append('issue_date <= %(end_date)s')
+                conditions.append('i.issue_date <= %(end_date)s')
                 params['end_date'] = end_date
 
             if search:
                 conditions.append(
-                    "(invoice_number ILIKE %(search)s OR partner_name ILIKE %(search)s OR partner_cif ILIKE %(search)s)"
+                    "(i.invoice_number ILIKE %(search)s OR i.partner_name ILIKE %(search)s OR i.partner_cif ILIKE %(search)s)"
                 )
                 params['search'] = f'%{search}%'
 
             where_clause = ' AND '.join(conditions)
 
             cursor.execute(f"""
-                SELECT COUNT(*) as total FROM efactura_invoices
+                SELECT COUNT(*) as total FROM efactura_invoices i
                 WHERE {where_clause}
             """, params)
             total = cursor.fetchone()['total']
 
+            # Get invoices with type_names from supplier mappings (via junction table)
             cursor.execute(f"""
-                SELECT *, deleted_at FROM efactura_invoices
+                SELECT i.*, i.deleted_at,
+                    COALESCE(
+                        (SELECT array_agg(pt.name ORDER BY pt.name)
+                         FROM efactura_supplier_mapping_types smt
+                         JOIN efactura_partner_types pt ON smt.type_id = pt.id
+                         WHERE smt.mapping_id = sm.id),
+                        ARRAY[]::text[]
+                    ) as type_names
+                FROM efactura_invoices i
+                LEFT JOIN efactura_supplier_mappings sm
+                    ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
                 WHERE {where_clause}
-                ORDER BY deleted_at DESC, id DESC
+                ORDER BY i.deleted_at DESC, i.id DESC
                 LIMIT %(limit)s OFFSET %(offset)s
             """, params)
 
             invoices = []
             for row in cursor.fetchall():
                 inv = self._row_to_invoice(row)
-                # Add deleted_at to the result
+                type_names = row.get('type_names') or []
                 invoices.append({
                     **inv.__dict__,
                     'deleted_at': row.get('deleted_at'),
+                    'type_names': type_names,
+                    'type_name': ', '.join(type_names) if type_names else None,
                 })
 
             return invoices, total
