@@ -395,7 +395,9 @@ Page           (JSON)         (ANAF API)
 |--------|------|-------------|
 | id | SERIAL | Primary key |
 | name | VARCHAR(100) | Type name (e.g., "Service", "Merchandise") |
+| description | TEXT | Optional description |
 | is_active | BOOLEAN | Whether type is active (default true) |
+| hide_in_filter | BOOLEAN | When true, invoices with this type are hidden by "Hide Typed" filter (default true) |
 
 ### XML Parser (`xml_parser.py`)
 Parses UBL 2.1 e-Factura XML documents:
@@ -471,16 +473,23 @@ Individual invoices can have overrides that take precedence over supplier mappin
 - All selected invoices get the same type override
 
 ### "Hide Typed" Filter
-Toggle switch to filter out invoices that already have partner types assigned:
+Toggle switch to filter out invoices that have partner types with `hide_in_filter=TRUE`:
 
 **Configuration:**
 - Located next to search field in Unallocated tab
-- Hides invoices where type matches: `['Service', 'Merchandise']`
+- Server-side filtering (works across all pages, not just visible rows)
 - State persisted in localStorage as `efacturaHideTyped`
+- Each partner type has a configurable `hide_in_filter` setting (default: true)
+
+**Partner Type Settings:**
+- Configure in **Settings → Connectors → Partner Types** or **Connector Settings → Partner Types tab**
+- Toggle "Hide in Filter" per type to control visibility behavior
+- Types with `hide_in_filter=FALSE` remain visible even when "Hide Typed" is ON
 
 **Use Case:**
 - Focus on unclassified invoices that need attention
 - Quickly identify invoices without partner type assignment
+- Customize which types should be hidden (e.g., hide Service but show Merchandise)
 
 ### Column Configuration Versioning
 The e-Factura page uses versioned column configurations to handle schema changes:

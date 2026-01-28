@@ -34,9 +34,18 @@
   - Bulk "Set Type" action for multiple selected invoices
 
 - **"Hide Typed" Filter**: Toggle switch to hide invoices with assigned types
+  - Server-side filtering (works across all pages, not just visible rows)
   - Located next to search field in Unallocated tab
-  - Hides invoices with Service or Merchandise types
   - State persisted in localStorage
+  - **Configurable per type**: Each partner type has `hide_in_filter` setting
+  - Types with `hide_in_filter=FALSE` remain visible when filter is ON
+
+- **Partner Types Management**: Added to Global Settings and Connector Settings
+  - Settings → Connectors → Partner Types section
+  - Connector Settings → Partner Types tab
+  - Toggle "Hide in Filter" per type
+  - Add/edit/delete partner types
+  - Soft-delete (deactivation) for safety
 
 - **Column Configuration Versioning**: Automatic reset on schema changes
   - `COLUMN_CONFIG_VERSION` constant tracks schema version
@@ -47,6 +56,7 @@
 - Added `type_id` column to `efactura_supplier_mappings` (FK to `efactura_partner_types`)
 - Added `department` and `subdepartment` columns to `efactura_supplier_mappings`
 - Added `type_override`, `department_override`, `subdepartment_override` columns to `efactura_invoices`
+- Added `hide_in_filter` column to `efactura_partner_types` (controls "Hide Typed" filter behavior)
 - Migration runs automatically on app startup via `init_db()`
 
 ### API
