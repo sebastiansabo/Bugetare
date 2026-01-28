@@ -676,10 +676,14 @@ class InvoiceRepository:
                 params['end_date'] = end_date
 
             if search:
-                conditions.append(
-                    "(i.invoice_number ILIKE %(search)s OR i.partner_name ILIKE %(search)s OR i.partner_cif ILIKE %(search)s)"
-                )
-                params['search'] = f'%{search}%'
+                # Elasticsearch-style: split into words, ALL words must match somewhere
+                words = [w.strip() for w in search.split() if w.strip()]
+                for i, word in enumerate(words):
+                    param_name = f'search_{i}'
+                    conditions.append(
+                        f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
+                    )
+                    params[param_name] = f'%{word}%'
 
             if hide_typed:
                 # Hide invoices that have types with hide_in_filter=TRUE
@@ -843,10 +847,14 @@ class InvoiceRepository:
                 params['end_date'] = end_date
 
             if search:
-                conditions.append(
-                    "(i.invoice_number ILIKE %(search)s OR i.partner_name ILIKE %(search)s OR i.partner_cif ILIKE %(search)s)"
-                )
-                params['search'] = f'%{search}%'
+                # Elasticsearch-style: split into words, ALL words must match somewhere
+                words = [w.strip() for w in search.split() if w.strip()]
+                for i, word in enumerate(words):
+                    param_name = f'search_{i}'
+                    conditions.append(
+                        f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
+                    )
+                    params[param_name] = f'%{word}%'
 
             where_clause = ' AND '.join(conditions)
 
@@ -1000,10 +1008,14 @@ class InvoiceRepository:
                 params['end_date'] = end_date
 
             if search:
-                conditions.append(
-                    "(i.invoice_number ILIKE %(search)s OR i.partner_name ILIKE %(search)s OR i.partner_cif ILIKE %(search)s)"
-                )
-                params['search'] = f'%{search}%'
+                # Elasticsearch-style: split into words, ALL words must match somewhere
+                words = [w.strip() for w in search.split() if w.strip()]
+                for i, word in enumerate(words):
+                    param_name = f'search_{i}'
+                    conditions.append(
+                        f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
+                    )
+                    params[param_name] = f'%{word}%'
 
             where_clause = ' AND '.join(conditions)
 
