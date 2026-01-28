@@ -22,9 +22,36 @@
   - Default types: Service, Merchandise
   - Migration fix: explicit commit after table creation for FK reference
 
+- **Supplier Mapping Defaults**: Department and subdepartment fields on mappings
+  - Pre-set default department/subdepartment for suppliers
+  - Subdepartment dropdown filtered by department from company structure
+  - Defaults displayed in Unallocated table columns
+
+- **Invoice Overrides**: Invoice-level overrides for type, department, subdepartment
+  - Override fields: `type_override`, `department_override`, `subdepartment_override`
+  - Edit modal shows current values (from override or mapping default)
+  - Changes affect only the individual invoice, not the supplier mapping
+  - Bulk "Set Type" action for multiple selected invoices
+
+- **"Hide Typed" Filter**: Toggle switch to hide invoices with assigned types
+  - Located next to search field in Unallocated tab
+  - Hides invoices with Service or Merchandise types
+  - State persisted in localStorage
+
+- **Column Configuration Versioning**: Automatic reset on schema changes
+  - `COLUMN_CONFIG_VERSION` constant tracks schema version
+  - User column configs reset when version changes
+  - Prevents column mixing when new columns are added
+
 ### Database
 - Added `type_id` column to `efactura_supplier_mappings` (FK to `efactura_partner_types`)
+- Added `department` and `subdepartment` columns to `efactura_supplier_mappings`
+- Added `type_override`, `department_override`, `subdepartment_override` columns to `efactura_invoices`
 - Migration runs automatically on app startup via `init_db()`
+
+### API
+- `PUT /efactura/api/invoices/<id>/overrides` - Update invoice overrides
+- `PUT /efactura/api/invoices/bulk-overrides` - Bulk update overrides for multiple invoices
 
 ## 2026-01-26
 ### e-Factura Connector - JARVIS Integration

@@ -103,6 +103,21 @@ All endpoints are prefixed with `/efactura`
 | GET | `/api/invoices?cif=<cif>` | List invoices |
 | GET | `/api/invoices/<id>` | Get invoice details |
 | GET | `/api/invoices/summary?cif=<cif>` | Get statistics |
+| GET | `/api/invoices/unallocated` | List unallocated invoices |
+| GET | `/api/invoices/unallocated/count` | Count for navigation badge |
+| PUT | `/api/invoices/<id>/overrides` | Update invoice overrides (type, department, subdepartment) |
+| PUT | `/api/invoices/bulk-overrides` | Bulk update overrides for multiple invoices |
+| POST | `/api/invoices/send-to-module` | Send invoices to JARVIS Invoice Module |
+| GET | `/api/invoices/<id>/pdf` | Export PDF from XML |
+
+### Supplier Mappings
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/supplier-mappings` | List supplier mappings with types |
+| POST | `/api/supplier-mappings` | Create supplier mapping |
+| PUT | `/api/supplier-mappings/<id>` | Update supplier mapping |
+| DELETE | `/api/supplier-mappings/<id>` | Delete supplier mapping |
+| GET | `/api/partner-types` | List partner types (Service, Merchandise) |
 
 ### Sync Operations
 | Method | Endpoint | Description |
