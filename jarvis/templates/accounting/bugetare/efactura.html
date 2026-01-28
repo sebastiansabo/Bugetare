@@ -3137,7 +3137,14 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    loadSupplierMappings();
+                    // Remove from local caches immediately
+                    mappingsCache = mappingsCache.filter(m => m.id !== mappingId);
+                    filteredMappingsCache = filteredMappingsCache.filter(m => m.id !== mappingId);
+                    selectedMappings.delete(mappingId);
+                    sortAndRenderMappings();
+                    updateMappingsSelectionCount();
+                    // Update badge count
+                    updateBadge('mappingsBadge', mappingsCache.length);
                 } else {
                     alert(data.error || 'Failed to delete mapping');
                 }
