@@ -2025,6 +2025,36 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_supplier_mappings_partner ON efactura_supplier_mappings(partner_name)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_supplier_mappings_cif ON efactura_supplier_mappings(partner_cif)')
 
+    # Enable pg_trgm extension for trigram indexes (faster ILIKE searches)
+    try:
+        cursor.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
+        conn.commit()
+    except Exception as e:
+        print(f"Note: pg_trgm extension may already exist or require superuser: {e}")
+        conn.rollback()
+
+    # Create trigram indexes for e-Factura invoice search fields
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_partner_name_trgm ON efactura_invoices USING gin (partner_name gin_trgm_ops)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_partner_cif_trgm ON efactura_invoices USING gin (partner_cif gin_trgm_ops)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_invoice_number_trgm ON efactura_invoices USING gin (invoice_number gin_trgm_ops)')
+        conn.commit()
+        print("Created trigram indexes for efactura_invoices")
+    except Exception as e:
+        print(f"Note: Could not create trigram indexes for efactura_invoices: {e}")
+        conn.rollback()
+
+    # Create trigram indexes for e-Factura supplier mappings search fields
+    try:
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_mappings_partner_name_trgm ON efactura_supplier_mappings USING gin (partner_name gin_trgm_ops)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_mappings_supplier_name_trgm ON efactura_supplier_mappings USING gin (supplier_name gin_trgm_ops)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_mappings_partner_cif_trgm ON efactura_supplier_mappings USING gin (partner_cif gin_trgm_ops)')
+        conn.commit()
+        print("Created trigram indexes for efactura_supplier_mappings")
+    except Exception as e:
+        print(f"Note: Could not create trigram indexes for efactura_supplier_mappings: {e}")
+        conn.rollback()
+
     conn.commit()
 
     # Seed initial data if tables are empty

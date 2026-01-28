@@ -57,6 +57,10 @@
 - Added `department` and `subdepartment` columns to `efactura_supplier_mappings`
 - Added `type_override`, `department_override`, `subdepartment_override` columns to `efactura_invoices`
 - Added `hide_in_filter` column to `efactura_partner_types` (controls "Hide Typed" filter behavior)
+- **Trigram indexes for faster search**: Added `pg_trgm` indexes on text search columns
+  - `efactura_invoices`: partner_name, partner_cif, invoice_number
+  - `efactura_supplier_mappings`: partner_name, supplier_name, partner_cif
+  - Speeds up ILIKE searches significantly (uses GIN index)
 - Migration runs automatically on app startup via `init_db()`
 
 ### API
