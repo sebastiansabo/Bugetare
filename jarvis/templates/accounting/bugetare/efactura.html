@@ -750,11 +750,11 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">Type</label>
-                                <select class="form-select" id="mappingTypeId">
-                                    <option value="">-- Select Type --</option>
-                                </select>
-                                <div class="form-text">Supplier type (Service, Merchandise)</div>
+                                <label class="form-label">Type(s)</label>
+                                <div id="mappingTypeCheckboxes" class="border rounded p-2" style="max-height: 120px; overflow-y: auto;">
+                                    <!-- Populated dynamically -->
+                                </div>
+                                <div class="form-text">Select one or more types</div>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -2762,8 +2762,10 @@
             tbody.innerHTML = mappings.map(m => {
                 const createdDate = m.created_at ? new Date(m.created_at).toLocaleDateString('ro-RO') : '-';
                 const isSelected = selectedMappings.has(m.id);
-                const typeBadge = m.type_name
-                    ? `<span class="badge ${m.type_name === 'Service' ? 'bg-info' : 'bg-warning'}">${m.type_name}</span>`
+                // Support multiple types - use type_names array if available, fallback to type_name
+                const typeNames = m.type_names && m.type_names.length > 0 ? m.type_names : (m.type_name ? [m.type_name] : []);
+                const typeBadges = typeNames.length > 0
+                    ? typeNames.map(tn => `<span class="badge ${tn === 'Service' ? 'bg-info' : 'bg-warning'} me-1">${tn}</span>`).join('')
                     : '<span class="text-muted">-</span>';
 
                 return `<tr data-id="${m.id}">
@@ -2772,7 +2774,7 @@
                     <td><code class="text-muted">${m.partner_cif || '-'}</code></td>
                     <td>${m.supplier_name || '-'}</td>
                     <td><code class="text-success">${m.supplier_vat || '-'}</code></td>
-                    <td>${typeBadge}</td>
+                    <td>${typeBadges}</td>
                     <td><code class="text-primary">${m.kod_konto || '-'}</code></td>
                     <td><span class="text-muted small">${m.supplier_note || '-'}</span></td>
                     <td><span class="small text-muted">${createdDate}</span></td>
@@ -2923,10 +2925,10 @@
         // Partner types cache
         let partnerTypesCache = [];
 
-        async function loadPartnerTypesForDropdown(forceReload = false) {
+        async function loadPartnerTypesForDropdown(forceReload = false, selectedIds = []) {
             // Use cache if available and not forcing reload
             if (partnerTypesCache.length > 0 && !forceReload) {
-                populateTypeDropdown();
+                populateTypeCheckboxes(selectedIds);
                 return;
             }
 
@@ -2935,21 +2937,36 @@
                 const data = await res.json();
                 if (data.success) {
                     partnerTypesCache = data.types || [];
-                    populateTypeDropdown();
+                    populateTypeCheckboxes(selectedIds);
                 }
             } catch (err) {
                 console.error('Failed to load partner types:', err);
             }
         }
 
-        function populateTypeDropdown() {
-            const select = document.getElementById('mappingTypeId');
-            const currentValue = select.value;
-            select.innerHTML = '<option value="">-- Select Type --</option>' +
-                partnerTypesCache.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
-            if (currentValue) {
-                select.value = currentValue;
+        function populateTypeCheckboxes(selectedIds = []) {
+            const container = document.getElementById('mappingTypeCheckboxes');
+            if (!container) return;
+
+            container.innerHTML = partnerTypesCache.map(t => {
+                const checked = selectedIds.includes(t.id) ? 'checked' : '';
+                return `
+                    <div class="form-check">
+                        <input class="form-check-input mapping-type-checkbox" type="checkbox"
+                               value="${t.id}" id="typeCheck${t.id}" ${checked}>
+                        <label class="form-check-label" for="typeCheck${t.id}">${t.name}</label>
+                    </div>
+                `;
+            }).join('');
+
+            if (partnerTypesCache.length === 0) {
+                container.innerHTML = '<span class="text-muted small">No types available</span>';
             }
+        }
+
+        function getSelectedTypeIds() {
+            const checkboxes = document.querySelectorAll('.mapping-type-checkbox:checked');
+            return Array.from(checkboxes).map(cb => parseInt(cb.value));
         }
 
         async function openAddMappingModal() {
@@ -2958,13 +2975,12 @@
             document.getElementById('mappingPartnerCif').value = '';
             document.getElementById('mappingSupplierName').value = '';
             document.getElementById('mappingSupplierVat').value = '';
-            document.getElementById('mappingTypeId').value = '';
             document.getElementById('mappingKodKonto').value = '';
             document.getElementById('mappingSupplierNote').value = '';
             document.getElementById('mappingModalTitle').innerHTML = '<i class="bi bi-diagram-3"></i> Add Supplier Mapping';
 
-            // Load partner types for dropdown
-            await loadPartnerTypesForDropdown();
+            // Load partner types with no selection
+            await loadPartnerTypesForDropdown(false, []);
 
             const modal = new bootstrap.Modal(document.getElementById('mappingModal'));
             modal.show();
@@ -2986,9 +3002,9 @@
             document.getElementById('mappingSupplierNote').value = mapping.supplier_note || '';
             document.getElementById('mappingModalTitle').innerHTML = '<i class="bi bi-diagram-3"></i> Edit Supplier Mapping';
 
-            // Load partner types and set the current value
-            await loadPartnerTypesForDropdown();
-            document.getElementById('mappingTypeId').value = mapping.type_id || '';
+            // Load partner types and select the current values
+            const selectedTypeIds = mapping.type_ids || (mapping.type_id ? [mapping.type_id] : []);
+            await loadPartnerTypesForDropdown(false, selectedTypeIds);
 
             const modal = new bootstrap.Modal(document.getElementById('mappingModal'));
             modal.show();
@@ -3000,7 +3016,7 @@
             const partnerCif = document.getElementById('mappingPartnerCif').value.trim();
             const supplierName = document.getElementById('mappingSupplierName').value.trim();
             const supplierVat = document.getElementById('mappingSupplierVat').value.trim();
-            const typeId = document.getElementById('mappingTypeId').value;
+            const typeIds = getSelectedTypeIds();
             const kodKonto = document.getElementById('mappingKodKonto').value.trim();
             const supplierNote = document.getElementById('mappingSupplierNote').value.trim();
 
@@ -3019,7 +3035,7 @@
                 partner_cif: partnerCif,
                 supplier_name: supplierName,
                 supplier_vat: supplierVat,
-                type_id: typeId || null,
+                type_ids: typeIds,
                 kod_konto: kodKonto,
                 supplier_note: supplierNote,
             };

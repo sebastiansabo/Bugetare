@@ -2057,13 +2057,22 @@ def create_supplier_mapping():
                 'error': "supplier_name is required",
             }), 400
 
-        # Handle type_id - convert to int or None
+        # Handle type_ids array (new) or type_id (legacy)
+        type_ids = data.get('type_ids')
         type_id = data.get('type_id')
-        if type_id is not None:
+
+        # Convert type_ids to list of ints
+        if type_ids is not None:
             try:
-                type_id = int(type_id) if type_id else None
+                type_ids = [int(tid) for tid in type_ids if tid]
             except (ValueError, TypeError):
-                type_id = None
+                type_ids = []
+        elif type_id is not None:
+            # Legacy: convert single type_id to list
+            try:
+                type_ids = [int(type_id)] if type_id else []
+            except (ValueError, TypeError):
+                type_ids = []
 
         mapping_id = supplier_mapping_repo.create(
             partner_name=partner_name,
@@ -2072,7 +2081,7 @@ def create_supplier_mapping():
             supplier_note=data.get('supplier_note', '').strip() or None,
             supplier_vat=data.get('supplier_vat', '').strip() or None,
             kod_konto=data.get('kod_konto', '').strip() or None,
-            type_id=type_id,
+            type_ids=type_ids,
         )
 
         return jsonify({
@@ -2119,13 +2128,21 @@ def update_supplier_mapping(mapping_id: int):
                 'error': "No data provided",
             }), 400
 
-        # Handle type_id - convert to int or None
-        type_id = data.get('type_id')
-        if type_id is not None:
+        # Handle type_ids array (new) or type_id (legacy)
+        type_ids = None
+        if 'type_ids' in data:
+            # type_ids explicitly provided (can be empty array to clear types)
             try:
-                type_id = int(type_id) if type_id else None
+                type_ids = [int(tid) for tid in data['type_ids'] if tid]
             except (ValueError, TypeError):
-                type_id = None
+                type_ids = []
+        elif 'type_id' in data:
+            # Legacy: convert single type_id to list
+            type_id = data.get('type_id')
+            try:
+                type_ids = [int(type_id)] if type_id else []
+            except (ValueError, TypeError):
+                type_ids = []
 
         success = supplier_mapping_repo.update(
             mapping_id,
@@ -2135,7 +2152,7 @@ def update_supplier_mapping(mapping_id: int):
             supplier_note=data.get('supplier_note'),
             supplier_vat=data.get('supplier_vat'),
             kod_konto=data.get('kod_konto'),
-            type_id=type_id,
+            type_ids=type_ids,
             is_active=data.get('is_active'),
         )
 

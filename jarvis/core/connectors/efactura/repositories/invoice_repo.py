@@ -1205,55 +1205,86 @@ class SupplierMappingRepository:
     """Repository for e-Factura supplier mappings."""
 
     def get_all(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        """Get all supplier mappings.
+        """Get all supplier mappings with their types.
 
         Args:
             active_only: If True, only return active mappings
 
         Returns:
-            List of mapping dictionaries
+            List of mapping dictionaries with type_ids and type_names arrays
         """
         conn = get_db()
         try:
             cursor = get_cursor(conn)
-            if active_only:
-                cursor.execute("""
-                    SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
-                           m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                           pt.name as type_name
-                    FROM efactura_supplier_mappings m
-                    LEFT JOIN efactura_partner_types pt ON m.type_id = pt.id
-                    WHERE m.is_active = TRUE
-                    ORDER BY m.partner_name
-                """)
-            else:
-                cursor.execute("""
-                    SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
-                           m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                           pt.name as type_name
-                    FROM efactura_supplier_mappings m
-                    LEFT JOIN efactura_partner_types pt ON m.type_id = pt.id
-                    ORDER BY m.partner_name
-                """)
-            return [dict(row) for row in cursor.fetchall()]
+            # Get mappings with aggregated types from junction table
+            where_clause = "WHERE m.is_active = TRUE" if active_only else ""
+            cursor.execute(f"""
+                SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
+                       m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
+                       COALESCE(
+                           (SELECT array_agg(pt.id ORDER BY pt.name)
+                            FROM efactura_supplier_mapping_types smt
+                            JOIN efactura_partner_types pt ON smt.type_id = pt.id
+                            WHERE smt.mapping_id = m.id),
+                           ARRAY[]::integer[]
+                       ) as type_ids,
+                       COALESCE(
+                           (SELECT array_agg(pt.name ORDER BY pt.name)
+                            FROM efactura_supplier_mapping_types smt
+                            JOIN efactura_partner_types pt ON smt.type_id = pt.id
+                            WHERE smt.mapping_id = m.id),
+                           ARRAY[]::text[]
+                       ) as type_names
+                FROM efactura_supplier_mappings m
+                {where_clause}
+                ORDER BY m.partner_name
+            """)
+            results = []
+            for row in cursor.fetchall():
+                mapping = dict(row)
+                # Convert arrays to lists for JSON serialization
+                mapping['type_ids'] = list(mapping['type_ids']) if mapping['type_ids'] else []
+                mapping['type_names'] = list(mapping['type_names']) if mapping['type_names'] else []
+                # Keep type_name for backward compatibility (first type or None)
+                mapping['type_name'] = mapping['type_names'][0] if mapping['type_names'] else None
+                results.append(mapping)
+            return results
         finally:
             release_db(conn)
 
     def get_by_id(self, mapping_id: int) -> Optional[Dict[str, Any]]:
-        """Get a single supplier mapping by ID."""
+        """Get a single supplier mapping by ID with its types."""
         conn = get_db()
         try:
             cursor = get_cursor(conn)
             cursor.execute("""
                 SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
                        m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                       pt.name as type_name
+                       COALESCE(
+                           (SELECT array_agg(pt.id ORDER BY pt.name)
+                            FROM efactura_supplier_mapping_types smt
+                            JOIN efactura_partner_types pt ON smt.type_id = pt.id
+                            WHERE smt.mapping_id = m.id),
+                           ARRAY[]::integer[]
+                       ) as type_ids,
+                       COALESCE(
+                           (SELECT array_agg(pt.name ORDER BY pt.name)
+                            FROM efactura_supplier_mapping_types smt
+                            JOIN efactura_partner_types pt ON smt.type_id = pt.id
+                            WHERE smt.mapping_id = m.id),
+                           ARRAY[]::text[]
+                       ) as type_names
                 FROM efactura_supplier_mappings m
-                LEFT JOIN efactura_partner_types pt ON m.type_id = pt.id
                 WHERE m.id = %s
             """, (mapping_id,))
             row = cursor.fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            mapping = dict(row)
+            mapping['type_ids'] = list(mapping['type_ids']) if mapping['type_ids'] else []
+            mapping['type_names'] = list(mapping['type_names']) if mapping['type_names'] else []
+            mapping['type_name'] = mapping['type_names'][0] if mapping['type_names'] else None
+            return mapping
         finally:
             release_db(conn)
 
@@ -1310,6 +1341,7 @@ class SupplierMappingRepository:
         supplier_vat: Optional[str] = None,
         kod_konto: Optional[str] = None,
         type_id: Optional[int] = None,
+        type_ids: Optional[List[int]] = None,
     ) -> int:
         """Create a new supplier mapping.
 
@@ -1320,7 +1352,8 @@ class SupplierMappingRepository:
             supplier_note: Optional notes about the supplier
             supplier_vat: The standardized VAT number
             kod_konto: The accounting code
-            type_id: Optional partner type ID
+            type_id: Optional partner type ID (legacy, use type_ids instead)
+            type_ids: Optional list of partner type IDs
 
         Returns:
             The new mapping ID
@@ -1335,6 +1368,23 @@ class SupplierMappingRepository:
                 RETURNING id
             """, (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto, type_id))
             mapping_id = cursor.fetchone()['id']
+
+            # Insert types into junction table
+            if type_ids:
+                for tid in type_ids:
+                    cursor.execute("""
+                        INSERT INTO efactura_supplier_mapping_types (mapping_id, type_id)
+                        VALUES (%s, %s)
+                        ON CONFLICT (mapping_id, type_id) DO NOTHING
+                    """, (mapping_id, tid))
+            elif type_id:
+                # Fallback to single type_id for backward compatibility
+                cursor.execute("""
+                    INSERT INTO efactura_supplier_mapping_types (mapping_id, type_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (mapping_id, type_id) DO NOTHING
+                """, (mapping_id, type_id))
+
             conn.commit()
             logger.info(f"Created supplier mapping {mapping_id}: {partner_name} -> {supplier_name}")
             return mapping_id
@@ -1355,6 +1405,7 @@ class SupplierMappingRepository:
         supplier_vat: Optional[str] = None,
         kod_konto: Optional[str] = None,
         type_id: Optional[int] = None,
+        type_ids: Optional[List[int]] = None,
         is_active: Optional[bool] = None,
     ) -> bool:
         """Update a supplier mapping.
@@ -1367,7 +1418,8 @@ class SupplierMappingRepository:
             supplier_note: New supplier note
             supplier_vat: New supplier VAT
             kod_konto: New accounting code
-            type_id: New partner type ID
+            type_id: New partner type ID (legacy, use type_ids instead)
+            type_ids: List of partner type IDs (pass empty list to clear types)
             is_active: Whether mapping is active
 
         Returns:
@@ -1414,6 +1466,23 @@ class SupplierMappingRepository:
             """, tuple(params))
 
             success = cursor.rowcount > 0
+
+            # Update types in junction table if type_ids is provided
+            if type_ids is not None:
+                # Delete existing types
+                cursor.execute("""
+                    DELETE FROM efactura_supplier_mapping_types
+                    WHERE mapping_id = %s
+                """, (mapping_id,))
+
+                # Insert new types
+                for tid in type_ids:
+                    cursor.execute("""
+                        INSERT INTO efactura_supplier_mapping_types (mapping_id, type_id)
+                        VALUES (%s, %s)
+                        ON CONFLICT (mapping_id, type_id) DO NOTHING
+                    """, (mapping_id, tid))
+
             conn.commit()
             if success:
                 logger.info(f"Updated supplier mapping {mapping_id}")
