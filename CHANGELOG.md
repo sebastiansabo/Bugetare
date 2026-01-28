@@ -40,6 +40,13 @@
   - State persisted in localStorage
   - **Configurable per type**: Each partner type has `hide_in_filter` setting
   - Types with `hide_in_filter=FALSE` remain visible when filter is ON
+  - **"Hidden by filter" indicator**: Shows count of filtered invoices (e.g., "5 invoices (3 hidden by filter)")
+
+- **Auto-hide Invoices with Hidden Types**: Invoices automatically move to Hidden tab
+  - On import: If partner has mapping with hidden type, invoice auto-hidden
+  - On mapping create/update: Existing invoices for partner auto-hidden if type is hidden
+  - On bulk type set: Existing invoices auto-hidden when setting hidden types
+  - Repository methods: `partner_has_hidden_types()`, `auto_hide_if_typed()`, `auto_hide_all_by_partner()`
 
 - **Partner Types Management**: Added to Global Settings and Connector Settings
   - Settings → Connectors → Partner Types section
@@ -52,6 +59,7 @@
   - `COLUMN_CONFIG_VERSION` constant tracks schema version
   - User column configs reset when version changes
   - Prevents column mixing when new columns are added
+  - **Fix**: Column order now preserved when clicking Apply without changes (saves `order` property)
 
 ### Performance Monitoring
 - **Request timing middleware**: Tracks slow requests when `PERF_MONITOR=true`

@@ -2228,10 +2228,19 @@ def create_supplier_mapping():
             subdepartment=data.get('subdepartment', '').strip() or None,
         )
 
+        # Auto-hide existing invoices if mapping has hidden types
+        auto_hidden = 0
+        if type_ids:
+            from .repositories.invoice_repo import InvoiceRepository
+            invoice_repo = InvoiceRepository()
+            if invoice_repo.partner_has_hidden_types(partner_name):
+                auto_hidden = invoice_repo.auto_hide_all_by_partner(partner_name)
+
         return jsonify({
             'success': True,
             'id': mapping_id,
             'message': 'Mapping created successfully',
+            'auto_hidden': auto_hidden,
         }), 201
 
     except Exception as e:
@@ -2308,9 +2317,19 @@ def update_supplier_mapping(mapping_id: int):
                 'error': 'Mapping not found or update failed',
             }), 404
 
+        # Auto-hide existing invoices if mapping now has hidden types
+        auto_hidden = 0
+        partner_name = data.get('partner_name')
+        if type_ids and partner_name:
+            from .repositories.invoice_repo import InvoiceRepository
+            invoice_repo = InvoiceRepository()
+            if invoice_repo.partner_has_hidden_types(partner_name):
+                auto_hidden = invoice_repo.auto_hide_all_by_partner(partner_name)
+
         return jsonify({
             'success': True,
             'message': 'Mapping updated successfully',
+            'auto_hidden': auto_hidden,
         })
 
     except Exception as e:
@@ -2503,9 +2522,19 @@ def bulk_set_mappings_type():
 
         # Update all mappings using junction table
         updated_count = 0
+        partner_names = []
         conn = get_db()
         try:
             cursor = get_cursor(conn)
+
+            # First, get partner names for these mappings (needed for auto-hide)
+            if type_id:
+                cursor.execute(
+                    "SELECT id, partner_name FROM efactura_supplier_mappings WHERE id = ANY(%s)",
+                    (ids,)
+                )
+                partner_names = [row['partner_name'] for row in cursor.fetchall()]
+
             for mapping_id in ids:
                 # Delete existing types for this mapping
                 cursor.execute(
@@ -2528,10 +2557,20 @@ def bulk_set_mappings_type():
         finally:
             release_db(conn)
 
+        # Auto-hide existing invoices if type has hide_in_filter=TRUE
+        auto_hidden = 0
+        if type_id and partner_names:
+            from .repositories.invoice_repo import InvoiceRepository
+            invoice_repo = InvoiceRepository()
+            for partner_name in partner_names:
+                if invoice_repo.partner_has_hidden_types(partner_name):
+                    auto_hidden += invoice_repo.auto_hide_all_by_partner(partner_name)
+
         return jsonify({
             'success': True,
             'updated': updated_count,
-            'message': f"Updated {updated_count} mapping(s)",
+            'auto_hidden': auto_hidden,
+            'message': f"Updated {updated_count} mapping(s)" + (f", auto-hidden {auto_hidden} invoice(s)" if auto_hidden else ""),
         })
 
     except Exception as e:

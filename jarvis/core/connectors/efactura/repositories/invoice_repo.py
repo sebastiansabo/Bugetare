@@ -506,6 +506,102 @@ class InvoiceRepository:
         finally:
             release_db(conn)
 
+    def partner_has_hidden_types(self, partner_name: str) -> bool:
+        """
+        Check if a partner has supplier mapping with types that have hide_in_filter=TRUE.
+
+        Args:
+            partner_name: Name of the partner (supplier/customer)
+
+        Returns:
+            True if partner has mapping with hidden types, False otherwise
+        """
+        if not partner_name:
+            return False
+
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM efactura_supplier_mappings sm
+                    JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm.id
+                    JOIN efactura_partner_types pt ON pt.id = smt.type_id
+                    WHERE LOWER(sm.partner_name) = LOWER(%s)
+                        AND sm.is_active = TRUE
+                        AND pt.is_active = TRUE
+                        AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                ) as has_hidden_types
+            """, (partner_name,))
+            result = cursor.fetchone()
+            return result['has_hidden_types'] if result else False
+        except Exception as e:
+            logger.error(f"Failed to check partner hidden types: {e}")
+            return False
+        finally:
+            release_db(conn)
+
+    def auto_hide_if_typed(self, invoice_id: int, partner_name: str) -> bool:
+        """
+        Automatically hide an invoice if its partner has types with hide_in_filter=TRUE.
+
+        Args:
+            invoice_id: ID of the invoice
+            partner_name: Name of the partner
+
+        Returns:
+            True if invoice was auto-hidden, False otherwise
+        """
+        if self.partner_has_hidden_types(partner_name):
+            logger.info(
+                "Auto-hiding invoice due to partner having hidden types",
+                extra={'invoice_id': invoice_id, 'partner_name': partner_name}
+            )
+            return self.ignore_invoice(invoice_id, ignored=True)
+        return False
+
+    def auto_hide_all_by_partner(self, partner_name: str) -> int:
+        """
+        Auto-hide all unallocated, non-ignored invoices for a partner.
+
+        Called when a supplier mapping is created/updated with hidden types.
+
+        Args:
+            partner_name: Name of the partner
+
+        Returns:
+            Number of invoices auto-hidden
+        """
+        if not partner_name:
+            return 0
+
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                UPDATE efactura_invoices
+                SET ignored = TRUE, updated_at = NOW()
+                WHERE LOWER(partner_name) = LOWER(%s)
+                    AND jarvis_invoice_id IS NULL
+                    AND ignored = FALSE
+                    AND deleted_at IS NULL
+            """, (partner_name,))
+            count = cursor.rowcount
+            conn.commit()
+            if count > 0:
+                logger.info(
+                    f"Auto-hidden {count} invoices for partner with hidden types",
+                    extra={'partner_name': partner_name, 'count': count}
+                )
+            return count
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Failed to auto-hide invoices for partner: {e}")
+            return 0
+        finally:
+            release_db(conn)
+
     def update_overrides(
         self,
         invoice_id: int,
@@ -726,6 +822,19 @@ class InvoiceRepository:
             """, params)
             total = cursor.fetchone()['total']
 
+            # If hide_typed is active, also count how many are hidden by the filter
+            hidden_by_filter = 0
+            if hide_typed:
+                # Build conditions WITHOUT the hide_typed filter to count what would be hidden
+                base_conditions = [c for c in conditions if 'hide_in_filter' not in c]
+                base_where = ' AND '.join(base_conditions)
+                cursor.execute(f"""
+                    SELECT COUNT(*) as total FROM efactura_invoices i
+                    WHERE {base_where}
+                """, params)
+                total_without_filter = cursor.fetchone()['total']
+                hidden_by_filter = total_without_filter - total
+
             # OPTIMIZED: Fetch invoices and mappings without correlated subquery
             # Step 1: Get invoices with basic mapping data (dept/subdept only)
             cursor.execute(f"""
@@ -778,7 +887,7 @@ class InvoiceRepository:
                 inv_dict['subdepartment'] = row.get('subdepartment_override') or row.get('mapping_subdepartment')
                 invoices.append(inv_dict)
 
-            return invoices, total
+            return invoices, total, hidden_by_filter
         finally:
             release_db(conn)
 

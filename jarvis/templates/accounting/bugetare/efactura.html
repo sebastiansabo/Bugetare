@@ -1596,7 +1596,13 @@
                     updateSummary(data.data, data.pagination);
                     unallocatedLoaded = true; // Mark as loaded
 
-                    document.getElementById('unallocatedResultCount').textContent = `${data.pagination?.total || data.data?.length || 0} invoices`;
+                    const total = data.pagination?.total || data.data?.length || 0;
+                    const hiddenByFilter = data.pagination?.hidden_by_filter || 0;
+                    let resultText = `${total} invoices`;
+                    if (hiddenByFilter > 0) {
+                        resultText += ` <span class="text-warning">(${hiddenByFilter} hidden by filter)</span>`;
+                    }
+                    document.getElementById('unallocatedResultCount').innerHTML = resultText;
                 } else {
                     tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-danger py-4">
                         <i class="bi bi-exclamation-triangle"></i> ${data.error || 'Failed to load invoices'}
@@ -2728,15 +2734,18 @@
             const list = document.getElementById('columnConfigList');
             const items = list.querySelectorAll('li');
             const config = [];
+            let order = 0;
 
+            // Add fixed columns first with their order
             allColumns.filter(c => c.fixed).forEach(c => {
-                config.push({ id: c.id, visible: true });
+                config.push({ id: c.id, visible: true, order: order++ });
             });
 
+            // Add non-fixed columns in their current DOM order (as shown in modal)
             items.forEach(item => {
                 const id = item.dataset.id;
                 const visible = item.querySelector('input[type="checkbox"]').checked;
-                config.push({ id, visible });
+                config.push({ id, visible, order: order++ });
             });
 
             saveColumnConfig(config);

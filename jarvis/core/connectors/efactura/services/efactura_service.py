@@ -742,6 +742,11 @@ class EFacturaService:
 
                 if created_invoice:
                     imported += 1
+                    # Auto-hide invoice if partner has mapping with hidden types
+                    self.invoice_repo.auto_hide_if_typed(
+                        created_invoice.id,
+                        invoice.partner_name
+                    )
                 else:
                     errors.append(f"Failed to save message {message_id}")
 
@@ -1022,7 +1027,7 @@ class EFacturaService:
         """List invoices that have not been sent to the Invoice Module."""
         offset = (page - 1) * limit
 
-        invoices, total = self.invoice_repo.list_unallocated(
+        invoices, total, hidden_by_filter = self.invoice_repo.list_unallocated(
             cif_owner=cif_owner,
             company_id=company_id,
             direction=direction,
@@ -1080,11 +1085,14 @@ class EFacturaService:
                 'currency': inv.get('currency'),
                 'created_at': inv_created_at,
                 'type_name': inv.get('type_name'),
+                'type_names': inv.get('type_names', []),
                 'type_override': inv.get('type_override'),
                 'department': inv.get('department'),
                 'department_override': inv.get('department_override'),
+                'mapping_department': inv.get('mapping_department'),
                 'subdepartment': inv.get('subdepartment'),
                 'subdepartment_override': inv.get('subdepartment_override'),
+                'mapping_subdepartment': inv.get('mapping_subdepartment'),
             })
 
         return ServiceResult(success=True, data={
@@ -1097,6 +1105,7 @@ class EFacturaService:
                 'limit': limit,
                 'offset': offset,
                 'has_more': page < total_pages,
+                'hidden_by_filter': hidden_by_filter,
             },
         })
 
