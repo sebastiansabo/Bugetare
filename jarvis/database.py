@@ -1911,6 +1911,8 @@ def init_db():
             END IF;
         END $;
     ''')
+    # Commit to ensure supplier_mappings table exists before creating junction table FK
+    conn.commit()
 
     # Junction table for many-to-many mapping between suppliers and types
     cursor.execute('''
