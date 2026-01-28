@@ -2778,10 +2778,8 @@
             const config = [];
             let order = 0;
 
-            // Add fixed columns first with their order
-            allColumns.filter(c => c.fixed).forEach(c => {
-                config.push({ id: c.id, visible: true, order: order++ });
-            });
+            // Add checkbox column first (order 0)
+            config.push({ id: 'checkbox', visible: true, order: order++ });
 
             // Add non-fixed columns in their current DOM order (as shown in modal)
             items.forEach(item => {
@@ -2789,6 +2787,9 @@
                 const visible = item.querySelector('input[type="checkbox"]').checked;
                 config.push({ id, visible, order: order++ });
             });
+
+            // Add actions column last
+            config.push({ id: 'actions', visible: true, order: order++ });
 
             saveColumnConfig(config);
             renderTableHeader();
