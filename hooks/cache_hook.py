@@ -229,6 +229,9 @@ class CacheHook(BaseHook):
             r"cache\.\w+\s*\(\s*f?['\"][\w_]+_[\w_]+_",  # entity_type_id pattern
         ]
 
+        # Internal cache metadata keys - not actual data cache keys
+        internal_keys = ['ttl', 'timestamp', 'key', 'data', 'expires', 'timeout']
+
         for filepath, content in cache_files:
             # Find all cache operations
             cache_ops = re.findall(
@@ -237,6 +240,15 @@ class CacheHook(BaseHook):
             )
 
             for key in cache_ops:
+                # Extract the actual key value (remove quotes)
+                key_value = key.strip('\'"')
+                if key.startswith('f'):
+                    key_value = key[2:-1]  # f"..." -> ...
+
+                # Skip internal metadata keys
+                if key_value in internal_keys:
+                    continue
+
                 is_good = any(
                     re.match(pattern.replace(r"cache\.\w+\s*\(\s*", ""), key)
                     for pattern in good_patterns

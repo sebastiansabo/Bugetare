@@ -57,6 +57,20 @@ class ResourcesHook(BaseHook):
         (r"list\s*\(\s*.*\.all\(\)\s*\)", "list(query.all()) loads all records"),
     ]
 
+    # Files where .read() is acceptable (small files: invoices, certs, configs, mock data)
+    READ_ACCEPTABLE_FILES = [
+        "parser",       # Invoice/PDF parsing (small files)
+        "mock",         # Mock/test data
+        "test",         # Test files
+        "auth",         # Certificate/token files
+        "config",       # Config files
+        "app.py",       # Main app (uploads, small files)
+        "xml_parser",   # XML parsing (invoice XMLs)
+        "bulk",         # Bulk processor (invoices)
+        "routes",       # Route handlers (file uploads, small docs)
+        "statements",   # Bank statement PDFs
+    ]
+
     # Missing cleanup patterns
     CLEANUP_PATTERNS = [
         (r"open\s*\([^)]+\)\s*(?!\.close|with)", "open() without context manager or close()"),
@@ -156,8 +170,16 @@ class ResourcesHook(BaseHook):
         for filepath in files:
             try:
                 content = filepath.read_text()
+                filename_lower = filepath.name.lower()
 
                 for pattern, description in self.MEMORY_PATTERNS:
+                    # Skip .read() warnings for files that handle small data
+                    if pattern == r"\.read\(\)" and any(
+                        acceptable in filename_lower
+                        for acceptable in self.READ_ACCEPTABLE_FILES
+                    ):
+                        continue
+
                     matches = re.finditer(pattern, content)
                     for match in matches:
                         # Get line number

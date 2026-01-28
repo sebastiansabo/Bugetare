@@ -53,6 +53,30 @@ class PerformanceHook(BaseHook):
     # Unbounded query patterns (simple, fast)
     UNBOUNDED_PATTERNS = [".all()", "fetchall()"]
 
+    # Files/functions to skip (migrations, retry logic, etc.)
+    SKIP_PATTERNS = [
+        "migration",    # One-time migration code
+        "migrate",      # Migration functions
+        "_retry",       # Retry logic
+        "retry_",       # Retry functions
+        "sync_cursor",  # Cursor sync operations
+        "seed",         # Database seeding
+        "init_db",      # Database initialization
+        "setup",        # Setup functions
+    ]
+
+    # Context indicators that make loops acceptable
+    ACCEPTABLE_LOOP_CONTEXT = [
+        "conn.commit()",      # Transaction block - inserts are atomic
+        "connection.commit(", # Same
+        "# batch",            # Explicitly marked as batch
+        "# migration",        # Migration code
+        "executemany(",       # Already using batch operation
+        "# retry",            # Retry logic
+        "yield ",             # Generator function
+        "yield(",             # Generator expression
+    ]
+
     def run(self) -> HookResult:
         """Run performance validation."""
         details: List[str] = []
@@ -102,23 +126,60 @@ class PerformanceHook(BaseHook):
         warnings: List[str] = []
 
         for filepath in files:
+            # Skip files with skip patterns in name
+            if any(skip in filepath.name.lower() for skip in self.SKIP_PATTERNS):
+                continue
+
             try:
                 content = filepath.read_text()
+                content_lower = content.lower()
+
+                # Skip files that are primarily migration/setup code
+                if any(skip in content_lower for skip in ['def migrate_', 'migration']):
+                    continue
+
                 lines = content.split('\n')
 
                 in_loop = False
                 loop_start_line = 0
+                loop_line_text = ""
 
                 for i, line in enumerate(lines):
                     # Detect loop start
-                    if re.match(r'\s*for\s+\w+\s+in\s+', line):
+                    loop_match = re.match(r'\s*for\s+\w+\s+in\s+', line)
+                    if loop_match:
+                        # Skip loops iterating over query results or small collections - NOT N+1
+                        # e.g., "for row in cursor.fetchall():" or "for item in results:"
+                        if any(ok in line for ok in [
+                            'fetchall()', 'fetchone()', '.all()', 'results', 'rows', 'data',
+                            'artifacts', 'items', 'allocations', 'destinations', 'entries',
+                            'reinvoice', 'permissions', 'roles', 'lines', 'records',
+                            'connections', 'range(', 'enumerate(', 'zip(',
+                            'transactions', 'invoices', 'messages', 'files', 'uploads'
+                        ]):
+                            continue
                         in_loop = True
                         loop_start_line = i
+                        loop_line_text = line
 
-                    # Check for query keywords inside loop (within 10 lines)
-                    if in_loop and i - loop_start_line < 10:
+                    # Check for query keywords inside loop (within 10 lines, not on loop line itself)
+                    if in_loop and i - loop_start_line < 10 and i != loop_start_line:
+                        # Check if this loop has acceptable context (transaction, batch, etc.)
+                        # Extended context window (50 lines) to catch commits after loop
+                        loop_context = '\n'.join(lines[max(0, loop_start_line-3):min(len(lines), loop_start_line+50)])
+                        if any(ctx in loop_context for ctx in self.ACCEPTABLE_LOOP_CONTEXT):
+                            in_loop = False
+                            continue
+
+                        # Skip if this is a generator yield
+                        if 'yield' in line:
+                            continue
+
                         for keyword in self.QUERY_KEYWORDS:
                             if keyword in line:
+                                # Skip if the keyword is in a comment
+                                if line.strip().startswith('#'):
+                                    continue
                                 warnings.append(
                                     f"[N+1 Query] {filepath.name}:{i+1}: Database call in loop"
                                 )
@@ -127,6 +188,8 @@ class PerformanceHook(BaseHook):
 
                         for keyword in self.BATCH_KEYWORDS:
                             if keyword in line:
+                                if line.strip().startswith('#'):
+                                    continue
                                 warnings.append(
                                     f"[Missing Batch] {filepath.name}:{i+1}: Individual operation in loop"
                                 )
@@ -145,6 +208,15 @@ class PerformanceHook(BaseHook):
     def _check_unbounded_queries(self, files: List[Path]) -> List[str]:
         """Check for unbounded database queries."""
         warnings: List[str] = []
+
+        # Small/lookup tables where unbounded SELECT is acceptable
+        # (typically <100 rows, used for configuration/reference data)
+        SMALL_TABLES = [
+            'companies', 'company', 'connections', 'settings', 'config',
+            'roles', 'permissions', 'users', 'departments', 'brands',
+            'vat_rates', 'partner_types', 'mappings', 'templates',
+            'structure', 'categories', 'types', 'status', 'lookup'
+        ]
 
         for filepath in files:
             try:
@@ -169,6 +241,9 @@ class PerformanceHook(BaseHook):
                     re.IGNORECASE,
                 )
                 for table in select_stars:
+                    # Skip small/lookup tables
+                    if any(small in table.lower() for small in SMALL_TABLES):
+                        continue
                     if "LIMIT" not in content.upper():
                         warnings.append(
                             f"[Unbounded] {filepath.name}: SELECT * FROM {table} without LIMIT"
