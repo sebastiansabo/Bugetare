@@ -6305,7 +6305,7 @@
                     <td class="text-center">
                         <div class="form-check form-switch d-inline-block">
                             <input class="form-check-input" type="checkbox" ${type.hide_in_filter ? 'checked' : ''}
-                                   onchange="togglePartnerTypeHideInFilter(${type.id}, this.checked)"
+                                   onchange="togglePartnerTypeHideInFilter(${type.id}, this.checked, this)"
                                    ${type.is_active ? '' : 'disabled'}>
                         </div>
                     </td>
@@ -6327,7 +6327,12 @@
             return div.innerHTML;
         }
 
-        async function togglePartnerTypeHideInFilter(typeId, hideInFilter) {
+        async function togglePartnerTypeHideInFilter(typeId, hideInFilter, toggleElement) {
+            // Show saving indicator
+            const row = toggleElement ? toggleElement.closest('tr') : null;
+            const cell = row ? row.querySelector('td:nth-child(3)') : null;
+            let savedIndicator = null;
+
             try {
                 const resp = await fetch(`/efactura/api/partner-types/${typeId}`, {
                     method: 'PUT',
@@ -6340,6 +6345,15 @@
                 } else {
                     // Signal e-Factura page to refresh when it becomes visible
                     localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
+
+                    // Show "Saved" indicator
+                    if (cell) {
+                        savedIndicator = document.createElement('span');
+                        savedIndicator.className = 'text-success ms-2 small';
+                        savedIndicator.innerHTML = '<i class="bi bi-check-circle"></i> Saved';
+                        cell.appendChild(savedIndicator);
+                        setTimeout(() => savedIndicator?.remove(), 2000);
+                    }
                 }
             } catch (err) {
                 console.error('Error:', err);
