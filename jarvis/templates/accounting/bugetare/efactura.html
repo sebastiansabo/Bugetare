@@ -477,6 +477,24 @@
                         <div class="bulk-action-bar" id="mappingsBulkActionBar">
                             <span><strong id="mappingsSelectedCount">0</strong> selected</span>
                             <div class="d-flex gap-2 align-items-center">
+                                <!-- Bulk Set Type Dropdown -->
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                        <i class="bi bi-tag"></i> Set Type
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li><a class="dropdown-item" href="#" onclick="bulkSetMappingsType(null); return false;">
+                                            <i class="bi bi-x-circle text-muted"></i> No Type
+                                        </a></li>
+                                        <li><hr class="dropdown-divider"></li>
+                                        <li><a class="dropdown-item" href="#" onclick="bulkSetMappingsType('Service'); return false;">
+                                            <span class="badge bg-info me-2">Service</span> Service
+                                        </a></li>
+                                        <li><a class="dropdown-item" href="#" onclick="bulkSetMappingsType('Merchandise'); return false;">
+                                            <span class="badge bg-warning me-2">Merchandise</span> Merchandise
+                                        </a></li>
+                                    </ul>
+                                </div>
                                 <button class="btn btn-danger btn-sm" onclick="bulkDeleteMappings()">
                                     <i class="bi bi-trash"></i> Delete Selected
                                 </button>
@@ -490,7 +508,20 @@
                             <table class="table table-hover table-sm" id="mappingsTable">
                                 <thead class="table-light">
                                     <tr>
-                                        <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="mappingsSelectAll" onchange="toggleMappingsSelectAll()"></th>
+                                        <th style="width: 60px;">
+                                            <div class="dropdown d-inline">
+                                                <input type="checkbox" class="form-check-input" id="mappingsSelectAll" onchange="toggleMappingsSelectPage()">
+                                                <button class="btn btn-link btn-sm p-0 ms-1 text-muted" type="button" data-bs-toggle="dropdown" style="font-size: 10px;">
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-sm">
+                                                    <li><a class="dropdown-item small" href="#" onclick="toggleMappingsSelectPage(); return false;"><i class="bi bi-check2-square me-2"></i>Select Page</a></li>
+                                                    <li><a class="dropdown-item small" href="#" onclick="selectAllMappings(); return false;"><i class="bi bi-check2-all me-2"></i>Select All (<span id="mappingsTotalForSelect">0</span>)</a></li>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li><a class="dropdown-item small" href="#" onclick="clearMappingsSelection(); return false;"><i class="bi bi-x-square me-2"></i>Clear Selection</a></li>
+                                                </ul>
+                                            </div>
+                                        </th>
                                         <th class="sortable" onclick="sortMappingsTable('partner_name')">Partner (e-Factura)</th>
                                         <th class="sortable" onclick="sortMappingsTable('partner_cif')">Partner VAT</th>
                                         <th class="sortable" onclick="sortMappingsTable('supplier_name')">Supplier Name</th>
@@ -786,7 +817,20 @@
             thead.innerHTML = `<tr>
                 ${cols.map(col => {
                     if (col.id === 'checkbox') {
-                        return `<th style="width: ${col.width}"><input type="checkbox" class="form-check-input" id="selectAllCheckbox" onchange="toggleSelectAll()" ${allSelected ? 'checked' : ''}></th>`;
+                        return `<th style="width: 60px">
+                            <div class="dropdown d-inline">
+                                <input type="checkbox" class="form-check-input" id="selectAllCheckbox" onchange="toggleSelectPage()" ${allSelected ? 'checked' : ''}>
+                                <button class="btn btn-link btn-sm p-0 ms-1 text-muted" type="button" data-bs-toggle="dropdown" style="font-size: 10px;">
+                                    <i class="bi bi-chevron-down"></i>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-sm">
+                                    <li><a class="dropdown-item small" href="#" onclick="toggleSelectPage(); return false;"><i class="bi bi-check2-square me-2"></i>Select Page</a></li>
+                                    <li><a class="dropdown-item small" href="#" onclick="selectAllInvoices(); return false;"><i class="bi bi-check2-all me-2"></i>Select All (<span id="invoicesTotalForSelect">${totalPages * pageSize}</span>)</a></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><a class="dropdown-item small" href="#" onclick="clearSelection(); return false;"><i class="bi bi-x-square me-2"></i>Clear Selection</a></li>
+                                </ul>
+                            </div>
+                        </th>`;
                     }
                     const align = col.align === 'end' ? 'text-end' : '';
                     const width = col.width ? `style="width: ${col.width}"` : '';
@@ -1504,18 +1548,55 @@
             }).join('');
         }
 
-        // Selection management
-        function toggleSelectAll() {
+        // Selection management - Unallocated
+        // Select only visible page
+        function toggleSelectPage() {
             const selectAll = document.getElementById('selectAllCheckbox').checked;
             document.querySelectorAll('.invoice-checkbox').forEach(cb => {
                 cb.checked = selectAll;
+                const id = parseInt(cb.value);
                 if (selectAll) {
-                    selectedInvoices.add(parseInt(cb.value));
+                    selectedInvoices.add(id);
                 } else {
-                    selectedInvoices.delete(parseInt(cb.value));
+                    selectedInvoices.delete(id);
                 }
             });
             updateSelectionCount();
+        }
+
+        // Select ALL invoices (need to call API to get all IDs)
+        let allInvoiceIds = []; // Cache all IDs for bulk selection
+        async function selectAllInvoices() {
+            try {
+                // Fetch all IDs matching current filters
+                const companyId = document.getElementById('companyFilter').value;
+                const direction = document.getElementById('directionFilter').value;
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const search = document.getElementById('searchInput').value;
+
+                let url = '/efactura/api/invoices/unallocated/ids?';
+                if (companyId) url += `company_id=${companyId}&`;
+                if (direction) url += `direction=${direction}&`;
+                if (startDate) url += `start_date=${startDate}&`;
+                if (endDate) url += `end_date=${endDate}&`;
+                if (search) url += `search=${encodeURIComponent(search)}&`;
+
+                const res = await fetch(url);
+                const data = await res.json();
+                if (data.success && data.ids) {
+                    selectedInvoices.clear();
+                    data.ids.forEach(id => selectedInvoices.add(id));
+                    // Check visible checkboxes
+                    document.querySelectorAll('.invoice-checkbox').forEach(cb => cb.checked = true);
+                    document.getElementById('selectAllCheckbox').checked = true;
+                    updateSelectionCount();
+                }
+            } catch (err) {
+                console.error('Failed to select all:', err);
+                // Fallback to page selection
+                toggleSelectPage();
+            }
         }
 
         function updateSelectionCount() {
@@ -2310,13 +2391,29 @@
             document.getElementById('mappingsSelectAll').checked = allChecked;
         }
 
-        function toggleMappingsSelectAll() {
+        // Select only visible page checkboxes
+        function toggleMappingsSelectPage() {
             const selectAll = document.getElementById('mappingsSelectAll').checked;
+            document.querySelectorAll('.mapping-checkbox').forEach(cb => {
+                cb.checked = selectAll;
+                const id = parseInt(cb.value);
+                if (selectAll) {
+                    selectedMappings.add(id);
+                } else {
+                    selectedMappings.delete(id);
+                }
+            });
+            updateMappingsSelectionCount();
+        }
+
+        // Select ALL mappings (entire filtered dataset, not just page)
+        function selectAllMappings() {
+            const dataToSelect = filteredMappingsCache.length > 0 ? filteredMappingsCache : mappingsCache;
             selectedMappings.clear();
-            if (selectAll) {
-                mappingsCache.forEach(m => selectedMappings.add(m.id));
-            }
-            document.querySelectorAll('.mapping-checkbox').forEach(cb => cb.checked = selectAll);
+            dataToSelect.forEach(m => selectedMappings.add(m.id));
+            // Check visible checkboxes
+            document.querySelectorAll('.mapping-checkbox').forEach(cb => cb.checked = true);
+            document.getElementById('mappingsSelectAll').checked = true;
             updateMappingsSelectionCount();
         }
 
@@ -2329,6 +2426,10 @@
             } else {
                 bulkBar.classList.remove('show');
             }
+            // Update total count in dropdown
+            const total = filteredMappingsCache.length > 0 ? filteredMappingsCache.length : mappingsCache.length;
+            const totalEl = document.getElementById('mappingsTotalForSelect');
+            if (totalEl) totalEl.textContent = total;
         }
 
         function clearMappingsSelection() {
@@ -2363,6 +2464,40 @@
                     loadSupplierMappings();
                 } else {
                     alert(data.error || 'Failed to delete mappings');
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        async function bulkSetMappingsType(typeName) {
+            const ids = Array.from(selectedMappings);
+            if (ids.length === 0) {
+                alert('No mappings selected');
+                return;
+            }
+
+            const typeLabel = typeName || 'No Type';
+            if (!confirm(`Set type to "${typeLabel}" for ${ids.length} selected mapping(s)?`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch('/efactura/api/mappings/bulk-set-type', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids, type_name: typeName })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    alert(`${data.updated} mapping(s) updated to "${typeLabel}"`);
+                    selectedMappings.clear();
+                    updateMappingsSelectionCount();
+                    mappingsLoaded = false; // Force reload
+                    loadSupplierMappings(true);
+                } else {
+                    alert(data.error || 'Failed to update mappings');
                 }
             } catch (err) {
                 alert('Error: ' + err.message);

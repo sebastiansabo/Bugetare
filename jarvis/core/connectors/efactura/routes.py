@@ -11,6 +11,7 @@ from flask import request, jsonify, render_template, Response, redirect, session
 from flask_login import login_required, current_user
 
 from core.utils.logging_config import get_logger
+from core.database import get_db, get_cursor, release_db
 
 from . import efactura_bp
 from .config import InvoiceDirection, ArtifactType
@@ -945,6 +946,60 @@ def get_unallocated_count():
 
     except Exception as e:
         logger.error(f"Error getting unallocated count: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/invoices/unallocated/ids', methods=['GET'])
+@api_login_required
+def get_unallocated_ids():
+    """Get all IDs of unallocated invoices (for select all functionality)."""
+    try:
+        company_id = request.args.get('company_id', type=int)
+        direction = request.args.get('direction')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        search = request.args.get('search')
+
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+
+            where_clauses = ["jarvis_invoice_id IS NULL", "deleted_at IS NULL", "ignored = FALSE"]
+            params = {}
+
+            if company_id:
+                where_clauses.append("company_id = %(company_id)s")
+                params['company_id'] = company_id
+            if direction:
+                where_clauses.append("direction = %(direction)s")
+                params['direction'] = direction
+            if start_date:
+                where_clauses.append("issue_date >= %(start_date)s")
+                params['start_date'] = start_date
+            if end_date:
+                where_clauses.append("issue_date <= %(end_date)s")
+                params['end_date'] = end_date
+            if search:
+                where_clauses.append("(partner_name ILIKE %(search)s OR invoice_number ILIKE %(search)s)")
+                params['search'] = f"%{search}%"
+
+            where_clause = " AND ".join(where_clauses)
+            cursor.execute(f"SELECT id FROM efactura_invoices WHERE {where_clause}", params)
+            ids = [row['id'] for row in cursor.fetchall()]
+
+            return jsonify({
+                'success': True,
+                'ids': ids,
+                'count': len(ids),
+            })
+        finally:
+            release_db(conn)
+
+    except Exception as e:
+        logger.error(f"Error getting unallocated IDs: {e}")
         return jsonify({
             'success': False,
             'error': str(e),
@@ -2228,6 +2283,83 @@ def bulk_delete_supplier_mappings():
 
     except Exception as e:
         logger.error(f"Error bulk deleting supplier mappings: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
+@efactura_bp.route('/api/mappings/bulk-set-type', methods=['POST'])
+@api_login_required
+def bulk_set_mappings_type():
+    """
+    Bulk set type for supplier mappings.
+
+    Request body:
+        {
+            "ids": [1, 2, 3],
+            "type_name": "Service" or "Merchandise" or null
+        }
+
+    Returns:
+        Number of mappings updated
+    """
+    try:
+        data = request.get_json() or {}
+        ids = data.get('ids', [])
+        type_name = data.get('type_name')  # Can be None to clear type
+
+        if not ids:
+            return jsonify({
+                'success': False,
+                'error': "No mapping IDs provided",
+            }), 400
+
+        # Get type_id from type_name
+        type_id = None
+        if type_name:
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute(
+                    "SELECT id FROM efactura_partner_types WHERE name = %s AND is_active = TRUE",
+                    (type_name,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    type_id = row['id']
+                else:
+                    return jsonify({
+                        'success': False,
+                        'error': f"Type '{type_name}' not found",
+                    }), 400
+            finally:
+                release_db(conn)
+
+        # Update all mappings
+        updated_count = 0
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            for mapping_id in ids:
+                cursor.execute(
+                    "UPDATE efactura_supplier_mappings SET type_id = %s, updated_at = NOW() WHERE id = %s",
+                    (type_id, mapping_id)
+                )
+                if cursor.rowcount > 0:
+                    updated_count += 1
+            conn.commit()
+        finally:
+            release_db(conn)
+
+        return jsonify({
+            'success': True,
+            'updated': updated_count,
+            'message': f"Updated {updated_count} mapping(s)",
+        })
+
+    except Exception as e:
+        logger.error(f"Error bulk setting type for mappings: {e}")
         return jsonify({
             'success': False,
             'error': str(e),
