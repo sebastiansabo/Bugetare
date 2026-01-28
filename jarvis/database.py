@@ -1998,6 +1998,19 @@ def init_db():
             ('Merchandise', 'Product/goods suppliers (inventory, parts, materials, etc.)')
         ''')
 
+    # Migration: Add hide_in_filter column to partner_types (for "Hide Typed" filter configuration)
+    cursor.execute('''
+        DO $
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'efactura_partner_types' AND column_name = 'hide_in_filter'
+            ) THEN
+                ALTER TABLE efactura_partner_types ADD COLUMN hide_in_filter BOOLEAN NOT NULL DEFAULT TRUE;
+            END IF;
+        END $;
+    ''')
+
     # Create indexes for e-Factura tables
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_connections_status ON efactura_company_connections(status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_owner ON efactura_invoices(cif_owner, direction)')

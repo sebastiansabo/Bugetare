@@ -635,6 +635,7 @@ class InvoiceRepository:
         start_date: Optional[date] = None,
         end_date: Optional[date] = None,
         search: Optional[str] = None,
+        hide_typed: bool = False,
         limit: int = 50,
         offset: int = 0,
         sort_by: str = 'issue_date',
@@ -679,6 +680,32 @@ class InvoiceRepository:
                     "(i.invoice_number ILIKE %(search)s OR i.partner_name ILIKE %(search)s OR i.partner_cif ILIKE %(search)s)"
                 )
                 params['search'] = f'%{search}%'
+
+            if hide_typed:
+                # Hide invoices that have types with hide_in_filter=TRUE
+                # Type comes from: type_override (if set) OR supplier mapping types
+                conditions.append("""
+                    NOT (
+                        -- Has a hidden type via override
+                        (i.type_override IS NOT NULL AND EXISTS (
+                            SELECT 1 FROM efactura_partner_types pt
+                            WHERE pt.is_active = TRUE
+                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                                AND i.type_override ILIKE '%' || pt.name || '%'
+                        ))
+                        OR
+                        -- Has a hidden type via supplier mapping (only when no override)
+                        (i.type_override IS NULL AND EXISTS (
+                            SELECT 1 FROM efactura_supplier_mappings sm2
+                            JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
+                            JOIN efactura_partner_types pt ON pt.id = smt.type_id
+                            WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
+                                AND sm2.is_active = TRUE
+                                AND pt.is_active = TRUE
+                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                        ))
+                    )
+                """)
 
             where_clause = ' AND '.join(conditions)
 
@@ -1730,14 +1757,18 @@ class PartnerTypeRepository:
             cursor = get_cursor(conn)
             if active_only:
                 cursor.execute("""
-                    SELECT id, name, description, is_active, created_at, updated_at
+                    SELECT id, name, description, is_active,
+                           COALESCE(hide_in_filter, TRUE) as hide_in_filter,
+                           created_at, updated_at
                     FROM efactura_partner_types
                     WHERE is_active = TRUE
                     ORDER BY name
                 """)
             else:
                 cursor.execute("""
-                    SELECT id, name, description, is_active, created_at, updated_at
+                    SELECT id, name, description, is_active,
+                           COALESCE(hide_in_filter, TRUE) as hide_in_filter,
+                           created_at, updated_at
                     FROM efactura_partner_types
                     ORDER BY name
                 """)
@@ -1751,7 +1782,9 @@ class PartnerTypeRepository:
         try:
             cursor = get_cursor(conn)
             cursor.execute("""
-                SELECT id, name, description, is_active, created_at, updated_at
+                SELECT id, name, description, is_active,
+                       COALESCE(hide_in_filter, TRUE) as hide_in_filter,
+                       created_at, updated_at
                 FROM efactura_partner_types
                 WHERE id = %s
             """, (type_id,))
@@ -1799,6 +1832,7 @@ class PartnerTypeRepository:
         name: Optional[str] = None,
         description: Optional[str] = None,
         is_active: Optional[bool] = None,
+        hide_in_filter: Optional[bool] = None,
     ) -> bool:
         """Update a partner type.
 
@@ -1807,6 +1841,7 @@ class PartnerTypeRepository:
             name: New name
             description: New description
             is_active: Whether type is active
+            hide_in_filter: Whether to hide invoices with this type when "Hide Typed" filter is on
 
         Returns:
             True if successful
@@ -1827,6 +1862,9 @@ class PartnerTypeRepository:
             if is_active is not None:
                 updates.append('is_active = %s')
                 params.append(is_active)
+            if hide_in_filter is not None:
+                updates.append('hide_in_filter = %s')
+                params.append(hide_in_filter)
 
             params.append(type_id)
 

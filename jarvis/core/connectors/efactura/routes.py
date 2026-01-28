@@ -937,6 +937,7 @@ def list_unallocated_invoices():
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         search = request.args.get('search')
+        hide_typed = request.args.get('hide_typed', '').lower() == 'true'
         page = int(request.args.get('page', 1))
         limit = min(int(request.args.get('limit', 50)), 200)
         sort_by = request.args.get('sort_by', 'issue_date')
@@ -961,6 +962,7 @@ def list_unallocated_invoices():
             start_date=start,
             end_date=end,
             search=search,
+            hide_typed=hide_typed,
             page=page,
             limit=limit,
             sort_by=sort_by,
@@ -2665,6 +2667,7 @@ def update_partner_type(type_id: int):
         name: New name
         description: New description
         is_active: Whether type is active
+        hide_in_filter: Whether to hide invoices with this type when "Hide Typed" filter is on
     """
     try:
         data = request.get_json()
@@ -2680,6 +2683,7 @@ def update_partner_type(type_id: int):
             name=data.get('name'),
             description=data.get('description'),
             is_active=data.get('is_active'),
+            hide_in_filter=data.get('hide_in_filter'),
         )
 
         if not success:

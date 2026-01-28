@@ -1048,8 +1048,7 @@
         let unallocatedLoaded = false; // Tab loaded flag
         let lastUnallocatedFilters = ''; // Track last used filter state
 
-        // Hide typed invoices - types to hide when switch is ON
-        const HIDE_TYPES_LIST = ['Service', 'Merchandise']; // Configure which types to hide
+        // Hide typed invoices toggle (server-side filtering)
         let hideTypedInvoices = localStorage.getItem('efacturaHideTyped') === 'true';
 
         // Sorting state - Hidden table
@@ -1554,8 +1553,8 @@
             const endDate = document.getElementById('endDate').value;
             const search = document.getElementById('searchInput').value;
 
-            // Build filter state string to detect changes
-            const currentFilters = JSON.stringify({companyId, direction, startDate, endDate, search, pageSize});
+            // Build filter state string to detect changes (include hideTypedInvoices)
+            const currentFilters = JSON.stringify({companyId, direction, startDate, endDate, search, pageSize, hideTypedInvoices});
             const filtersChanged = currentFilters !== lastUnallocatedFilters;
 
             // Skip if already loaded, not forcing reload, page same, and filters unchanged
@@ -1573,6 +1572,7 @@
             if (startDate) url += `&start_date=${startDate}`;
             if (endDate) url += `&end_date=${endDate}`;
             if (search) url += `&search=${encodeURIComponent(search)}`;
+            if (hideTypedInvoices) url += `&hide_typed=true`;
             if (sortColumn) url += `&sort_by=${sortColumn}&sort_dir=${sortDirection}`;
 
             const tbody = document.getElementById('invoicesTableBody');
@@ -2057,9 +2057,9 @@
         function toggleHideTypes() {
             hideTypedInvoices = document.getElementById('hideTypesSwitch').checked;
             localStorage.setItem('efacturaHideTyped', hideTypedInvoices.toString());
-            // Re-render with current cache
-            renderInvoices(invoicesCache);
-            updateSummary(invoicesCache);
+            // Reload from server with new filter (server-side filtering)
+            currentPage = 1;
+            loadUnallocatedInvoices(1);
         }
 
         function renderInvoices(invoices) {
@@ -2067,27 +2067,16 @@
             const cols = getVisibleColumns();
             const colCount = cols.length;
 
-            // Filter out typed invoices if switch is ON
-            let filteredInvoices = invoices;
-            if (hideTypedInvoices && invoices) {
-                filteredInvoices = invoices.filter(inv => {
-                    // If invoice has any of the HIDE_TYPES_LIST types, hide it
-                    if (!inv.type_name) return true; // No type = show
-                    const invTypes = inv.type_name.split(', ').map(t => t.trim());
-                    // Hide if ANY of the invoice types is in the hide list
-                    return !invTypes.some(t => HIDE_TYPES_LIST.includes(t));
-                });
-            }
-
-            if (!filteredInvoices || filteredInvoices.length === 0) {
-                const message = hideTypedInvoices && invoices && invoices.length > 0
-                    ? `<i class="bi bi-funnel"></i> ${invoices.length} invoices hidden by "Hide Typed" filter.`
+            // Server-side filtering is now used - no client-side filtering needed
+            if (!invoices || invoices.length === 0) {
+                const message = hideTypedInvoices
+                    ? `<i class="bi bi-funnel"></i> No untyped invoices found.<br><small>All invoices have partner types assigned.</small>`
                     : `<i class="bi bi-check-circle text-success"></i> No unallocated invoices!<br><small>All e-Factura invoices have been processed.</small>`;
                 tbody.innerHTML = `<tr><td colspan="${colCount}" class="text-center text-muted py-4">${message}</td></tr>`;
                 return;
             }
 
-            tbody.innerHTML = filteredInvoices.map(inv => {
+            tbody.innerHTML = invoices.map(inv => {
                 const isReceived = inv.direction === 'received';
                 const issueDate = inv.issue_date ? new Date(inv.issue_date).toLocaleDateString('ro-RO') : '-';
                 const importedDate = inv.created_at ? new Date(inv.created_at).toLocaleDateString('ro-RO') : '-';
@@ -2803,22 +2792,11 @@
         }
 
         function updateSummary(invoices, pagination) {
-            // Apply same filter as renderInvoices for consistent counts
-            let filteredInvoices = invoices || [];
-            if (hideTypedInvoices && filteredInvoices.length > 0) {
-                filteredInvoices = filteredInvoices.filter(inv => {
-                    if (!inv.type_name) return true;
-                    const invTypes = inv.type_name.split(', ').map(t => t.trim());
-                    return !invTypes.some(t => HIDE_TYPES_LIST.includes(t));
-                });
-            }
-
-            const displayCount = hideTypedInvoices
-                ? `${filteredInvoices.length} / ${pagination?.total || invoices?.length || 0}`
-                : (pagination?.total || invoices?.length || 0);
+            // Server-side filtering is now used - pagination.total reflects filtered count
+            const displayCount = pagination?.total || invoices?.length || 0;
             document.getElementById('unallocatedCount').textContent = displayCount;
 
-            const totalValue = filteredInvoices.reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
+            const totalValue = (invoices || []).reduce((sum, inv) => sum + parseFloat(inv.total_amount || 0), 0);
             document.getElementById('totalValueUnallocated').textContent = totalValue.toLocaleString('ro-RO', {minimumFractionDigits: 2}) + ' RON';
         }
 
@@ -3236,6 +3214,15 @@
             </td></tr>`;
 
             try {
+                // Load partner types first (for Type filter dropdown)
+                if (partnerTypesCache.length === 0) {
+                    const typesRes = await fetch('/efactura/api/partner-types');
+                    const typesData = await typesRes.json();
+                    if (typesData.success) {
+                        partnerTypesCache = typesData.types || [];
+                    }
+                }
+
                 const res = await fetch('/efactura/api/mappings');
                 const data = await res.json();
 

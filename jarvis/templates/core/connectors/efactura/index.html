@@ -536,12 +536,16 @@
                                         <th>Name</th>
                                         <th>Description</th>
                                         <th>Status</th>
+                                        <th title="When enabled, invoices with this type will be hidden when 'Hide Typed' filter is ON">
+                                            Hide in Filter
+                                            <i class="bi bi-info-circle text-muted ms-1" style="cursor: help;"></i>
+                                        </th>
                                         <th width="100">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="partnerTypesTableBody">
                                     <tr>
-                                        <td colspan="4" class="text-center text-muted py-4">
+                                        <td colspan="5" class="text-center text-muted py-4">
                                             <span class="spinner-border spinner-border-sm"></span> Loading...
                                         </td>
                                     </tr>
@@ -1854,10 +1858,10 @@
                 if (data.success) {
                     renderPartnerTypesTable(data.types || []);
                 } else {
-                    tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">${data.error}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">${data.error}</td></tr>`;
                 }
             } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-danger py-4">Error: ${err.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">Error: ${err.message}</td></tr>`;
             }
         }
 
@@ -1865,7 +1869,7 @@
             const tbody = document.getElementById('partnerTypesTableBody');
 
             if (!types || types.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted py-4">
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">
                     <i class="bi bi-info-circle"></i> No partner types yet. Add one above.
                 </td></tr>`;
                 return;
@@ -1876,10 +1880,18 @@
                     ? '<span class="badge bg-success">Active</span>'
                     : '<span class="badge bg-secondary">Inactive</span>';
 
+                const hideChecked = t.hide_in_filter ? 'checked' : '';
+
                 return `<tr data-id="${t.id}">
                     <td><strong>${t.name || '-'}</strong></td>
                     <td class="text-muted small">${t.description || '-'}</td>
                     <td>${statusBadge}</td>
+                    <td>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="hideFilter${t.id}"
+                                   ${hideChecked} onchange="toggleHideInFilter(${t.id}, this.checked)">
+                        </div>
+                    </td>
                     <td>
                         <div class="btn-group btn-group-sm">
                             <button class="btn btn-outline-danger" onclick="deletePartnerType(${t.id})" title="Delete">
@@ -1889,6 +1901,25 @@
                     </td>
                 </tr>`;
             }).join('');
+        }
+
+        async function toggleHideInFilter(typeId, hideInFilter) {
+            try {
+                const res = await fetch(`/efactura/api/partner-types/${typeId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hide_in_filter: hideInFilter })
+                });
+                const data = await res.json();
+
+                if (!data.success) {
+                    alert(data.error || 'Failed to update setting');
+                    loadPartnerTypesTable(); // Reload to reset checkbox state
+                }
+            } catch (err) {
+                alert('Error: ' + err.message);
+                loadPartnerTypesTable(); // Reload to reset checkbox state
+            }
         }
 
         async function addPartnerType() {
