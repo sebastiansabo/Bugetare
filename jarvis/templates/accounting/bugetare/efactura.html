@@ -2096,8 +2096,8 @@
             // Force reload unallocated invoices
             unallocatedLoaded = false;
             loadUnallocatedInvoices(1, true);
-            // Also refresh hidden count
-            updateBadge('hiddenBadge', null); // Will be updated by loadHiddenInvoices
+            // Refresh all badge counts (hidden count may have changed)
+            loadBadgeCounts();
         }
 
         function renderInvoices(invoices) {
