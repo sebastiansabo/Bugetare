@@ -349,7 +349,20 @@
                             <table class="table table-hover table-sm" id="hiddenTable">
                                 <thead class="table-light">
                                     <tr>
-                                        <th><input type="checkbox" class="form-check-input" id="hiddenSelectAll" onchange="toggleHiddenSelectAll()"></th>
+                                        <th style="width: 60px">
+                                            <div class="dropdown d-inline">
+                                                <input type="checkbox" class="form-check-input" id="hiddenSelectAll" onchange="toggleHiddenSelectPage()">
+                                                <button class="btn btn-link btn-sm p-0 ms-1 text-muted" type="button" data-bs-toggle="dropdown" style="font-size: 10px;">
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-sm">
+                                                    <li><a class="dropdown-item small" href="#" onclick="toggleHiddenSelectPage(); return false;"><i class="bi bi-check2-square me-2"></i>Select Page</a></li>
+                                                    <li><a class="dropdown-item small" href="#" onclick="selectAllHidden(); return false;"><i class="bi bi-check2-all me-2"></i>Select All (<span id="hiddenTotalForSelect">0</span>)</a></li>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li><a class="dropdown-item small" href="#" onclick="clearHiddenSelection(); return false;"><i class="bi bi-x-square me-2"></i>Clear Selection</a></li>
+                                                </ul>
+                                            </div>
+                                        </th>
                                         <th class="sortable" onclick="sortHiddenTable('direction')">Direction</th>
                                         <th class="sortable" onclick="sortHiddenTable('invoice_number')">Invoice #</th>
                                         <th class="sortable" onclick="sortHiddenTable('partner_name')">Supplier / Partner</th>
@@ -389,7 +402,20 @@
                             <table class="table table-hover table-sm" id="binTable">
                                 <thead class="table-light">
                                     <tr>
-                                        <th><input type="checkbox" class="form-check-input" id="binSelectAll" onchange="toggleBinSelectAll()"></th>
+                                        <th style="width: 60px">
+                                            <div class="dropdown d-inline">
+                                                <input type="checkbox" class="form-check-input" id="binSelectAll" onchange="toggleBinSelectPage()">
+                                                <button class="btn btn-link btn-sm p-0 ms-1 text-muted" type="button" data-bs-toggle="dropdown" style="font-size: 10px;">
+                                                    <i class="bi bi-chevron-down"></i>
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-sm">
+                                                    <li><a class="dropdown-item small" href="#" onclick="toggleBinSelectPage(); return false;"><i class="bi bi-check2-square me-2"></i>Select Page</a></li>
+                                                    <li><a class="dropdown-item small" href="#" onclick="selectAllBin(); return false;"><i class="bi bi-check2-all me-2"></i>Select All (<span id="binTotalForSelect">0</span>)</a></li>
+                                                    <li><hr class="dropdown-divider"></li>
+                                                    <li><a class="dropdown-item small" href="#" onclick="clearBinSelection(); return false;"><i class="bi bi-x-square me-2"></i>Clear Selection</a></li>
+                                                </ul>
+                                            </div>
+                                        </th>
                                         <th class="sortable" onclick="sortBinTable('direction')">Direction</th>
                                         <th class="sortable" onclick="sortBinTable('invoice_number')">Invoice #</th>
                                         <th class="sortable" onclick="sortBinTable('partner_name')">Supplier / Partner</th>
@@ -922,7 +948,15 @@
         }
 
         function sortAndRenderHidden() {
-            if (!hiddenCache || hiddenCache.length === 0) return;
+            // Update total count in dropdown
+            const totalEl = document.getElementById('hiddenTotalForSelect');
+            if (totalEl) {
+                totalEl.textContent = hiddenCache ? hiddenCache.length : 0;
+            }
+            if (!hiddenCache || hiddenCache.length === 0) {
+                renderHiddenTable([]);
+                return;
+            }
             const sorted = [...hiddenCache].sort((a, b) => {
                 let valA = a[hiddenSortColumn];
                 let valB = b[hiddenSortColumn];
@@ -968,7 +1002,15 @@
         }
 
         function sortAndRenderBin() {
-            if (!binCache || binCache.length === 0) return;
+            // Update total count in dropdown
+            const totalEl = document.getElementById('binTotalForSelect');
+            if (totalEl) {
+                totalEl.textContent = binCache ? binCache.length : 0;
+            }
+            if (!binCache || binCache.length === 0) {
+                renderBinTable([]);
+                return;
+            }
             const sorted = [...binCache].sort((a, b) => {
                 let valA = a[binSortColumn];
                 let valB = b[binSortColumn];
@@ -1620,7 +1662,7 @@
         }
 
         // Hidden selection management
-        function toggleHiddenSelectAll() {
+        function toggleHiddenSelectPage() {
             const selectAll = document.getElementById('hiddenSelectAll').checked;
             document.querySelectorAll('.hidden-checkbox').forEach(cb => {
                 cb.checked = selectAll;
@@ -1630,6 +1672,30 @@
                     selectedHiddenInvoices.delete(parseInt(cb.value));
                 }
             });
+            updateHiddenSelectionCount();
+        }
+
+        function selectAllHidden() {
+            // Select all hidden invoices from cache
+            if (hiddenCache && hiddenCache.length > 0) {
+                hiddenCache.forEach(inv => {
+                    selectedHiddenInvoices.add(inv.id);
+                });
+                // Update checkboxes on current page
+                document.querySelectorAll('.hidden-checkbox').forEach(cb => {
+                    cb.checked = true;
+                });
+                document.getElementById('hiddenSelectAll').checked = true;
+                updateHiddenSelectionCount();
+            }
+        }
+
+        function clearHiddenSelection() {
+            selectedHiddenInvoices.clear();
+            document.querySelectorAll('.hidden-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+            document.getElementById('hiddenSelectAll').checked = false;
             updateHiddenSelectionCount();
         }
 
@@ -1645,10 +1711,16 @@
             const count = selectedHiddenInvoices.size;
             document.getElementById('hiddenRestoreBtn').disabled = count === 0;
             document.getElementById('hiddenDeleteBtn').disabled = count === 0;
+
+            // Update "Select All" count in dropdown
+            const totalEl = document.getElementById('hiddenTotalForSelect');
+            if (totalEl && hiddenCache) {
+                totalEl.textContent = hiddenCache.length;
+            }
         }
 
         // Bin selection management
-        function toggleBinSelectAll() {
+        function toggleBinSelectPage() {
             const selectAll = document.getElementById('binSelectAll').checked;
             document.querySelectorAll('.bin-checkbox').forEach(cb => {
                 cb.checked = selectAll;
@@ -1658,6 +1730,30 @@
                     selectedBinInvoices.delete(parseInt(cb.value));
                 }
             });
+            updateBinSelectionCount();
+        }
+
+        function selectAllBin() {
+            // Select all bin invoices from cache
+            if (binCache && binCache.length > 0) {
+                binCache.forEach(inv => {
+                    selectedBinInvoices.add(inv.id);
+                });
+                // Update checkboxes on current page
+                document.querySelectorAll('.bin-checkbox').forEach(cb => {
+                    cb.checked = true;
+                });
+                document.getElementById('binSelectAll').checked = true;
+                updateBinSelectionCount();
+            }
+        }
+
+        function clearBinSelection() {
+            selectedBinInvoices.clear();
+            document.querySelectorAll('.bin-checkbox').forEach(cb => {
+                cb.checked = false;
+            });
+            document.getElementById('binSelectAll').checked = false;
             updateBinSelectionCount();
         }
 
@@ -1673,6 +1769,12 @@
             const count = selectedBinInvoices.size;
             document.getElementById('binRestoreBtn').disabled = count === 0;
             document.getElementById('binPermanentDeleteBtn').disabled = count === 0;
+
+            // Update "Select All" count in dropdown
+            const totalEl = document.getElementById('binTotalForSelect');
+            if (totalEl && binCache) {
+                totalEl.textContent = binCache.length;
+            }
         }
 
         // Single invoice actions
