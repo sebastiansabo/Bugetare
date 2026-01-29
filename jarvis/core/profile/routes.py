@@ -104,13 +104,14 @@ def api_profile_invoices():
     status = request.args.get('status', '')
     start_date = request.args.get('start_date', '')
     end_date = request.args.get('end_date', '')
+    search = request.args.get('search', '')
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
 
     # Validate
     if page < 1:
         page = 1
-    if per_page < 1 or per_page > 100:
+    if per_page < 1 or per_page > 1000:
         per_page = 20
 
     offset = (page - 1) * per_page
@@ -121,6 +122,7 @@ def api_profile_invoices():
         status=status if status else None,
         start_date=start_date if start_date else None,
         end_date=end_date if end_date else None,
+        search=search if search else None,
         limit=per_page,
         offset=offset,
     )
@@ -130,6 +132,7 @@ def api_profile_invoices():
         status=status if status else None,
         start_date=start_date if start_date else None,
         end_date=end_date if end_date else None,
+        search=search if search else None,
     )
 
     return jsonify({

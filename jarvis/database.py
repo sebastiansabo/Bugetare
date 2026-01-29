@@ -4797,6 +4797,7 @@ def get_responsable_by_email(email: str) -> Optional[dict]:
 
 def get_user_invoices_by_responsible_name(responsible_name: str, status: str = None,
                                           start_date: str = None, end_date: str = None,
+                                          search: str = None,
                                           limit: int = 100, offset: int = 0) -> list[dict]:
     """Get invoices where allocations.responsible matches the given name."""
     if not responsible_name:
@@ -4821,6 +4822,11 @@ def get_user_invoices_by_responsible_name(responsible_name: str, status: str = N
         conditions.append('i.invoice_date <= %s')
         params.append(end_date)
 
+    if search:
+        conditions.append('(i.supplier ILIKE %s OR i.invoice_number ILIKE %s)')
+        search_term = f'%{search}%'
+        params.extend([search_term, search_term])
+
     where_clause = ' AND '.join(conditions)
     params.extend([limit, offset])
 
@@ -4844,7 +4850,8 @@ def get_user_invoices_by_responsible_name(responsible_name: str, status: str = N
 
 
 def get_user_invoices_count(responsible_name: str, status: str = None,
-                            start_date: str = None, end_date: str = None) -> int:
+                            start_date: str = None, end_date: str = None,
+                            search: str = None) -> int:
     """Get total count of invoices for a responsible (for pagination)."""
     if not responsible_name:
         return 0
@@ -4866,6 +4873,11 @@ def get_user_invoices_count(responsible_name: str, status: str = None,
     if end_date:
         conditions.append('i.invoice_date <= %s')
         params.append(end_date)
+
+    if search:
+        conditions.append('(i.supplier ILIKE %s OR i.invoice_number ILIKE %s)')
+        search_term = f'%{search}%'
+        params.extend([search_term, search_term])
 
     where_clause = ' AND '.join(conditions)
 
