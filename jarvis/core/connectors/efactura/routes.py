@@ -2272,6 +2272,7 @@ def create_supplier_mapping():
             supplier_vat=data.get('supplier_vat', '').strip() or None,
             kod_konto=data.get('kod_konto', '').strip() or None,
             type_ids=type_ids,
+            brand=data.get('brand', '').strip() or None,
             department=data.get('department', '').strip() or None,
             subdepartment=data.get('subdepartment', '').strip() or None,
         )
@@ -2349,6 +2350,7 @@ def update_supplier_mapping(mapping_id: int):
             kod_konto=data.get('kod_konto'),
             type_ids=type_ids,
             is_active=data.get('is_active'),
+            brand=data.get('brand'),
             department=data.get('department'),
             subdepartment=data.get('subdepartment'),
         )

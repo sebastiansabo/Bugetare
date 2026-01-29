@@ -1956,7 +1956,7 @@ def init_db():
         END $;
     ''')
 
-    # Migration: Add department and subdepartment columns to supplier mappings
+    # Migration: Add department, subdepartment, and brand columns to supplier mappings
     cursor.execute('''
         DO $
         BEGIN
@@ -1971,6 +1971,12 @@ def init_db():
                 WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'subdepartment'
             ) THEN
                 ALTER TABLE efactura_supplier_mappings ADD COLUMN subdepartment VARCHAR(255);
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'brand'
+            ) THEN
+                ALTER TABLE efactura_supplier_mappings ADD COLUMN brand VARCHAR(255);
             END IF;
         END $;
     ''')

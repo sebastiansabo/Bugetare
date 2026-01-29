@@ -1522,6 +1522,7 @@ class InvoiceRepository:
                     i.subdepartment_override,
                     sm.department as mapping_department,
                     sm.subdepartment as mapping_subdepartment,
+                    sm.brand as mapping_brand,
                     (
                         SELECT ds.manager
                         FROM department_structure ds
@@ -1567,6 +1568,7 @@ class InvoiceRepository:
                     'company_name': row['company_name'],
                     'department': effective_department,
                     'subdepartment': effective_subdepartment,
+                    'brand': row['mapping_brand'],
                     'responsible': row['responsible'],
                 })
 
@@ -1805,7 +1807,7 @@ class SupplierMappingRepository:
             cursor.execute(f"""
                 SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
                        m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                       m.department, m.subdepartment,
+                       m.brand, m.department, m.subdepartment,
                        COALESCE(
                            (SELECT array_agg(pt.id ORDER BY pt.name)
                             FROM efactura_supplier_mapping_types smt
@@ -1845,7 +1847,7 @@ class SupplierMappingRepository:
             cursor.execute("""
                 SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
                        m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                       m.department, m.subdepartment,
+                       m.brand, m.department, m.subdepartment,
                        COALESCE(
                            (SELECT array_agg(pt.id ORDER BY pt.name)
                             FROM efactura_supplier_mapping_types smt
@@ -1930,6 +1932,7 @@ class SupplierMappingRepository:
         type_ids: Optional[List[int]] = None,
         department: Optional[str] = None,
         subdepartment: Optional[str] = None,
+        brand: Optional[str] = None,
     ) -> int:
         """Create a new supplier mapping.
 
@@ -1944,6 +1947,7 @@ class SupplierMappingRepository:
             type_ids: Optional list of partner type IDs
             department: Optional default department for this supplier
             subdepartment: Optional default subdepartment for this supplier
+            brand: Optional default brand for this supplier (from Settings brands)
 
         Returns:
             The new mapping ID
@@ -1953,10 +1957,10 @@ class SupplierMappingRepository:
             cursor = get_cursor(conn)
             cursor.execute("""
                 INSERT INTO efactura_supplier_mappings
-                (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto, type_id, department, subdepartment)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto, type_id, department, subdepartment, brand)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto, type_id, department, subdepartment))
+            """, (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto, type_id, department, subdepartment, brand))
             mapping_id = cursor.fetchone()['id']
 
             # Insert types into junction table
@@ -1999,6 +2003,7 @@ class SupplierMappingRepository:
         is_active: Optional[bool] = None,
         department: Optional[str] = None,
         subdepartment: Optional[str] = None,
+        brand: Optional[str] = None,
     ) -> bool:
         """Update a supplier mapping.
 
@@ -2015,6 +2020,7 @@ class SupplierMappingRepository:
             is_active: Whether mapping is active
             department: New default department
             subdepartment: New default subdepartment
+            brand: New default brand (from Settings brands)
 
         Returns:
             True if successful
@@ -2056,6 +2062,9 @@ class SupplierMappingRepository:
             if subdepartment is not None:
                 updates.append('subdepartment = %s')
                 params.append(subdepartment if subdepartment else None)
+            if brand is not None:
+                updates.append('brand = %s')
+                params.append(brand if brand else None)
 
             params.append(mapping_id)
 

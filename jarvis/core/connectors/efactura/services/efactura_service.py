@@ -1886,12 +1886,14 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                     net_value = inv.get('total_without_vat')
                     allocation_value = net_value if net_value else inv['total_amount']
                     subdepartment = inv.get('subdepartment')
+                    brand = inv.get('brand')  # From supplier mapping
                     responsible = inv.get('responsible')  # From department_structure
 
-                    alloc_values.append("(%s, %s, %s, %s, %s, %s, %s)")
+                    alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s)")
                     alloc_params.extend([
                         jarvis_id,        # invoice_id
                         company_name,     # company
+                        brand,            # brand (from supplier mapping)
                         department,       # department
                         subdepartment,    # subdepartment
                         100.0,            # allocation_percent (100% to single dept)
@@ -1903,7 +1905,7 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
             if alloc_values:
                 cursor.execute(f'''
                     INSERT INTO allocations (
-                        invoice_id, company, department, subdepartment,
+                        invoice_id, company, brand, department, subdepartment,
                         allocation_percent, allocation_value, responsible
                     ) VALUES {', '.join(alloc_values)}
                 ''', alloc_params)

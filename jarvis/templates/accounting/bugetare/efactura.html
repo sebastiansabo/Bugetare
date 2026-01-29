@@ -787,6 +787,13 @@
                         <textarea class="form-control" id="mappingSupplierNote" rows="2" placeholder="Optional notes about this supplier..."></textarea>
                     </div>
                     <hr>
+                    <div class="mb-3">
+                        <label class="form-label">Default Brand</label>
+                        <select class="form-select" id="mappingBrand">
+                            <option value="">-- None --</option>
+                        </select>
+                        <div class="form-text">Default brand for this supplier's invoices</div>
+                    </div>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
@@ -3551,7 +3558,8 @@
         let mappingsCurrentPage = 1;
 
         // Filter mappings based on search and filters
-        function filterMappings() {
+        // preservePage: if true, keep current page (useful after edit/refresh)
+        function filterMappings(preservePage = false) {
             const searchTerm = document.getElementById('mappingsSearchInput').value.toLowerCase().trim();
             const partnerFilter = document.getElementById('mappingsPartnerFilter')?.value || '';
             const vatFilter = document.getElementById('mappingsVatFilter')?.value.toLowerCase().trim() || '';
@@ -3589,7 +3597,16 @@
                 return matchesSearch && matchesPartner && matchesVat && matchesSupplier && matchesType;
             });
 
-            mappingsCurrentPage = 1;
+            // Only reset page if not preserving and filters changed
+            if (!preservePage) {
+                mappingsCurrentPage = 1;
+            } else {
+                // Ensure current page is still valid after filtering
+                const totalPages = Math.ceil(filteredMappingsCache.length / mappingsPageSize) || 1;
+                if (mappingsCurrentPage > totalPages) {
+                    mappingsCurrentPage = totalPages;
+                }
+            }
             sortAndRenderMappings();
         }
 
@@ -3657,11 +3674,11 @@
 
                 if (data.success) {
                     mappingsCache = data.mappings || [];
-                    filteredMappingsCache = [...mappingsCache]; // Initialize filtered cache
                     mappingsLoaded = true; // Mark as loaded
                     updateMappingsTableHeaders();
                     populateMappingsFilterDropdowns(); // Populate Partner and Type dropdowns
-                    sortAndRenderMappings();
+                    // Reapply filters and preserve page position on reload
+                    filterMappings(forceReload);
                     updateBadge('mappingsBadge', data.count || 0);
                     // Restore page size from localStorage
                     document.getElementById('mappingsPageSize').value = mappingsPageSize || 50;
@@ -3916,10 +3933,34 @@
             return Array.from(checkboxes).map(cb => parseInt(cb.value));
         }
 
-        // Department/Subdepartment caches - loaded from department_structure
+        // Department/Subdepartment/Brand caches - loaded from department_structure and master tables
         let departmentStructureCache = [];
         let departmentsCache = [];
         let subdepartmentsCache = [];
+        let brandsCache = [];
+
+        async function loadBrands() {
+            if (brandsCache.length === 0) {
+                try {
+                    const res = await fetch('/hr/events/api/master/brands');
+                    const data = await res.json();
+                    brandsCache = (data || []).filter(b => b.is_active !== false);
+                } catch (err) {
+                    console.error('Failed to load brands:', err);
+                    brandsCache = [];
+                }
+            }
+        }
+
+        async function loadBrandsForDropdown() {
+            await loadBrands();
+
+            const select = document.getElementById('mappingBrand');
+            if (!select) return;
+
+            select.innerHTML = '<option value="">-- None --</option>' +
+                brandsCache.map(b => `<option value="${b.name}">${b.name}</option>`).join('');
+        }
 
         async function loadDepartmentStructure() {
             if (departmentStructureCache.length === 0) {
@@ -4016,6 +4057,10 @@
             // Load partner types with no selection
             await loadPartnerTypesForDropdown(false, []);
 
+            // Load and reset brand dropdown
+            await loadBrandsForDropdown();
+            document.getElementById('mappingBrand').value = '';
+
             // Load and reset department/subdepartment dropdowns
             await loadDepartmentsForDropdown();
             await loadSubdepartmentsForDropdown();
@@ -4046,6 +4091,10 @@
             const selectedTypeIds = mapping.type_ids || (mapping.type_id ? [mapping.type_id] : []);
             await loadPartnerTypesForDropdown(false, selectedTypeIds);
 
+            // Load brands and set value
+            await loadBrandsForDropdown();
+            document.getElementById('mappingBrand').value = mapping.brand || '';
+
             // Load departments and set value
             await loadDepartmentsForDropdown();
             document.getElementById('mappingDepartment').value = mapping.department || '';
@@ -4067,6 +4116,7 @@
             const typeIds = getSelectedTypeIds();
             const kodKonto = document.getElementById('mappingKodKonto').value.trim();
             const supplierNote = document.getElementById('mappingSupplierNote').value.trim();
+            const brand = document.getElementById('mappingBrand').value;
             const department = document.getElementById('mappingDepartment').value;
             const subdepartment = document.getElementById('mappingSubdepartment').value;
 
@@ -4088,6 +4138,7 @@
                 type_ids: typeIds,
                 kod_konto: kodKonto,
                 supplier_note: supplierNote,
+                brand: brand || null,
                 department: department || null,
                 subdepartment: subdepartment || null,
             };
