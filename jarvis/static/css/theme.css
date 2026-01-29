@@ -1122,47 +1122,14 @@ body.dark-theme .upload-zone.dragover {
 
 /* ============================================================================
    STATUS-BASED ROW COLORING
-   Dynamic colors from Settings via CSS variables (set by JavaScript)
-   Variables: --status-color-{statusValue} set on :root when dropdown options load
+   Colors are applied dynamically via inline styles from JavaScript.
+   Status options (colors, opacity) are configured in Settings → Accounting.
+   No hardcoded status values here - all statuses are dynamic from database.
    ============================================================================ */
 
-/* Status row coloring using CSS variables from Settings */
-tr[data-status="new"] > td {
-    background-color: var(--status-color-new, transparent) !important;
-}
-tr[data-status="processed"] > td {
-    background-color: var(--status-color-processed, transparent) !important;
-}
-tr[data-status="incomplete"] > td {
-    background-color: var(--status-color-incomplete, transparent) !important;
-}
-tr[data-status="eronata"] > td {
-    background-color: var(--status-color-eronata, transparent) !important;
-}
-tr[data-status="lipsa_factura"] > td {
-    background-color: var(--status-color-lipsa_factura, transparent) !important;
-}
-
-/* Generic fallback: any status with a CSS variable set */
+/* Generic styling for status rows */
 tr[data-status] > td {
     transition: background-color 0.2s ease;
-}
-
-/* Dark theme: Status row coloring (higher specificity to override dark theme table defaults) */
-body.dark-theme tr[data-status="new"] > td {
-    background-color: var(--status-color-new, transparent) !important;
-}
-body.dark-theme tr[data-status="processed"] > td {
-    background-color: var(--status-color-processed, transparent) !important;
-}
-body.dark-theme tr[data-status="incomplete"] > td {
-    background-color: var(--status-color-incomplete, transparent) !important;
-}
-body.dark-theme tr[data-status="eronata"] > td {
-    background-color: var(--status-color-eronata, transparent) !important;
-}
-body.dark-theme tr[data-status="lipsa_factura"] > td {
-    background-color: var(--status-color-lipsa_factura, transparent) !important;
 }
 
 /* ============================================================================
@@ -2805,4 +2772,345 @@ body.dark-theme .module-menu .home-link i {
 
 .module-menu .current-module-dot.aftersales {
     background: var(--module-aftersales-color);
+}
+
+/* ============================================================================
+   CUSTOM DIALOGS / ALERTS
+   Replaces native browser alert(), confirm(), prompt() with styled versions
+   ============================================================================ */
+
+/* Dialog Overlay */
+.jarvis-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.jarvis-dialog-overlay.show {
+    opacity: 1;
+}
+
+/* Dialog Box */
+.jarvis-dialog {
+    background: var(--bg-card, #ffffff);
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    min-width: 320px;
+    max-width: 480px;
+    width: 90%;
+    transform: scale(0.9) translateY(-20px);
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    overflow: hidden;
+}
+
+.jarvis-dialog-overlay.show .jarvis-dialog {
+    transform: scale(1) translateY(0);
+}
+
+/* Dialog Header */
+.jarvis-dialog-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-light, #e0e0e0);
+}
+
+.jarvis-dialog-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.jarvis-dialog-icon.info {
+    background: rgba(33, 150, 243, 0.15);
+    color: #2196f3;
+}
+
+.jarvis-dialog-icon.success {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+}
+
+.jarvis-dialog-icon.warning {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+}
+
+.jarvis-dialog-icon.error {
+    background: rgba(244, 67, 54, 0.15);
+    color: #f44336;
+}
+
+.jarvis-dialog-icon.confirm {
+    background: rgba(156, 39, 176, 0.15);
+    color: #9c27b0;
+}
+
+.jarvis-dialog-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary, #333);
+    margin: 0;
+    font-family: var(--font-body, 'Rajdhani', sans-serif);
+}
+
+/* Dialog Body */
+.jarvis-dialog-body {
+    padding: 20px;
+}
+
+.jarvis-dialog-message {
+    color: var(--text-secondary, #666);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    margin: 0;
+    word-wrap: break-word;
+}
+
+/* Dialog Input (for prompt) */
+.jarvis-dialog-input {
+    width: 100%;
+    padding: 10px 14px;
+    margin-top: 16px;
+    border: 2px solid var(--border-light, #e0e0e0);
+    border-radius: 8px;
+    font-size: 0.95rem;
+    background: var(--bg-input, #fff);
+    color: var(--text-primary, #333);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.jarvis-dialog-input:focus {
+    outline: none;
+    border-color: var(--brand-primary, #1976d2);
+    box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.15);
+}
+
+/* Dialog Footer */
+.jarvis-dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 16px 20px;
+    background: var(--bg-table-header, #f8f9fa);
+    border-top: 1px solid var(--border-light, #e0e0e0);
+}
+
+/* Dialog Buttons */
+.jarvis-dialog-btn {
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: none;
+    font-family: var(--font-body, 'Rajdhani', sans-serif);
+}
+
+.jarvis-dialog-btn:focus {
+    outline: none;
+}
+
+.jarvis-dialog-btn-secondary {
+    background: var(--bg-card, #fff);
+    color: var(--text-secondary, #666);
+    border: 1px solid var(--border-light, #e0e0e0);
+}
+
+.jarvis-dialog-btn-secondary:hover {
+    background: var(--bg-table-hover, #e3f2fd);
+    border-color: var(--border-medium, #ccc);
+}
+
+.jarvis-dialog-btn-primary {
+    background: var(--brand-primary, #1976d2);
+    color: #fff;
+}
+
+.jarvis-dialog-btn-primary:hover {
+    background: var(--brand-primary-dark, #1565c0);
+    box-shadow: 0 4px 12px rgba(25, 118, 210, 0.3);
+}
+
+.jarvis-dialog-btn-danger {
+    background: #f44336;
+    color: #fff;
+}
+
+.jarvis-dialog-btn-danger:hover {
+    background: #d32f2f;
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.3);
+}
+
+.jarvis-dialog-btn-success {
+    background: #4caf50;
+    color: #fff;
+}
+
+.jarvis-dialog-btn-success:hover {
+    background: #43a047;
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}
+
+/* Dark Theme Overrides */
+body.dark-theme .jarvis-dialog {
+    background: var(--bg-card);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+body.dark-theme .jarvis-dialog-header {
+    border-bottom-color: var(--border-light);
+}
+
+body.dark-theme .jarvis-dialog-footer {
+    background: rgba(0, 0, 0, 0.2);
+    border-top-color: var(--border-light);
+}
+
+body.dark-theme .jarvis-dialog-btn-secondary {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    border-color: var(--border-light);
+}
+
+body.dark-theme .jarvis-dialog-btn-secondary:hover {
+    background: var(--bg-table-hover);
+}
+
+body.dark-theme .jarvis-dialog-input {
+    background: var(--bg-input);
+    border-color: var(--border-light);
+    color: var(--text-primary);
+}
+
+/* Toast Notifications */
+.jarvis-toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9998;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+
+.jarvis-toast {
+    background: var(--bg-card, #fff);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 280px;
+    max-width: 400px;
+    transform: translateX(120%);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    pointer-events: auto;
+}
+
+.jarvis-toast.show {
+    transform: translateX(0);
+}
+
+.jarvis-toast-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.jarvis-toast-icon.info {
+    background: rgba(33, 150, 243, 0.15);
+    color: #2196f3;
+}
+
+.jarvis-toast-icon.success {
+    background: rgba(76, 175, 80, 0.15);
+    color: #4caf50;
+}
+
+.jarvis-toast-icon.warning {
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+}
+
+.jarvis-toast-icon.error {
+    background: rgba(244, 67, 54, 0.15);
+    color: #f44336;
+}
+
+.jarvis-toast-content {
+    flex: 1;
+}
+
+.jarvis-toast-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-primary, #333);
+    margin: 0 0 2px 0;
+}
+
+.jarvis-toast-message {
+    font-size: 0.85rem;
+    color: var(--text-secondary, #666);
+    margin: 0;
+}
+
+.jarvis-toast-close {
+    background: none;
+    border: none;
+    color: var(--text-muted, #999);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 1.1rem;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.jarvis-toast-close:hover {
+    opacity: 1;
+}
+
+/* Progress bar for auto-dismiss */
+.jarvis-toast-progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--brand-primary, #1976d2);
+    border-radius: 0 0 10px 10px;
+    animation: toast-progress linear forwards;
+}
+
+@keyframes toast-progress {
+    from { width: 100%; }
+    to { width: 0%; }
+}
+
+body.dark-theme .jarvis-toast {
+    background: var(--bg-card);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }

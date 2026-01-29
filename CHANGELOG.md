@@ -1,6 +1,42 @@
 # Changelog
 
 ## 2026-01-29
+### Custom Dialog System
+- **JarvisDialog**: Custom styled dialogs replacing native browser `alert()`, `confirm()`, `prompt()`
+  - `JarvisDialog.alert(message, options)` - Styled alert with icon, animation
+  - `JarvisDialog.confirm(message, options)` - Returns Promise with boolean result
+  - `JarvisDialog.prompt(message, options)` - Returns Promise with input value
+  - Types: info (blue), success (green), warning (orange), error (red), confirm (purple)
+  - Full dark theme support with backdrop blur
+
+- **JarvisToast**: Toast notifications for non-blocking feedback
+  - `JarvisToast.success/error/warning/info(message, options)`
+  - Auto-dismiss with progress bar (configurable duration)
+  - Stacked notifications in top-right corner
+
+- **Files**:
+  - `jarvis/static/js/jarvis-dialogs.js` - Dialog and toast utilities
+  - `jarvis/static/css/theme.css` - Dialog and toast CSS styles
+
+### Role-Based Status Permissions
+- **Database**: Added `min_role` column to `dropdown_options` table
+  - Controls which roles can set/edit invoices with specific statuses
+  - Default: 'Viewer' (all roles can access)
+  - Migration sets 'Processed' status to require 'Manager' by default
+
+- **Settings UI**: Min Role dropdown in Settings → Accounting → Invoice Statuses
+  - Configure minimum role required for each status
+
+- **Invoice Edit**: Status dropdown filtered based on user role
+  - Users only see statuses they have permission to set
+  - Edit button locked for invoices with restricted status
+
+### Dynamic Status Row Coloring
+- **Fully dynamic**: All status colors from database (no hardcoded CSS)
+- **Inline styles**: Row coloring via computed `rgba()` from status options
+- **Consistent**: Same approach in accounting.html and profile.html
+- **Removed hardcoded CSS**: theme.css only has generic `tr[data-status]` transition rule
+
 ### e-Factura Duplicate Detection
 - **Duplicate Detection Service**: Background service to detect duplicate invoices after ANAF sync
   - Exact matching: Finds duplicates by supplier name + invoice number

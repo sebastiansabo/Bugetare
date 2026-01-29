@@ -143,6 +143,10 @@ except ImportError as e:
     EFACTURA_ENABLED = False
     app_logger.warning(f"e-Factura connector not available: {e}")
 
+# Register Profile Module Blueprint (core module for user profile page)
+from core.profile import profile_bp
+app.register_blueprint(profile_bp)
+
 # Cache-Control headers for API responses
 # NOTE: Browser caching disabled for all Settings-related endpoints to avoid stale data
 # after edits. Performance impact is minimal (<50ms per request for these simple queries).
@@ -2472,7 +2476,8 @@ def api_add_dropdown_option():
             color=data.get('color'),
             opacity=data.get('opacity', 0.7),
             sort_order=data.get('sort_order', 0),
-            is_active=data.get('is_active', True)
+            is_active=data.get('is_active', True),
+            min_role=data.get('min_role', 'Viewer')
         )
         return jsonify({'success': True, 'id': option_id})
     except Exception as e:
@@ -2495,7 +2500,8 @@ def api_update_dropdown_option(option_id):
             color=data.get('color'),
             opacity=data.get('opacity'),
             sort_order=data.get('sort_order'),
-            is_active=data.get('is_active')
+            is_active=data.get('is_active'),
+            min_role=data.get('min_role')
         )
         if success:
             return jsonify({'success': True})

@@ -368,6 +368,7 @@
                                             <th>Color</th>
                                             <th>Opacity</th>
                                             <th>Order</th>
+                                            <th>Min Role</th>
                                             <th>Active</th>
                                             <th width="100">Actions</th>
                                         </tr>
@@ -2543,13 +2544,13 @@
             };
 
             if (!userData.name || !userData.email) {
-                alert('Name and email are required');
+                JarvisDialog.alert('Name and email are required', { type: 'warning', title: 'Validation Error' });
                 return;
             }
 
             // Password required for new users
             if (!userId && !password) {
-                alert('Password is required for new users');
+                JarvisDialog.alert('Password is required for new users', { type: 'warning', title: 'Validation Error' });
                 return;
             }
 
@@ -2573,12 +2574,13 @@
                 if (result.success || result.id) {
                     userModal.hide();
                     loadUsers();
+                    JarvisToast.success('User saved successfully!');
                 } else {
-                    alert(result.error || 'Failed to save user');
+                    JarvisDialog.alert(result.error || 'Failed to save user', { type: 'error' });
                 }
             } catch (error) {
                 console.error('Error saving user:', error);
-                alert('Failed to save user');
+                JarvisDialog.alert('Failed to save user', { type: 'error' });
             }
         }
 
@@ -2941,14 +2943,14 @@
                 const result = await res.json();
 
                 if (result.success) {
-                    alert('Notification settings saved successfully!');
+                    JarvisToast.success('Notification settings saved successfully!');
                     loadNotificationSettings();
                 } else {
-                    alert(result.error || 'Failed to save settings');
+                    JarvisDialog.alert(result.error || 'Failed to save settings', { type: 'error' });
                 }
             } catch (error) {
                 console.error('Error saving notification settings:', error);
-                alert('Failed to save settings');
+                JarvisDialog.alert('Failed to save settings', { type: 'error' });
             }
         }
 
@@ -3855,6 +3857,15 @@
                         <td>
                             <input type="number" class="form-control form-control-sm" style="width: 70px" value="${opt.sort_order}"
                                    onchange="updateDropdownOption(${opt.id}, 'sort_order', parseInt(this.value))">
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm" style="width: 100px"
+                                    onchange="updateDropdownOption(${opt.id}, 'min_role', this.value)">
+                                <option value="Viewer" ${opt.min_role === 'Viewer' ? 'selected' : ''}>Viewer</option>
+                                <option value="User" ${opt.min_role === 'User' ? 'selected' : ''}>User</option>
+                                <option value="Manager" ${opt.min_role === 'Manager' ? 'selected' : ''}>Manager</option>
+                                <option value="Admin" ${opt.min_role === 'Admin' ? 'selected' : ''}>Admin</option>
+                            </select>
                         </td>
                         <td>
                             <div class="form-check form-switch">
@@ -5778,11 +5789,12 @@
                     bootstrap.Modal.getInstance(document.getElementById('hrEmployeeModal')).hide();
                     loadHrEmployees();
                 } else {
-                    alert('Error saving employee');
+                    const result = await resp.json().catch(() => ({}));
+                    alert(result.error || 'Error saving employee');
                 }
             } catch (err) {
                 console.error('Error:', err);
-                alert('Error saving employee');
+                alert('Error saving employee: ' + err.message);
             }
         }
 
@@ -6539,6 +6551,7 @@
         });
     </script>
 
+    <script src="/static/js/jarvis-dialogs.js"></script>
     <script src="/static/js/online-users.js"></script>
     {% include 'partials/_edit_profile_modal.html' %}
     <script src="/static/js/theme.js"></script>

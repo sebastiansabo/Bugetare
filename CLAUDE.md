@@ -227,6 +227,9 @@ The platform uses a normalized organizational hierarchy with foreign key referen
 - `users` - Application users with bcrypt passwords and role permissions
 - `user_events` - Activity log for user actions (login, invoice operations)
 - `vat_rates` - VAT rate definitions (id, name, rate)
+- `dropdown_options` - Configurable dropdown options (invoice_status, payment_status)
+  - id, dropdown_type, value, label, color, opacity, sort_order, is_active, min_role
+  - `min_role` controls which user roles can set invoices to this status
 - `connectors` - External service connectors (Google Ads, Anthropic) - DISABLED
 - `vendor_mappings` - Regex patterns to match bank transactions to suppliers
 - `bank_statement_transactions` - Parsed transactions from bank statements
@@ -920,6 +923,43 @@ The `department_structure` table maps companies to brands, departments, and mana
 | `/hr/events/api/structure/departments-full` | GET | Structure mapping list |
 | `/hr/events/api/structure/departments` | POST | Create structure entry |
 | `/hr/events/api/structure/departments/<id>` | PUT, DELETE | Update/delete structure entry |
+
+## Custom Dialog System
+
+The platform uses custom styled dialogs instead of native browser `alert()`, `confirm()`, `prompt()`.
+
+### Files
+- `jarvis/static/js/jarvis-dialogs.js` - Dialog and toast JavaScript utilities
+- `jarvis/static/css/theme.css` - Dialog and toast CSS styles (end of file)
+
+### Usage
+```javascript
+// Alert dialog (returns Promise)
+JarvisDialog.alert('Error message', { type: 'error', title: 'Error' });
+
+// Confirm dialog (returns Promise<boolean>)
+const confirmed = await JarvisDialog.confirm('Delete this?', { danger: true });
+
+// Prompt dialog (returns Promise<string|null>)
+const value = await JarvisDialog.prompt('Enter name:', { defaultValue: 'John' });
+
+// Toast notifications (auto-dismiss)
+JarvisToast.success('Saved successfully!');
+JarvisToast.error('Failed to save');
+JarvisToast.warning('Please check inputs');
+JarvisToast.info('Processing...');
+```
+
+### Options
+| Option | Type | Description |
+|--------|------|-------------|
+| `type` | string | Icon/color: 'info', 'success', 'warning', 'error', 'confirm' |
+| `title` | string | Dialog title (default based on type) |
+| `buttonText` | string | OK button text for alert |
+| `confirmText` | string | Confirm button text for confirm |
+| `cancelText` | string | Cancel button text |
+| `danger` | boolean | Red confirm button for destructive actions |
+| `duration` | number | Toast auto-dismiss time in ms (0 = no auto-dismiss) |
 
 ## Disabled Features
 

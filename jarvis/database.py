@@ -1185,6 +1185,25 @@ def init_db():
         END $$;
     ''')
 
+    # Add min_role column if it doesn't exist (for role-based status access)
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'dropdown_options' AND column_name = 'min_role') THEN
+                ALTER TABLE dropdown_options ADD COLUMN min_role TEXT DEFAULT 'Viewer';
+            END IF;
+        END $$;
+    ''')
+
+    # Set 'processed' status to require Manager role by default
+    cursor.execute('''
+        UPDATE dropdown_options
+        SET min_role = 'Manager'
+        WHERE dropdown_type = 'invoice_status' AND value = 'processed' AND min_role = 'Viewer'
+    ''')
+    conn.commit()
+
     # Insert default dropdown options if table is empty
     cursor.execute('SELECT COUNT(*) as cnt FROM dropdown_options')
     if cursor.fetchone()['cnt'] == 0:
@@ -4755,6 +4774,318 @@ def delete_responsable(responsable_id: int) -> bool:
     return deleted
 
 
+# ============== Profile Page Queries ==============
+
+def get_responsable_by_email(email: str) -> Optional[dict]:
+    """Get responsable record matching user email (case insensitive)."""
+    if not email:
+        return None
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT * FROM responsables
+        WHERE LOWER(email) = LOWER(%s) AND is_active = TRUE
+        LIMIT 1
+    ''', (email,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+    return dict_from_row(row) if row else None
+
+
+def get_user_invoices_by_responsible_name(responsible_name: str, status: str = None,
+                                          start_date: str = None, end_date: str = None,
+                                          limit: int = 100, offset: int = 0) -> list[dict]:
+    """Get invoices where allocations.responsible matches the given name."""
+    if not responsible_name:
+        return []
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Build query with optional filters
+    conditions = ['a.responsible = %s', 'i.deleted_at IS NULL']
+    params = [responsible_name]
+
+    if status:
+        conditions.append('i.status = %s')
+        params.append(status)
+
+    if start_date:
+        conditions.append('i.invoice_date >= %s')
+        params.append(start_date)
+
+    if end_date:
+        conditions.append('i.invoice_date <= %s')
+        params.append(end_date)
+
+    where_clause = ' AND '.join(conditions)
+    params.extend([limit, offset])
+
+    cursor.execute(f'''
+        SELECT DISTINCT
+            i.id, i.invoice_number, i.supplier, i.invoice_date,
+            i.invoice_value, i.currency, i.status, i.payment_status,
+            i.drive_link, i.created_at,
+            a.company, a.brand, a.department, a.subdepartment,
+            a.allocation_percent, a.allocation_value, a.responsible
+        FROM invoices i
+        INNER JOIN allocations a ON a.invoice_id = i.id
+        WHERE {where_clause}
+        ORDER BY i.invoice_date DESC
+        LIMIT %s OFFSET %s
+    ''', tuple(params))
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    release_db(conn)
+    return results
+
+
+def get_user_invoices_count(responsible_name: str, status: str = None,
+                            start_date: str = None, end_date: str = None) -> int:
+    """Get total count of invoices for a responsible (for pagination)."""
+    if not responsible_name:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    conditions = ['a.responsible = %s', 'i.deleted_at IS NULL']
+    params = [responsible_name]
+
+    if status:
+        conditions.append('i.status = %s')
+        params.append(status)
+
+    if start_date:
+        conditions.append('i.invoice_date >= %s')
+        params.append(start_date)
+
+    if end_date:
+        conditions.append('i.invoice_date <= %s')
+        params.append(end_date)
+
+    where_clause = ' AND '.join(conditions)
+
+    cursor.execute(f'''
+        SELECT COUNT(DISTINCT i.id) as count
+        FROM invoices i
+        INNER JOIN allocations a ON a.invoice_id = i.id
+        WHERE {where_clause}
+    ''', tuple(params))
+
+    row = cursor.fetchone()
+    release_db(conn)
+    return row['count'] if row else 0
+
+
+def get_user_invoices_summary(responsible_name: str) -> dict:
+    """Get invoice stats (total count, by status, total value) for a responsible."""
+    if not responsible_name:
+        return {'total': 0, 'by_status': {}, 'total_value': 0}
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Get count and total by status
+    cursor.execute('''
+        SELECT
+            i.status,
+            COUNT(DISTINCT i.id) as count,
+            COALESCE(SUM(a.allocation_value), 0) as total_value
+        FROM invoices i
+        INNER JOIN allocations a ON a.invoice_id = i.id
+        WHERE a.responsible = %s AND i.deleted_at IS NULL
+        GROUP BY i.status
+    ''', (responsible_name,))
+
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    by_status = {}
+    total_count = 0
+    total_value = 0
+
+    for row in rows:
+        status = row['status'] or 'Unknown'
+        by_status[status] = row['count']
+        total_count += row['count']
+        total_value += float(row['total_value'])
+
+    return {
+        'total': total_count,
+        'by_status': by_status,
+        'total_value': total_value
+    }
+
+
+def get_user_event_bonuses(responsable_id: int, year: int = None,
+                           limit: int = 100, offset: int = 0) -> list[dict]:
+    """Get HR event bonuses for a specific responsable."""
+    if not responsable_id:
+        return []
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    conditions = ['b.responsable_id = %s']
+    params = [responsable_id]
+
+    if year:
+        conditions.append('b.year = %s')
+        params.append(year)
+
+    where_clause = ' AND '.join(conditions)
+    params.extend([limit, offset])
+
+    cursor.execute(f'''
+        SELECT
+            b.id, b.year, b.month, b.participation_start, b.participation_end,
+            b.bonus_days, b.hours_free, b.bonus_net, b.details, b.allocation_month,
+            b.created_at,
+            e.id as event_id, e.name as event_name, e.start_date as event_start,
+            e.end_date as event_end, e.company, e.brand
+        FROM hr.event_bonuses b
+        JOIN hr.events e ON e.id = b.event_id
+        WHERE {where_clause}
+        ORDER BY b.year DESC, b.month DESC
+        LIMIT %s OFFSET %s
+    ''', tuple(params))
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    release_db(conn)
+    return results
+
+
+def get_user_event_bonuses_summary(responsable_id: int) -> dict:
+    """Get HR event bonuses summary for a responsable."""
+    if not responsable_id:
+        return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT
+            COUNT(*) as total_bonuses,
+            COALESCE(SUM(b.bonus_net), 0) as total_amount,
+            COUNT(DISTINCT b.event_id) as events_count
+        FROM hr.event_bonuses b
+        WHERE b.responsable_id = %s
+    ''', (responsable_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    return {
+        'total_bonuses': row['total_bonuses'],
+        'total_amount': float(row['total_amount']),
+        'events_count': row['events_count']
+    }
+
+
+def get_user_notifications(responsable_id: int, limit: int = 100, offset: int = 0) -> list[dict]:
+    """Get notification log for a specific responsable."""
+    if not responsable_id:
+        return []
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT
+            nl.*,
+            i.invoice_number, i.supplier
+        FROM notification_log nl
+        LEFT JOIN invoices i ON nl.invoice_id = i.id
+        WHERE nl.responsable_id = %s
+        ORDER BY nl.created_at DESC
+        LIMIT %s OFFSET %s
+    ''', (responsable_id, limit, offset))
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    release_db(conn)
+    return results
+
+
+def get_user_notifications_summary(responsable_id: int) -> dict:
+    """Get notification summary for a responsable."""
+    if not responsable_id:
+        return {'total': 0, 'sent': 0, 'failed': 0}
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE status = 'sent') as sent,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed
+        FROM notification_log
+        WHERE responsable_id = %s
+    ''', (responsable_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    return {
+        'total': row['total'],
+        'sent': row['sent'],
+        'failed': row['failed']
+    }
+
+
+def get_user_activity(user_id: int, event_type: str = None,
+                      limit: int = 100, offset: int = 0) -> list[dict]:
+    """Get activity log for a specific user."""
+    if not user_id:
+        return []
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    conditions = ['user_id = %s']
+    params = [user_id]
+
+    if event_type:
+        conditions.append('event_type = %s')
+        params.append(event_type)
+
+    where_clause = ' AND '.join(conditions)
+    params.extend([limit, offset])
+
+    cursor.execute(f'''
+        SELECT *
+        FROM user_events
+        WHERE {where_clause}
+        ORDER BY created_at DESC
+        LIMIT %s OFFSET %s
+    ''', tuple(params))
+
+    results = [dict_from_row(row) for row in cursor.fetchall()]
+    release_db(conn)
+    return results
+
+
+def get_user_activity_count(user_id: int) -> int:
+    """Get total activity count for a user."""
+    if not user_id:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT COUNT(*) as count FROM user_events WHERE user_id = %s
+    ''', (user_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+    return row['count'] if row else 0
+
+
 # ============== Notification Settings CRUD ==============
 
 def get_notification_settings() -> dict:
@@ -5556,16 +5887,17 @@ def get_dropdown_option(option_id: int) -> Optional[dict]:
 
 
 def add_dropdown_option(dropdown_type: str, value: str, label: str,
-                        color: str = None, opacity: float = 0.7, sort_order: int = 0, is_active: bool = True) -> int:
+                        color: str = None, opacity: float = 0.7, sort_order: int = 0,
+                        is_active: bool = True, min_role: str = 'Viewer') -> int:
     """Add a new dropdown option. Returns the new option ID."""
     conn = get_db()
     cursor = get_cursor(conn)
 
     cursor.execute('''
-        INSERT INTO dropdown_options (dropdown_type, value, label, color, opacity, sort_order, is_active)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO dropdown_options (dropdown_type, value, label, color, opacity, sort_order, is_active, min_role)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
-    ''', (dropdown_type, value, label, color, opacity, sort_order, is_active))
+    ''', (dropdown_type, value, label, color, opacity, sort_order, is_active, min_role))
 
     option_id = cursor.fetchone()['id']
     conn.commit()
@@ -5574,7 +5906,8 @@ def add_dropdown_option(dropdown_type: str, value: str, label: str,
 
 
 def update_dropdown_option(option_id: int, value: str = None, label: str = None,
-                           color: str = None, opacity: float = None, sort_order: int = None, is_active: bool = None) -> bool:
+                           color: str = None, opacity: float = None, sort_order: int = None,
+                           is_active: bool = None, min_role: str = None) -> bool:
     """Update a dropdown option. Returns True if updated."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -5600,6 +5933,9 @@ def update_dropdown_option(option_id: int, value: str = None, label: str = None,
     if is_active is not None:
         updates.append('is_active = %s')
         params.append(is_active)
+    if min_role is not None:
+        updates.append('min_role = %s')
+        params.append(min_role)
 
     if not updates:
         release_db(conn)

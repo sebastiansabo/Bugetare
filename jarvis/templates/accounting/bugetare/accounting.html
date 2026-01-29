@@ -944,17 +944,22 @@
         let invoiceStatusOptions = [];
         let paymentStatusOptions = [];
 
+        // Helper function to get row background color for a status option
+        function getStatusRowColor(opt) {
+            if (!opt || !opt.color) return '';
+            const hex = opt.color.replace('#', '');
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            const opacity = opt.opacity ?? 0.3;
+            return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        }
+
         // Set CSS variables for status colors (used by theme.css for row coloring)
         function setStatusColorCssVariables(options) {
             options.forEach(opt => {
                 if (opt.color && opt.value) {
-                    // Convert hex color to rgba with configurable opacity from settings
-                    const hex = opt.color.replace('#', '');
-                    const r = parseInt(hex.substring(0, 2), 16);
-                    const g = parseInt(hex.substring(2, 4), 16);
-                    const b = parseInt(hex.substring(4, 6), 16);
-                    const opacity = opt.opacity ?? 0.7; // Use configurable opacity, default to 0.7
-                    const rgbaColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+                    const rgbaColor = getStatusRowColor(opt);
                     document.documentElement.style.setProperty(`--status-color-${opt.value}`, rgbaColor);
                 }
             });
@@ -2618,16 +2623,20 @@
             }
 
             tbody.innerHTML = paginatedInvoices.map(inv => {
+                // Get row color from status option (applied to all cells)
+                const statusOpt = invoiceStatusOptions.find(o => o.value === inv.status);
+                const rowBgColor = statusOpt ? getStatusRowColor(statusOpt) : '';
+                const cellStyle = rowBgColor ? `style="background-color: ${rowBgColor};"` : '';
+
                 const cells = visibleCols.map(col => {
                     if (col.id === 'select') {
                         const checked = selectedInvoices.has(inv.id) ? 'checked' : '';
-                        return `<td><input type="checkbox" class="select-checkbox" data-id="${inv.id}" onchange="toggleInvoiceSelect(${inv.id})" ${checked}></td>`;
+                        return `<td ${cellStyle}><input type="checkbox" class="select-checkbox" data-id="${inv.id}" onchange="toggleInvoiceSelect(${inv.id})" ${checked}></td>`;
                     }
                     const value = getColumnValue(inv, col);
                     const formatted = formatColumnValue(value, col, inv);
-                    return `<td>${formatted}</td>`;
+                    return `<td ${cellStyle}>${formatted}</td>`;
                 }).join('');
-                // Row color applied via CSS using data-status attribute (see theme.css)
                 return `<tr data-status="${inv.status || ''}">${cells}</tr>`;
             }).join('');
 
@@ -3000,7 +3009,7 @@
                 const result = await res.json();
                 if (!result.success && result.error) {
                     console.error('Failed to update status:', result.error);
-                    alert('Error updating status: ' + result.error);
+                    JarvisDialog.alert('Error updating status: ' + result.error, { type: 'error' });
                     return;
                 }
                 // Update local cache
@@ -3032,7 +3041,7 @@
                 }
             } catch (e) {
                 console.error('Error updating status:', e);
-                alert('Error updating status');
+                JarvisDialog.alert('Error updating status', { type: 'error' });
             }
         }
 
@@ -3046,7 +3055,7 @@
                 const result = await res.json();
                 if (!result.success && result.error) {
                     console.error('Failed to update payment status:', result.error);
-                    alert('Error updating payment status: ' + result.error);
+                    JarvisDialog.alert('Error updating payment status: ' + result.error, { type: 'error' });
                     return;
                 }
                 // Update local cache
@@ -3075,7 +3084,7 @@
                 }
             } catch (e) {
                 console.error('Error updating payment status:', e);
-                alert('Error updating payment status');
+                JarvisDialog.alert('Error updating payment status', { type: 'error' });
             }
         }
 
@@ -3339,7 +3348,7 @@
             // Validate allocations (must be 100%, allow up to 0.1% overdraft for rounding)
             const totalPercent = editAllocations.reduce((sum, a) => sum + (parseFloat(a.allocation_percent) || 0), 0);
             if (totalPercent < 100 || totalPercent > 100.1) {
-                alert(`Allocations must sum to 100% (max 0.1% overdraft allowed). Current total: ${totalPercent.toFixed(2)}%`);
+                JarvisDialog.alert(`Allocations must sum to 100% (max 0.1% overdraft allowed). Current total: ${totalPercent.toFixed(2)}%`, { type: 'warning', title: 'Validation Error' });
                 return;
             }
 
@@ -3347,7 +3356,7 @@
             for (let idx = 0; idx < editAllocations.length; idx++) {
                 const alloc = editAllocations[idx];
                 if (!alloc.department) {
-                    alert('Please select a department for all allocations');
+                    JarvisDialog.alert('Please select a department for all allocations', { type: 'warning', title: 'Validation Error' });
                     return;
                 }
 
@@ -3358,13 +3367,13 @@
                 if (reinvoiceDestinations.length > 0) {
                     const totalReinvoicePercent = reinvoiceDestinations.reduce((sum, d) => sum + d.percentage, 0);
                     if (totalReinvoicePercent > 100) {
-                        alert(`Allocation #${idx + 1}: Reinvoice total percentage (${totalReinvoicePercent.toFixed(2)}%) cannot exceed 100%`);
+                        JarvisDialog.alert(`Allocation #${idx + 1}: Reinvoice total percentage (${totalReinvoicePercent.toFixed(2)}%) cannot exceed 100%`, { type: 'warning', title: 'Validation Error' });
                         return;
                     }
                     // Check that all destinations have a company selected
                     const invalidDest = reinvoiceDestinations.find(d => !d.company);
                     if (invalidDest) {
-                        alert(`Allocation #${idx + 1}: All reinvoice destinations must have a company selected`);
+                        JarvisDialog.alert(`Allocation #${idx + 1}: All reinvoice destinations must have a company selected`, { type: 'warning', title: 'Validation Error' });
                         return;
                     }
                 }
@@ -3432,12 +3441,12 @@
                     // Clear the cache for this invoice
                     delete invoicesWithAllocations[invoiceId];
                     loadData();
-                    alert('Invoice and allocations updated successfully!');
+                    JarvisToast.success('Invoice and allocations updated successfully!');
                 } else {
-                    alert('Error updating allocations: ' + (allocResult.error || 'Unknown error'));
+                    JarvisDialog.alert('Error updating allocations: ' + (allocResult.error || 'Unknown error'), { type: 'error' });
                 }
             } catch (e) {
-                alert('Error: ' + e.message);
+                JarvisDialog.alert('Error: ' + e.message, { type: 'error' });
             }
         }
 
@@ -4540,13 +4549,13 @@
                     updateSummaryCards();
                     loadBinCount();
 
-                    alert(`${result.deleted_count} invoice(s) moved to bin.`);
+                    JarvisToast.success(`${result.deleted_count} invoice(s) moved to bin.`);
                 } else {
-                    alert('Error: ' + (result.error || 'Failed to delete'));
+                    JarvisDialog.alert('Error: ' + (result.error || 'Failed to delete'), { type: 'error' });
                 }
             } catch (err) {
                 console.error('Bulk delete error:', err);
-                alert('Error deleting invoices');
+                JarvisDialog.alert('Error deleting invoices', { type: 'error' });
             }
         }
 
@@ -4572,10 +4581,10 @@
 
                 document.getElementById('bulkStatusChange').value = '';
                 applySorting();
-                alert(`${successCount} invoice(s) updated to "${newStatus}".`);
+                JarvisToast.success(`${successCount} invoice(s) updated to "${newStatus}".`);
             } catch (err) {
                 console.error('Bulk status change error:', err);
-                alert('Error changing status');
+                JarvisDialog.alert('Error changing status', { type: 'error' });
             }
         }
 
@@ -4932,6 +4941,7 @@
     </div>
 
     <script src="/static/js/jarvis-utils.js"></script>
+    <script src="/static/js/jarvis-dialogs.js"></script>
     <script src="/static/js/online-users.js"></script>
     {% include 'partials/_edit_profile_modal.html' %}
     <script src="/static/js/theme.js"></script>

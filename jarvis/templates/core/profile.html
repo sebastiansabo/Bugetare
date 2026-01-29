@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>J.A.R.V.I.S. - My Profile</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/jarvis-icon.svg') }}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
+    <style>
+        .tab-pane.fade:not(.show) {
+            display: none !important;
+        }
+        .user-avatar {
+            width: 64px;
+            height: 64px;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.25em 0.5em;
+        }
+        .table-profile th {
+            white-space: nowrap;
+            font-weight: 500;
+        }
+        .no-data-message {
+            text-align: center;
+            padding: 3rem;
+            color: var(--bs-secondary);
+        }
+        .no-data-message i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading profile...</div>
+    </div>
+
+    {% set current_module = 'profile' %}
+    {% include 'partials/_navbar.html' %}
+
+    <!-- Breadcrumb -->
+    <div class="container-fluid px-4 py-2 bg-body-secondary border-bottom">
+        <div class="d-flex justify-content-between align-items-center">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0 small">
+                    <li class="breadcrumb-item"><a href="/">Home</a></li>
+                    <li class="breadcrumb-item active">My Profile</li>
+                </ol>
+            </nav>
+            <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+        </div>
+    </div>
+
+    <div class="container-fluid px-4 mt-3">
+        <!-- User Info Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="user-avatar rounded-circle bg-primary text-white">
+                        <span id="userInitials">--</span>
+                    </div>
+                    <div>
+                        <h4 class="mb-0" id="userName">{{ current_user.name }}</h4>
+                        <small class="text-muted" id="userEmail">{{ current_user.email }}</small>
+                        <span class="badge bg-secondary ms-2" id="userRole">{{ current_user.role_name or 'User' }}</span>
+                    </div>
+                    <div class="ms-auto" id="responsableInfo" style="display: none;">
+                        <small class="text-muted">
+                            <i class="bi bi-building"></i> <span id="responsableCompany">-</span>
+                            <span class="mx-2">|</span>
+                            <i class="bi bi-diagram-3"></i> <span id="responsableDept">-</span>
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- No Responsable Warning -->
+        <div id="noResponsableAlert" class="alert alert-warning d-none">
+            <i class="bi bi-exclamation-triangle"></i>
+            <strong>Limited Profile Data:</strong> Your email is not linked to a responsable record.
+            You can only view your activity log. Contact an administrator to link your account.
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-receipt"></i> My Invoices</h6>
+                        <h2 id="totalInvoices">0</h2>
+                        <small id="invoiceStatusSummary" class="opacity-75">-</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-cash-stack"></i> Total Value</h6>
+                        <h2 id="totalValue">0 RON</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-calendar-event"></i> HR Events</h6>
+                        <h2 id="totalEvents">0</h2>
+                        <small id="eventBonusSummary" class="opacity-75">-</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-dark">
+                    <div class="card-body">
+                        <h6 class="card-title"><i class="bi bi-envelope"></i> Notifications</h6>
+                        <h2 id="totalNotifications">0</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <ul class="nav nav-tabs" id="profileTabs">
+            <li class="nav-item">
+                <button class="nav-link active" id="invoices-tab" data-bs-toggle="tab" data-bs-target="#invoices" type="button">
+                    <i class="bi bi-receipt"></i> My Invoices
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="hr-events-tab" data-bs-toggle="tab" data-bs-target="#hr-events" type="button">
+                    <i class="bi bi-calendar-event"></i> My HR Events
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="notifications-tab" data-bs-toggle="tab" data-bs-target="#notifications" type="button">
+                    <i class="bi bi-envelope"></i> My Notifications
+                </button>
+            </li>
+            <li class="nav-item">
+                <button class="nav-link" id="activity-tab" data-bs-toggle="tab" data-bs-target="#activity" type="button">
+                    <i class="bi bi-clock-history"></i> Activity Log
+                </button>
+            </li>
+        </ul>
+
+        <div class="tab-content mt-3">
+            <!-- My Invoices Tab -->
+            <div class="tab-pane fade show active" id="invoices" role="tabpanel">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <select class="form-select form-select-sm" id="invoiceStatusFilter" style="width: auto;">
+                                <option value="">All Statuses</option>
+                            </select>
+                            <input type="date" class="form-control form-control-sm" id="invoiceDateStart" style="width: auto;">
+                            <span class="text-muted">to</span>
+                            <input type="date" class="form-control form-control-sm" id="invoiceDateEnd" style="width: auto;">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadInvoicesTab()">
+                                <i class="bi bi-funnel"></i> Filter
+                            </button>
+                        </div>
+                        <div class="text-muted small" id="invoicesCount">0 invoices</div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-profile mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Invoice #</th>
+                                        <th>Supplier</th>
+                                        <th>Company</th>
+                                        <th>Department</th>
+                                        <th class="text-end">Value</th>
+                                        <th class="text-end">%</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="invoicesTableBody">
+                                    <tr><td colspan="8" class="text-center text-muted">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card-footer d-flex justify-content-between align-items-center">
+                        <div class="text-muted small" id="invoicesPaginationInfo">-</div>
+                        <nav>
+                            <ul class="pagination pagination-sm mb-0" id="invoicesPagination"></ul>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+
+            <!-- My HR Events Tab -->
+            <div class="tab-pane fade" id="hr-events" role="tabpanel">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-2">
+                            <select class="form-select form-select-sm" id="hrEventYearFilter" style="width: auto;">
+                                <option value="">All Years</option>
+                            </select>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadHrEventsTab()">
+                                <i class="bi bi-funnel"></i> Filter
+                            </button>
+                        </div>
+                        <div class="text-muted small" id="hrEventsCount">0 bonuses</div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-profile mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Year</th>
+                                        <th>Month</th>
+                                        <th>Event</th>
+                                        <th>Company</th>
+                                        <th>Participation</th>
+                                        <th class="text-end">Bonus Days</th>
+                                        <th class="text-end">Bonus Net</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="hrEventsTableBody">
+                                    <tr><td colspan="7" class="text-center text-muted">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- My Notifications Tab -->
+            <div class="tab-pane fade" id="notifications" role="tabpanel">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-envelope"></i> Notifications Sent to Me</span>
+                        <div class="text-muted small" id="notificationsCount">0 notifications</div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-profile mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Invoice</th>
+                                        <th>Subject</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="notificationsTableBody">
+                                    <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Activity Log Tab -->
+            <div class="tab-pane fade" id="activity" role="tabpanel">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <div class="d-flex align-items-center gap-2">
+                            <select class="form-select form-select-sm" id="activityTypeFilter" style="width: auto;">
+                                <option value="">All Events</option>
+                                <option value="login">Login</option>
+                                <option value="logout">Logout</option>
+                                <option value="create">Create</option>
+                                <option value="update">Update</option>
+                                <option value="delete">Delete</option>
+                            </select>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadActivityTab()">
+                                <i class="bi bi-funnel"></i> Filter
+                            </button>
+                        </div>
+                        <div class="text-muted small" id="activityCount">0 events</div>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover table-profile mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Date/Time</th>
+                                        <th>Event Type</th>
+                                        <th>Description</th>
+                                        <th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="activityTableBody">
+                                    <tr><td colspan="4" class="text-center text-muted">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include shared Edit Invoice Modal -->
+    {% include 'partials/_edit_invoice_modal.html' %}
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jarvis-dialogs.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/invoice-edit.js') }}"></script>
+    <script>
+        // Profile page state
+        let profileData = null;
+        let currentResponsable = null;
+        let invoicesPage = 1;
+        let hrEventsPage = 1;
+        let notificationsPage = 1;
+        let activityPage = 1;
+        const perPage = 20;
+        let invoiceStatusOptions = [];
+        const userRole = '{{ current_user.role_name }}';
+        const roleHierarchy = ['Viewer', 'User', 'Manager', 'Admin'];
+
+        // Check if user's role meets the minimum required role
+        function userHasRole(minRole) {
+            const userRoleIndex = roleHierarchy.indexOf(userRole);
+            const minRoleIndex = roleHierarchy.indexOf(minRole || 'Viewer');
+            return userRoleIndex >= minRoleIndex;
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', async function() {
+            showLoading('Loading profile...');
+            try {
+                // Set user initials
+                const name = '{{ current_user.name }}';
+                const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+                document.getElementById('userInitials').textContent = initials;
+
+                // Populate year filter
+                populateYearFilter();
+
+                // Load dropdown options for inline editing
+                await loadStatusOptions();
+
+                // Load profile summary
+                await loadProfileSummary();
+
+                // Setup tab handlers
+                setupTabHandlers();
+
+                // Load first tab
+                await loadInvoicesTab();
+            } catch (error) {
+                console.error('Error loading profile:', error);
+                showError('Failed to load profile data');
+            } finally {
+                hideLoading();
+            }
+        });
+
+        // Load status options from API
+        async function loadStatusOptions() {
+            try {
+                const res = await fetch('/api/dropdown-options');
+                const data = await res.json();
+                invoiceStatusOptions = data.filter(opt => opt.dropdown_type === 'invoice_status');
+
+                // Set CSS variables for row coloring
+                invoiceStatusOptions.forEach(opt => {
+                    if (opt.color) {
+                        const hex = opt.color.replace('#', '');
+                        const r = parseInt(hex.substring(0, 2), 16);
+                        const g = parseInt(hex.substring(2, 4), 16);
+                        const b = parseInt(hex.substring(4, 6), 16);
+                        const opacity = opt.opacity ?? 0.7;
+                        const rgbaColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+                        document.documentElement.style.setProperty(`--status-color-${opt.value}`, rgbaColor);
+                    }
+                });
+
+                // Inject dynamic CSS for status row coloring
+                injectDynamicStatusCSS(invoiceStatusOptions);
+            } catch (e) {
+                console.error('Error loading status options:', e);
+            }
+        }
+
+        // Helper function to get row background color for a status option
+        function getStatusRowColor(opt) {
+            if (!opt || !opt.color) return '';
+            const hex = opt.color.replace('#', '');
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            const opacity = opt.opacity ?? 0.3;
+            return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+        }
+
+        // Inject dynamic CSS rules for status row coloring
+        function injectDynamicStatusCSS(options) {
+            let existingStyle = document.getElementById('dynamic-status-css');
+            if (existingStyle) existingStyle.remove();
+
+            const statusRules = options.filter(opt => opt.color && opt.value).map(opt => {
+                return `
+                    tr[data-status="${opt.value}"] > td {
+                        background-color: var(--status-color-${opt.value}, transparent) !important;
+                    }
+                    body.dark-theme tr[data-status="${opt.value}"] > td {
+                        background-color: var(--status-color-${opt.value}, transparent) !important;
+                    }
+                `;
+            }).join('\n');
+
+            const style = document.createElement('style');
+            style.id = 'dynamic-status-css';
+            style.textContent = statusRules;
+            document.head.appendChild(style);
+        }
+
+        // Generate status dropdown HTML for inline editing
+        function getStatusDropdownHtml(invoiceId, currentStatus, isLocked = false) {
+            currentStatus = currentStatus || invoiceStatusOptions[0]?.value || 'new';
+            const currentOpt = invoiceStatusOptions.find(o => o.value === currentStatus);
+            const bgColor = currentOpt?.color || '';
+            const style = bgColor ? `background-color: ${bgColor}; color: #fff;` : '';
+            const minRole = currentOpt?.min_role || 'Viewer';
+
+            if (isLocked) {
+                // Show locked badge instead of dropdown
+                return `<span class="badge" style="padding: 4px 8px; font-size: 0.8em; ${style}"
+                              title="Status requires ${minRole} role - locked">
+                    <i class="bi bi-lock-fill me-1"></i>${currentOpt?.label || currentStatus}
+                </span>`;
+            }
+
+            let html = `<select class="form-select form-select-sm status-dropdown"
+                        data-invoice-id="${invoiceId}"
+                        onchange="updateInvoiceStatus(${invoiceId}, this.value)"
+                        style="width: auto; min-width: 110px; padding: 2px 24px 2px 8px; font-size: 0.8em; ${style}">`;
+            invoiceStatusOptions.forEach(opt => {
+                // Only show options the user has permission for (or the current status)
+                if (!userHasRole(opt.min_role) && currentStatus !== opt.value) {
+                    return;
+                }
+                html += `<option value="${opt.value}" ${currentStatus === opt.value ? 'selected' : ''}>${opt.label}</option>`;
+            });
+            html += '</select>';
+            return html;
+        }
+
+        // Update invoice status via API
+        async function updateInvoiceStatus(invoiceId, newStatus) {
+            try {
+                const res = await fetch(`/api/db/invoices/${invoiceId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                });
+                const result = await res.json();
+                if (!result.success && result.error) {
+                    console.error('Failed to update status:', result.error);
+                    JarvisDialog.alert('Error updating status: ' + result.error, { type: 'error' });
+                    return;
+                }
+                // Update dropdown styling
+                const select = document.querySelector(`select[data-invoice-id="${invoiceId}"]`);
+                if (select) {
+                    const opt = invoiceStatusOptions.find(o => o.value === newStatus);
+                    if (opt?.color) {
+                        select.style.backgroundColor = opt.color;
+                        select.style.color = '#fff';
+                    } else {
+                        select.style.backgroundColor = '';
+                        select.style.color = '';
+                    }
+                    // Update row data-status for row coloring
+                    const row = select.closest('tr');
+                    if (row) {
+                        row.setAttribute('data-status', newStatus);
+                    }
+                }
+                // Reload summary to update counts
+                await loadProfileSummary();
+            } catch (e) {
+                console.error('Error updating status:', e);
+                JarvisDialog.alert('Error updating status: ' + e.message, { type: 'error' });
+            }
+        }
+
+        function populateYearFilter() {
+            const select = document.getElementById('hrEventYearFilter');
+            const currentYear = new Date().getFullYear();
+            for (let year = currentYear; year >= currentYear - 5; year--) {
+                const option = document.createElement('option');
+                option.value = year;
+                option.textContent = year;
+                select.appendChild(option);
+            }
+        }
+
+        async function loadProfileSummary() {
+            const response = await fetch('/profile/api/summary');
+            profileData = await response.json();
+
+            // Update responsable info
+            if (profileData.responsable) {
+                currentResponsable = profileData.responsable;
+                document.getElementById('responsableInfo').style.display = 'block';
+                document.getElementById('responsableCompany').textContent = profileData.responsable.company || '-';
+                document.getElementById('responsableDept').textContent = profileData.responsable.departments || '-';
+            } else {
+                document.getElementById('noResponsableAlert').classList.remove('d-none');
+            }
+
+            // Update summary cards
+            updateSummaryCards(profileData);
+
+            // Populate status filter
+            populateStatusFilter(profileData.invoices?.by_status || {});
+        }
+
+        function updateSummaryCards(data) {
+            document.getElementById('totalInvoices').textContent = data.invoices?.total || 0;
+            document.getElementById('totalValue').textContent = formatCurrency(data.invoices?.total_value || 0);
+            document.getElementById('totalEvents').textContent = data.hr_events?.total_bonuses || 0;
+            document.getElementById('totalNotifications').textContent = data.notifications?.total || 0;
+
+            // Status summary
+            if (data.invoices?.by_status && Object.keys(data.invoices.by_status).length > 0) {
+                const statusSummary = Object.entries(data.invoices.by_status)
+                    .slice(0, 3)
+                    .map(([status, count]) => `${count} ${status}`)
+                    .join(', ');
+                document.getElementById('invoiceStatusSummary').textContent = statusSummary;
+            }
+
+            // HR summary
+            if (data.hr_events?.total_amount > 0) {
+                document.getElementById('eventBonusSummary').textContent =
+                    `${formatCurrency(data.hr_events.total_amount)} total`;
+            }
+        }
+
+        function populateStatusFilter(byStatus) {
+            const select = document.getElementById('invoiceStatusFilter');
+            Object.keys(byStatus).forEach(status => {
+                const option = document.createElement('option');
+                option.value = status;
+                option.textContent = `${status} (${byStatus[status]})`;
+                select.appendChild(option);
+            });
+        }
+
+        function setupTabHandlers() {
+            const tabEls = document.querySelectorAll('button[data-bs-toggle="tab"]');
+            tabEls.forEach(tab => {
+                tab.addEventListener('shown.bs.tab', function(event) {
+                    const targetId = event.target.dataset.bsTarget;
+                    switch(targetId) {
+                        case '#invoices':
+                            loadInvoicesTab();
+                            break;
+                        case '#hr-events':
+                            loadHrEventsTab();
+                            break;
+                        case '#notifications':
+                            loadNotificationsTab();
+                            break;
+                        case '#activity':
+                            loadActivityTab();
+                            break;
+                    }
+                });
+            });
+        }
+
+        // ============== Invoices Tab ==============
+        async function loadInvoicesTab(page = 1) {
+            invoicesPage = page;
+            const status = document.getElementById('invoiceStatusFilter').value;
+            const startDate = document.getElementById('invoiceDateStart').value;
+            const endDate = document.getElementById('invoiceDateEnd').value;
+
+            const params = new URLSearchParams({
+                page: page,
+                per_page: perPage,
+                status: status,
+                start_date: startDate,
+                end_date: endDate
+            });
+
+            const response = await fetch(`/profile/api/invoices?${params}`);
+            const data = await response.json();
+
+            renderInvoicesTable(data.invoices);
+            document.getElementById('invoicesCount').textContent = `${data.total} invoices`;
+            renderPagination('invoices', data.total, page);
+        }
+
+        function renderInvoicesTable(invoices) {
+            const tbody = document.getElementById('invoicesTableBody');
+
+            if (!invoices || invoices.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9">
+                            <div class="no-data-message">
+                                <i class="bi bi-receipt d-block"></i>
+                                <p>No invoices found</p>
+                            </div>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            tbody.innerHTML = invoices.map(inv => {
+                // Check if user can edit based on status min_role
+                const statusOpt = invoiceStatusOptions.find(o => o.value === inv.status);
+                const isLocked = statusOpt && !userHasRole(statusOpt.min_role);
+                const minRoleName = statusOpt?.min_role || 'Manager';
+                // Get row background color from status
+                const rowBgColor = getStatusRowColor(statusOpt);
+                const cellStyle = rowBgColor ? `style="background-color: ${rowBgColor};"` : '';
+                return `
+                <tr data-status="${inv.status || ''}" data-invoice-id="${inv.id}">
+                    <td ${cellStyle}>${formatDateRomanian(inv.invoice_date)}</td>
+                    <td ${cellStyle}><a href="/accounting?search=${encodeURIComponent(inv.invoice_number)}">${inv.invoice_number || '-'}</a></td>
+                    <td ${cellStyle}>${inv.supplier || '-'}</td>
+                    <td ${cellStyle}>${inv.company || '-'}</td>
+                    <td ${cellStyle}>${inv.department || '-'}</td>
+                    <td ${cellStyle} class="text-end">${formatCurrency(inv.allocation_value)}</td>
+                    <td ${cellStyle} class="text-end">${(inv.allocation_percent || 0).toFixed(0)}%</td>
+                    <td ${cellStyle}>${getStatusDropdownHtml(inv.id, inv.status, isLocked)}</td>
+                    <td ${cellStyle}>
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-primary" onclick="viewInvoice(${inv.id})" title="View Details">
+                                <i class="bi bi-eye"></i>
+                            </button>
+                            <button class="btn btn-outline-secondary ${isLocked ? 'disabled' : ''}"
+                                    onclick="${isLocked ? '' : `editInvoice(${inv.id})`}"
+                                    title="${isLocked ? 'Requires ' + minRoleName + ' role to edit' : 'Edit Invoice'}"
+                                    ${isLocked ? 'disabled' : ''}>
+                                <i class="bi bi-${isLocked ? 'lock' : 'pencil'}"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        // ============== HR Events Tab ==============
+        async function loadHrEventsTab(page = 1) {
+            hrEventsPage = page;
+            const year = document.getElementById('hrEventYearFilter').value;
+
+            const params = new URLSearchParams({
+                page: page,
+                per_page: perPage,
+                year: year
+            });
+
+            const response = await fetch(`/profile/api/hr-events?${params}`);
+            const data = await response.json();
+
+            renderHrEventsTable(data.bonuses);
+            document.getElementById('hrEventsCount').textContent = `${data.bonuses?.length || 0} bonuses`;
+        }
+
+        function renderHrEventsTable(bonuses) {
+            const tbody = document.getElementById('hrEventsTableBody');
+
+            if (!bonuses || bonuses.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7">
+                            <div class="no-data-message">
+                                <i class="bi bi-calendar-event d-block"></i>
+                                <p>No HR event bonuses found</p>
+                            </div>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+            tbody.innerHTML = bonuses.map(b => `
+                <tr>
+                    <td>${b.year}</td>
+                    <td>${monthNames[b.month] || b.month}</td>
+                    <td>${b.event_name || '-'}</td>
+                    <td>${b.company || '-'}</td>
+                    <td>${formatDateRomanian(b.participation_start)} - ${formatDateRomanian(b.participation_end)}</td>
+                    <td class="text-end">${b.bonus_days || '-'}</td>
+                    <td class="text-end">${b.bonus_net ? formatCurrency(b.bonus_net) : '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ============== Notifications Tab ==============
+        async function loadNotificationsTab(page = 1) {
+            notificationsPage = page;
+
+            const params = new URLSearchParams({
+                page: page,
+                per_page: perPage
+            });
+
+            const response = await fetch(`/profile/api/notifications?${params}`);
+            const data = await response.json();
+
+            renderNotificationsTable(data.notifications);
+            document.getElementById('notificationsCount').textContent = `${data.total} notifications`;
+        }
+
+        function renderNotificationsTable(notifications) {
+            const tbody = document.getElementById('notificationsTableBody');
+
+            if (!notifications || notifications.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5">
+                            <div class="no-data-message">
+                                <i class="bi bi-envelope d-block"></i>
+                                <p>No notifications found</p>
+                            </div>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            tbody.innerHTML = notifications.map(n => `
+                <tr>
+                    <td>${formatDateTime(n.created_at)}</td>
+                    <td>${n.notification_type || '-'}</td>
+                    <td>${n.invoice_number ? `<a href="/accounting?search=${encodeURIComponent(n.invoice_number)}">${n.invoice_number}</a>` : '-'}</td>
+                    <td>${n.subject || '-'}</td>
+                    <td><span class="badge ${n.status === 'sent' ? 'bg-success' : 'bg-danger'}">${n.status || '-'}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // ============== Activity Tab ==============
+        async function loadActivityTab(page = 1) {
+            activityPage = page;
+            const eventType = document.getElementById('activityTypeFilter').value;
+
+            const params = new URLSearchParams({
+                page: page,
+                per_page: 50,
+                event_type: eventType
+            });
+
+            const response = await fetch(`/profile/api/activity?${params}`);
+            const data = await response.json();
+
+            renderActivityTable(data.events);
+            document.getElementById('activityCount').textContent = `${data.total} events`;
+        }
+
+        function renderActivityTable(events) {
+            const tbody = document.getElementById('activityTableBody');
+
+            if (!events || events.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4">
+                            <div class="no-data-message">
+                                <i class="bi bi-clock-history d-block"></i>
+                                <p>No activity found</p>
+                            </div>
+                        </td>
+                    </tr>`;
+                return;
+            }
+
+            tbody.innerHTML = events.map(e => `
+                <tr>
+                    <td>${formatDateTime(e.created_at)}</td>
+                    <td><span class="badge ${getEventTypeClass(e.event_type)}">${e.event_type || '-'}</span></td>
+                    <td>${e.description || '-'}</td>
+                    <td class="text-muted small">${e.details ? truncate(e.details, 50) : '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // ============== Helper Functions ==============
+        function formatCurrency(value, currency = 'RON') {
+            return new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0) + ' ' + currency;
+        }
+
+        function formatDateRomanian(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return '-';
+            return d.toLocaleDateString('ro-RO');
+        }
+
+        function formatDateTime(dateStr) {
+            if (!dateStr) return '-';
+            const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return '-';
+            return d.toLocaleString('ro-RO');
+        }
+
+        function truncate(str, len) {
+            if (!str) return '';
+            return str.length > len ? str.substring(0, len) + '...' : str;
+        }
+
+        function getEventTypeClass(type) {
+            const classes = {
+                'login': 'bg-primary',
+                'logout': 'bg-secondary',
+                'create': 'bg-success',
+                'update': 'bg-warning text-dark',
+                'delete': 'bg-danger'
+            };
+            return classes[type] || 'bg-secondary';
+        }
+
+        function renderPagination(tabName, total, currentPage) {
+            const totalPages = Math.ceil(total / perPage) || 1;
+            const paginationEl = document.getElementById(`${tabName}Pagination`);
+            const infoEl = document.getElementById(`${tabName}PaginationInfo`);
+
+            if (!paginationEl) return;
+
+            const start = ((currentPage - 1) * perPage) + 1;
+            const end = Math.min(currentPage * perPage, total);
+
+            if (infoEl) {
+                infoEl.textContent = total > 0 ? `Showing ${start}-${end} of ${total}` : 'No results';
+            }
+
+            if (totalPages <= 1) {
+                paginationEl.innerHTML = '';
+                return;
+            }
+
+            let html = `
+                <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="load${capitalize(tabName)}Tab(${currentPage - 1}); return false;">Prev</a>
+                </li>
+            `;
+
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                    html += `
+                        <li class="page-item ${i === currentPage ? 'active' : ''}">
+                            <a class="page-link" href="#" onclick="load${capitalize(tabName)}Tab(${i}); return false;">${i}</a>
+                        </li>
+                    `;
+                } else if (i === currentPage - 2 || i === currentPage + 2) {
+                    html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+                }
+            }
+
+            html += `
+                <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                    <a class="page-link" href="#" onclick="load${capitalize(tabName)}Tab(${currentPage + 1}); return false;">Next</a>
+                </li>
+            `;
+
+            paginationEl.innerHTML = html;
+        }
+
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function showLoading(message = 'Loading...') {
+            const overlay = document.getElementById('loadingOverlay');
+            const text = overlay.querySelector('.loading-text');
+            if (text) text.textContent = message;
+            overlay.style.display = 'flex';
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingOverlay').style.display = 'none';
+        }
+
+        function showError(message) {
+            JarvisDialog.alert(message, { type: 'error' });
+        }
+
+        // ============== Invoice Detail & Edit (using shared module) ==============
+        // Initialize the shared InvoiceEdit module with callback
+        InvoiceEdit.init({
+            userRole: userRole,
+            onSaveCallback: async () => {
+                await loadInvoicesTab();
+                await loadProfileSummary();
+            }
+        });
+    </script>
+</body>
+</html>
