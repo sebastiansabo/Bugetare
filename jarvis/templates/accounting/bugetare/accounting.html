@@ -969,7 +969,7 @@
             if (existingStyle) existingStyle.remove();
 
             // Create CSS rules for all status options
-            const rules = options.filter(opt => opt.color && opt.value).map(opt => {
+            const statusRules = options.filter(opt => opt.color && opt.value).map(opt => {
                 const statusValue = opt.value;
                 return `
                     tr[data-status="${statusValue}"] > td {
@@ -981,10 +981,20 @@
                 `;
             }).join('\n');
 
+            // Add rule to exclude status dropdown cell from row coloring
+            const exclusionRule = `
+                tr[data-status] > td:has(.status-dropdown) {
+                    background-color: transparent !important;
+                }
+                body.dark-theme tr[data-status] > td:has(.status-dropdown) {
+                    background-color: var(--table-bg, #1e1e1e) !important;
+                }
+            `;
+
             // Inject the style element
             const styleEl = document.createElement('style');
             styleEl.id = 'dynamic-status-css';
-            styleEl.textContent = rules;
+            styleEl.textContent = statusRules + exclusionRule;
             document.head.appendChild(styleEl);
         }
 
@@ -1062,9 +1072,9 @@
         // Generate status dropdown HTML for inline editing
         function getStatusDropdownHtml(invoiceId, currentStatus) {
             currentStatus = currentStatus || invoiceStatusOptions[0]?.value || 'new';
-            // Get current option's color for styling
+            // Get current option's color for styling (use full color, not transparent CSS variable)
             const currentOpt = invoiceStatusOptions.find(o => o.value === currentStatus);
-            const bgColor = currentOpt?.color ? `var(--status-color-${currentStatus}, ${currentOpt.color})` : '';
+            const bgColor = currentOpt?.color || '';
             const style = bgColor ? `background-color: ${bgColor}; color: #fff;` : '';
             let html = `<select class="form-select form-select-sm status-dropdown"
                         data-invoice-id="${invoiceId}"
@@ -3019,11 +3029,11 @@
                     if (row) {
                         row.setAttribute('data-status', newStatus);
                     }
-                    // Update dropdown background color
+                    // Update dropdown background color (use full color, not transparent CSS variable)
                     dropdown.setAttribute('data-status', newStatus);
                     const currentOpt = invoiceStatusOptions.find(o => o.value === newStatus);
                     if (currentOpt?.color) {
-                        dropdown.style.backgroundColor = `var(--status-color-${newStatus}, ${currentOpt.color})`;
+                        dropdown.style.backgroundColor = currentOpt.color;
                         dropdown.style.color = '#fff';
                     } else {
                         dropdown.style.backgroundColor = '';
