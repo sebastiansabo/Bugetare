@@ -111,11 +111,6 @@
                     <i class="bi bi-people"></i> HR
                 </button>
             </li>
-            <li class="nav-item">
-                <button class="nav-link" id="connectors-tab" data-bs-toggle="tab" data-bs-target="#connectors-settings" type="button">
-                    <i class="bi bi-plug"></i> Connectors
-                </button>
-            </li>
         </ul>
 
         <div class="tab-content">
@@ -368,7 +363,6 @@
                                             <th>Color</th>
                                             <th>Opacity</th>
                                             <th>Order</th>
-                                            <th>Min Role</th>
                                             <th>Active</th>
                                             <th width="100">Actions</th>
                                         </tr>
@@ -1074,22 +1068,31 @@
                             <!-- Companies Sub-tab -->
                             <div class="tab-pane fade show active" id="hr-companies" role="tabpanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="text-muted small">Manage companies and their VAT numbers</span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="text-muted small">Companies</span>
+                                        <span id="companiesCount" class="badge bg-secondary">0</span>
+                                        <span id="companiesSelectedCount" class="badge bg-primary d-none">0 selected</span>
+                                        <div class="input-group input-group-sm" style="width: 200px;">
+                                            <input type="text" class="form-control" id="companiesSearchInput" placeholder="Search..." oninput="filterCompanies()">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="clearCompaniesSearch()"><i class="bi bi-x-lg"></i></button>
+                                        </div>
+                                    </div>
                                     <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#hrCompanyModal" onclick="openAddHrCompanyModal()">
-                                        <i class="bi bi-plus-lg"></i> Add Company
+                                        <i class="bi bi-plus-lg"></i> Add
                                     </button>
                                 </div>
-                                <div class="table-responsive">
+                                <div class="table-responsive" style="max-height: 450px; overflow-y: auto;">
                                     <table class="table table-hover table-sm mb-0">
-                                        <thead>
+                                        <thead class="table-light sticky-top">
                                             <tr>
+                                                <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="companiesSelectAll" onchange="toggleSelectAllCompanies()"></th>
                                                 <th>Company Name</th>
                                                 <th>VAT Number</th>
                                                 <th style="width: 80px;">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody id="hrCompaniesTable">
-                                            <tr class="loading-placeholder"><td colspan="3" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
+                                            <tr class="loading-placeholder"><td colspan="4" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1098,21 +1101,30 @@
                             <!-- Brands Master Sub-tab -->
                             <div class="tab-pane fade" id="hr-brands" role="tabpanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="text-muted small">Define brand names (used across all companies)</span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="text-muted small">Brands</span>
+                                        <span id="brandsCount" class="badge bg-secondary">0</span>
+                                        <span id="brandsSelectedCount" class="badge bg-primary d-none">0 selected</span>
+                                        <div class="input-group input-group-sm" style="width: 200px;">
+                                            <input type="text" class="form-control" id="brandsSearchInput" placeholder="Search..." oninput="filterBrands()">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="clearBrandsSearch()"><i class="bi bi-x-lg"></i></button>
+                                        </div>
+                                    </div>
                                     <button class="btn btn-primary btn-sm" onclick="openAddMasterBrandModal()">
-                                        <i class="bi bi-plus-lg"></i> Add Brand
+                                        <i class="bi bi-plus-lg"></i> Add
                                     </button>
                                 </div>
-                                <div class="table-responsive">
+                                <div class="table-responsive" style="max-height: 450px; overflow-y: auto;">
                                     <table class="table table-hover table-sm mb-0">
-                                        <thead>
+                                        <thead class="table-light sticky-top">
                                             <tr>
+                                                <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="brandsSelectAll" onchange="toggleSelectAllBrands()"></th>
                                                 <th>Brand Name</th>
                                                 <th style="width: 80px;">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody id="masterBrandsTable">
-                                            <tr class="loading-placeholder"><td colspan="2" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
+                                            <tr class="loading-placeholder"><td colspan="3" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1121,21 +1133,30 @@
                             <!-- Departments Master Sub-tab -->
                             <div class="tab-pane fade" id="hr-depts" role="tabpanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="text-muted small">Define department names (used across all companies)</span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="text-muted small">Departments</span>
+                                        <span id="deptsCount" class="badge bg-secondary">0</span>
+                                        <span id="deptsSelectedCount" class="badge bg-primary d-none">0 selected</span>
+                                        <div class="input-group input-group-sm" style="width: 200px;">
+                                            <input type="text" class="form-control" id="deptsSearchInput" placeholder="Search..." oninput="filterDepts()">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="clearDeptsSearch()"><i class="bi bi-x-lg"></i></button>
+                                        </div>
+                                    </div>
                                     <button class="btn btn-primary btn-sm" onclick="openAddMasterDeptModal()">
-                                        <i class="bi bi-plus-lg"></i> Add Department
+                                        <i class="bi bi-plus-lg"></i> Add
                                     </button>
                                 </div>
-                                <div class="table-responsive">
+                                <div class="table-responsive" style="max-height: 450px; overflow-y: auto;">
                                     <table class="table table-hover table-sm mb-0">
-                                        <thead>
+                                        <thead class="table-light sticky-top">
                                             <tr>
+                                                <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="deptsSelectAll" onchange="toggleSelectAllDepts()"></th>
                                                 <th>Department Name</th>
                                                 <th style="width: 80px;">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody id="masterDeptsTable">
-                                            <tr class="loading-placeholder"><td colspan="2" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
+                                            <tr class="loading-placeholder"><td colspan="3" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1144,21 +1165,30 @@
                             <!-- Subdepartments Master Sub-tab -->
                             <div class="tab-pane fade" id="hr-subdepts" role="tabpanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
-                                    <span class="text-muted small">Define subdepartment names (used across all companies)</span>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="text-muted small">Subdepartments</span>
+                                        <span id="subdeptsCount" class="badge bg-secondary">0</span>
+                                        <span id="subdeptsSelectedCount" class="badge bg-primary d-none">0 selected</span>
+                                        <div class="input-group input-group-sm" style="width: 200px;">
+                                            <input type="text" class="form-control" id="subdeptsSearchInput" placeholder="Search..." oninput="filterSubdepts()">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="clearSubdeptsSearch()"><i class="bi bi-x-lg"></i></button>
+                                        </div>
+                                    </div>
                                     <button class="btn btn-primary btn-sm" onclick="openAddMasterSubdeptModal()">
-                                        <i class="bi bi-plus-lg"></i> Add Subdepartment
+                                        <i class="bi bi-plus-lg"></i> Add
                                     </button>
                                 </div>
-                                <div class="table-responsive">
+                                <div class="table-responsive" style="max-height: 450px; overflow-y: auto;">
                                     <table class="table table-hover table-sm mb-0">
-                                        <thead>
+                                        <thead class="table-light sticky-top">
                                             <tr>
+                                                <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="subdeptsSelectAll" onchange="toggleSelectAllSubdepts()"></th>
                                                 <th>Subdepartment Name</th>
                                                 <th style="width: 80px;">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody id="masterSubdeptsTable">
-                                            <tr class="loading-placeholder"><td colspan="2" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
+                                            <tr class="loading-placeholder"><td colspan="3" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1168,29 +1198,47 @@
                             <div class="tab-pane fade" id="hr-structure" role="tabpanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <div class="d-flex align-items-center gap-2">
-                                        <span class="text-muted small">Map companies to brands, departments & managers</span>
-                                        <select id="hrStructureCompanyFilter" class="form-select form-select-sm" style="width: 200px;">
+                                        <span class="text-muted small">Structure</span>
+                                        <span id="structureCount" class="badge bg-secondary">0</span>
+                                        <span id="structureSelectedCount" class="badge bg-primary d-none">0 selected</span>
+                                        <div class="input-group input-group-sm" style="width: 180px;">
+                                            <input type="text" class="form-control" id="structureSearchInput" placeholder="Search..." oninput="filterStructure()">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="clearStructureSearch()"><i class="bi bi-x-lg"></i></button>
+                                        </div>
+                                        <select id="hrStructureCompanyFilter" class="form-select form-select-sm" style="width: 160px;" onchange="filterStructure()">
                                             <option value="">All Companies</option>
                                         </select>
+                                        <select id="structureDeptFilter" class="form-select form-select-sm" style="width: 160px;" onchange="filterStructure()">
+                                            <option value="">All Departments</option>
+                                        </select>
                                     </div>
-                                    <button class="btn btn-primary btn-sm" onclick="openAddStructureModal()">
-                                        <i class="bi bi-plus-lg"></i> Add Structure Entry
-                                    </button>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <select class="form-select form-select-sm" id="structureSortOrder" style="width: 140px;" onchange="filterStructure()">
+                                            <option value="company_asc">Company A-Z</option>
+                                            <option value="company_desc">Company Z-A</option>
+                                            <option value="dept_asc">Dept A-Z</option>
+                                            <option value="dept_desc">Dept Z-A</option>
+                                        </select>
+                                        <button class="btn btn-primary btn-sm" onclick="openAddStructureModal()">
+                                            <i class="bi bi-plus-lg"></i> Add
+                                        </button>
+                                    </div>
                                 </div>
-                                <div class="table-responsive">
+                                <div class="table-responsive" style="max-height: 450px; overflow-y: auto;">
                                     <table class="table table-hover table-sm mb-0">
-                                        <thead>
+                                        <thead class="table-light sticky-top">
                                             <tr>
-                                                <th>Company</th>
+                                                <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="structureSelectAll" onchange="toggleSelectAllStructure()"></th>
+                                                <th style="cursor: pointer;" onclick="sortStructure('company')">Company <i class="bi bi-chevron-expand text-muted" style="font-size: 0.7rem;"></i></th>
                                                 <th>Brand</th>
-                                                <th>Department</th>
+                                                <th style="cursor: pointer;" onclick="sortStructure('department')">Department <i class="bi bi-chevron-expand text-muted" style="font-size: 0.7rem;"></i></th>
                                                 <th>Subdepartment</th>
                                                 <th>Manager</th>
                                                 <th style="width: 80px;">Actions</th>
                                             </tr>
                                         </thead>
                                         <tbody id="hrStructureTable">
-                                            <tr class="loading-placeholder"><td colspan="6" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
+                                            <tr class="loading-placeholder"><td colspan="7" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1200,29 +1248,45 @@
                             <div class="tab-pane fade" id="hr-employees" role="tabpanel">
                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                     <div class="d-flex align-items-center gap-2">
-                                        <span class="text-muted small">Manage employees (responsables)</span>
-                                        <select id="hrEmployeeCompanyFilter" class="form-select form-select-sm" style="width: 200px;">
+                                        <span class="text-muted small">Employees</span>
+                                        <span id="employeesCount" class="badge bg-secondary">0</span>
+                                        <span id="employeesSelectedCount" class="badge bg-primary d-none">0 selected</span>
+                                        <div class="input-group input-group-sm" style="width: 180px;">
+                                            <input type="text" class="form-control" id="employeesSearchInput" placeholder="Search..." oninput="filterEmployees()">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="clearEmployeesSearch()"><i class="bi bi-x-lg"></i></button>
+                                        </div>
+                                        <select id="hrEmployeeCompanyFilter" class="form-select form-select-sm" style="width: 160px;" onchange="filterEmployees()">
                                             <option value="">All Companies</option>
                                         </select>
+                                        <select id="employeeStatusFilter" class="form-select form-select-sm" style="width: 100px;" onchange="filterEmployees()">
+                                            <option value="">All</option>
+                                            <option value="active">Active</option>
+                                            <option value="inactive">Inactive</option>
+                                        </select>
                                     </div>
-                                    <div class="d-flex gap-2">
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <select class="form-select form-select-sm" id="employeesSortOrder" style="width: 120px;" onchange="filterEmployees()">
+                                            <option value="name_asc">Name A-Z</option>
+                                            <option value="name_desc">Name Z-A</option>
+                                            <option value="company_asc">Company A-Z</option>
+                                        </select>
                                         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#employeeColumnConfigModal">
                                             <i class="bi bi-gear"></i> Columns
                                         </button>
                                         <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#hrEmployeeModal" onclick="openAddHrEmployeeModal()">
-                                            <i class="bi bi-plus-lg"></i> Add Employee
+                                            <i class="bi bi-plus-lg"></i> Add
                                         </button>
                                     </div>
                                 </div>
-                                <div class="table-responsive">
+                                <div class="table-responsive" style="max-height: 450px; overflow-y: auto;">
                                     <table class="table table-hover table-sm mb-0" id="employeesTableEl">
-                                        <thead id="employeesTableHead">
+                                        <thead class="table-light sticky-top" id="employeesTableHead">
                                             <tr>
-                                                <!-- Dynamic columns rendered by JS -->
+                                                <!-- Dynamic columns rendered by JS (including checkbox column) -->
                                             </tr>
                                         </thead>
                                         <tbody id="hrEmployeesTable">
-                                            <tr class="loading-placeholder"><td colspan="9" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
+                                            <tr class="loading-placeholder"><td colspan="10" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
                                         </tbody>
                                     </table>
                                 </div>
@@ -1283,146 +1347,6 @@
                                     <p class="mt-2">No bonus types configured. Click "Add Bonus Type" to create one.</p>
                                 </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Connectors Tab -->
-            <div class="tab-pane fade" id="connectors-settings">
-                <div class="card border-top-0 rounded-top-0">
-                    <div class="card-header">
-                        <h5 class="mb-0"><i class="bi bi-plug"></i> Connector Settings</h5>
-                    </div>
-                    <div class="card-body">
-                        <!-- ANAF e-Factura Connector -->
-                        <div class="card mb-4">
-                            <div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center">
-                                <h6 class="mb-0"><i class="bi bi-cloud-download"></i> ANAF e-Factura</h6>
-                                <a href="/efactura/" class="btn btn-sm btn-outline-primary">
-                                    <i class="bi bi-gear"></i> Open Connector
-                                </a>
-                            </div>
-                            <div class="card-body">
-                                <p class="text-muted small mb-3">
-                                    Configure default settings for the ANAF e-Factura connector. These values will be used as defaults in the e-Factura module.
-                                </p>
-
-                                <form id="anafSettingsForm">
-                                    <div class="row">
-                                        <!-- Sync Settings -->
-                                        <div class="col-md-6">
-                                            <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-arrow-repeat"></i> Sync Settings</h6>
-
-                                            <div class="mb-3">
-                                                <label class="form-label">Default Sync Period (Days)</label>
-                                                <select class="form-select" id="anafDefaultSyncDays">
-                                                    <option value="1">1 day</option>
-                                                    <option value="2">2 days</option>
-                                                    <option value="3">3 days</option>
-                                                    <option value="7">7 days</option>
-                                                    <option value="14">14 days</option>
-                                                    <option value="30">30 days</option>
-                                                </select>
-                                                <small class="text-muted">Number of days to look back when syncing invoices</small>
-                                            </div>
-
-                                            <div class="mb-3">
-                                                <label class="form-label">Default Invoice Direction</label>
-                                                <select class="form-select" id="anafDefaultDirection">
-                                                    <option value="received">Received (Primite)</option>
-                                                    <option value="sent">Sent (Trimise)</option>
-                                                    <option value="all">All</option>
-                                                </select>
-                                                <small class="text-muted">Default filter for invoice direction</small>
-                                            </div>
-                                        </div>
-
-                                        <!-- Display Settings -->
-                                        <div class="col-md-6">
-                                            <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-eye"></i> Display Settings</h6>
-
-                                            <div class="mb-3">
-                                                <label class="form-label">Default Items Per Page</label>
-                                                <select class="form-select" id="anafDefaultPageSize">
-                                                    <option value="25">25</option>
-                                                    <option value="50">50</option>
-                                                    <option value="100">100</option>
-                                                    <option value="200">200</option>
-                                                </select>
-                                                <small class="text-muted">Number of invoices to display per page</small>
-                                            </div>
-
-                                            <div class="mb-3">
-                                                <div class="form-check form-switch">
-                                                    <input class="form-check-input" type="checkbox" id="anafAutoRefresh">
-                                                    <label class="form-check-label" for="anafAutoRefresh">Auto-refresh on page load</label>
-                                                </div>
-                                                <small class="text-muted">Automatically fetch new invoices when opening the page</small>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <hr>
-
-                                    <div class="d-flex justify-content-end">
-                                        <button type="button" class="btn btn-outline-secondary me-2" onclick="resetAnafSettings()">
-                                            <i class="bi bi-arrow-counterclockwise"></i> Reset to Defaults
-                                        </button>
-                                        <button type="button" class="btn btn-primary" onclick="saveAnafSettings()">
-                                            <i class="bi bi-check-lg"></i> Save Settings
-                                        </button>
-                                    </div>
-                                </form>
-
-                                <hr>
-
-                                <!-- Partner Types Section -->
-                                <h6 class="border-bottom pb-2 mb-3"><i class="bi bi-tags"></i> Partner Types</h6>
-                                <p class="text-muted small mb-3">
-                                    Configure partner types for e-Factura supplier mappings. Types with "Hide in Filter" enabled will be automatically hidden from the Unallocated tab.
-                                </p>
-
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <span class="text-muted small">
-                                        Invoices with hidden types are moved to the Hidden tab automatically.
-                                    </span>
-                                    <button class="btn btn-sm btn-outline-primary" onclick="showAddPartnerTypeModal()">
-                                        <i class="bi bi-plus-lg"></i> Add Type
-                                    </button>
-                                </div>
-
-                                <div class="table-responsive">
-                                    <table class="table table-sm table-hover" id="partnerTypesTable">
-                                        <thead class="table-light">
-                                            <tr>
-                                                <th>Name</th>
-                                                <th>Description</th>
-                                                <th class="text-center" style="width: 120px;">Hide in Filter</th>
-                                                <th class="text-center" style="width: 80px;">Active</th>
-                                                <th style="width: 80px;">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="partnerTypesTableBody">
-                                            <tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                <!-- Save Button -->
-                                <div class="d-flex justify-content-end mt-3 pt-3 border-top">
-                                    <button class="btn btn-primary" id="savePartnerTypesBtn" onclick="savePartnerTypeChanges()" disabled>
-                                        <i class="bi bi-check-lg"></i> Save Changes
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Future Connectors Placeholder -->
-                        <div class="text-center text-muted py-4 border rounded">
-                            <i class="bi bi-plug display-4"></i>
-                            <p class="mt-2 mb-0">More connectors coming soon...</p>
-                            <small>Google Ads, Anthropic, and other integrations</small>
                         </div>
                     </div>
                 </div>
@@ -1512,87 +1436,6 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" onclick="updateBonusType()">
-                        <i class="bi bi-check-lg"></i> Update
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add Partner Type Modal -->
-    <div class="modal fade" id="addPartnerTypeModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-plus-lg"></i> Add Partner Type</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="addPartnerTypeForm">
-                        <div class="mb-3">
-                            <label class="form-label">Name <span class="text-danger">*</span></label>
-                            <input type="text" id="addPartnerTypeName" class="form-control" required placeholder="e.g., Service, Merchandise">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Description</label>
-                            <textarea id="addPartnerTypeDescription" class="form-control" rows="2" placeholder="Optional description"></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="addPartnerTypeHideInFilter" checked>
-                                <label class="form-check-label" for="addPartnerTypeHideInFilter">Hide in Filter</label>
-                            </div>
-                            <small class="text-muted">When enabled, invoices with this type will be hidden when "Hide Typed" filter is on</small>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="savePartnerType()">
-                        <i class="bi bi-check-lg"></i> Save
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Edit Partner Type Modal -->
-    <div class="modal fade" id="editPartnerTypeModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-pencil"></i> Edit Partner Type</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <form id="editPartnerTypeForm">
-                        <input type="hidden" id="editPartnerTypeId">
-                        <div class="mb-3">
-                            <label class="form-label">Name <span class="text-danger">*</span></label>
-                            <input type="text" id="editPartnerTypeName" class="form-control" required>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Description</label>
-                            <textarea id="editPartnerTypeDescription" class="form-control" rows="2"></textarea>
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="editPartnerTypeHideInFilter">
-                                <label class="form-check-label" for="editPartnerTypeHideInFilter">Hide in Filter</label>
-                            </div>
-                            <small class="text-muted">When enabled, invoices with this type will be hidden when "Hide Typed" filter is on</small>
-                        </div>
-                        <div class="mb-3">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="editPartnerTypeIsActive">
-                                <label class="form-check-label" for="editPartnerTypeIsActive">Active</label>
-                            </div>
-                        </div>
-                    </form>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="button" class="btn btn-primary" onclick="updatePartnerType()">
                         <i class="bi bi-check-lg"></i> Update
                     </button>
                 </div>
@@ -2251,14 +2094,28 @@
 
         // HR Company Structure data
         let hrCompaniesData = [];
+        let filteredCompaniesData = [];
         let hrDepartmentsData = [];
         let hrEmployeesData = [];
 
         // Master Tables Data
         let masterBrandsData = [];
+        let filteredBrandsData = [];
         let masterDeptsData = [];
+        let filteredDeptsData = [];
         let masterSubdeptsData = [];
+        let filteredSubdeptsData = [];
         let structureData = [];
+        let filteredStructureData = [];
+        let filteredEmployeesData = [];
+
+        // Selection state (stores IDs of selected items)
+        let selectedCompanies = new Set();
+        let selectedBrands = new Set();
+        let selectedDepts = new Set();
+        let selectedSubdepts = new Set();
+        let selectedStructure = new Set();
+        let selectedEmployees = new Set();
 
         // Employee Column Configuration
         const DEFAULT_EMPLOYEE_COLUMNS = [
@@ -2544,13 +2401,13 @@
             };
 
             if (!userData.name || !userData.email) {
-                JarvisDialog.alert('Name and email are required', { type: 'warning', title: 'Validation Error' });
+                alert('Name and email are required');
                 return;
             }
 
             // Password required for new users
             if (!userId && !password) {
-                JarvisDialog.alert('Password is required for new users', { type: 'warning', title: 'Validation Error' });
+                alert('Password is required for new users');
                 return;
             }
 
@@ -2574,13 +2431,12 @@
                 if (result.success || result.id) {
                     userModal.hide();
                     loadUsers();
-                    JarvisToast.success('User saved successfully!');
                 } else {
-                    JarvisDialog.alert(result.error || 'Failed to save user', { type: 'error' });
+                    alert(result.error || 'Failed to save user');
                 }
             } catch (error) {
                 console.error('Error saving user:', error);
-                JarvisDialog.alert('Failed to save user', { type: 'error' });
+                alert('Failed to save user');
             }
         }
 
@@ -2943,14 +2799,14 @@
                 const result = await res.json();
 
                 if (result.success) {
-                    JarvisToast.success('Notification settings saved successfully!');
+                    alert('Notification settings saved successfully!');
                     loadNotificationSettings();
                 } else {
-                    JarvisDialog.alert(result.error || 'Failed to save settings', { type: 'error' });
+                    alert(result.error || 'Failed to save settings');
                 }
             } catch (error) {
                 console.error('Error saving notification settings:', error);
-                JarvisDialog.alert('Failed to save settings', { type: 'error' });
+                alert('Failed to save settings');
             }
         }
 
@@ -3857,15 +3713,6 @@
                         <td>
                             <input type="number" class="form-control form-control-sm" style="width: 70px" value="${opt.sort_order}"
                                    onchange="updateDropdownOption(${opt.id}, 'sort_order', parseInt(this.value))">
-                        </td>
-                        <td>
-                            <select class="form-select form-select-sm" style="width: 100px"
-                                    onchange="updateDropdownOption(${opt.id}, 'min_role', this.value)">
-                                <option value="Viewer" ${opt.min_role === 'Viewer' ? 'selected' : ''}>Viewer</option>
-                                <option value="User" ${opt.min_role === 'User' ? 'selected' : ''}>User</option>
-                                <option value="Manager" ${opt.min_role === 'Manager' ? 'selected' : ''}>Manager</option>
-                                <option value="Admin" ${opt.min_role === 'Admin' ? 'selected' : ''}>Admin</option>
-                            </select>
                         </td>
                         <td>
                             <div class="form-check form-switch">
@@ -4979,7 +4826,7 @@
                 }
                 hrCompaniesData = await resp.json();
                 console.log('Companies loaded:', hrCompaniesData.length);
-                renderHrCompanies();
+                filterCompanies(); // This will set filteredCompaniesData and call renderHrCompanies
                 populateHrCompanyFilters();
                 document.getElementById('hrStatsCompanies').textContent = hrCompaniesData.length;
             } catch (err) {
@@ -4991,12 +4838,14 @@
 
         function renderHrCompanies() {
             const tbody = document.getElementById('hrCompaniesTable');
-            if (hrCompaniesData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> No companies found</td></tr>';
+            if (filteredCompaniesData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> No companies found</td></tr>';
+                updateCompaniesSelection();
                 return;
             }
-            tbody.innerHTML = hrCompaniesData.map(c => `
-                <tr data-company="${c.company}">
+            tbody.innerHTML = filteredCompaniesData.map(c => `
+                <tr data-company="${c.company}" class="${selectedCompanies.has(c.id) ? 'table-primary' : ''}">
+                    <td><input type="checkbox" class="form-check-input" ${selectedCompanies.has(c.id) ? 'checked' : ''} onchange="toggleCompanySelect(${c.id})"></td>
                     <td><strong>${c.company}</strong></td>
                     <td><code>${c.vat || '-'}</code></td>
                     <td>
@@ -5009,6 +4858,265 @@
                     </td>
                 </tr>
             `).join('');
+            updateCompaniesSelection();
+        }
+
+        function filterCompanies() {
+            const searchTerm = (document.getElementById('companiesSearchInput')?.value || '').toLowerCase().trim();
+            filteredCompaniesData = hrCompaniesData.filter(c => {
+                if (!searchTerm) return true;
+                const searchFields = [c.company || '', c.vat || ''].join(' ').toLowerCase();
+                return searchFields.includes(searchTerm);
+            });
+            document.getElementById('companiesCount').textContent = filteredCompaniesData.length;
+            renderHrCompanies();
+        }
+
+        function clearCompaniesSearch() {
+            document.getElementById('companiesSearchInput').value = '';
+            filterCompanies();
+        }
+
+        // ============== Selection Functions ==============
+        function toggleSelectAllCompanies() {
+            const selectAll = document.getElementById('companiesSelectAll');
+            const visibleIds = filteredCompaniesData.map(c => c.id);
+            if (selectAll.checked) {
+                visibleIds.forEach(id => selectedCompanies.add(id));
+            } else {
+                visibleIds.forEach(id => selectedCompanies.delete(id));
+            }
+            updateCompaniesSelection();
+            renderHrCompanies();
+        }
+
+        function toggleCompanySelect(id) {
+            if (selectedCompanies.has(id)) {
+                selectedCompanies.delete(id);
+            } else {
+                selectedCompanies.add(id);
+            }
+            updateCompaniesSelection();
+        }
+
+        function updateCompaniesSelection() {
+            const countEl = document.getElementById('companiesSelectedCount');
+            const selectAll = document.getElementById('companiesSelectAll');
+            const visibleIds = filteredCompaniesData.map(c => c.id);
+            const visibleSelected = visibleIds.filter(id => selectedCompanies.has(id));
+
+            if (selectedCompanies.size > 0) {
+                countEl.textContent = `${selectedCompanies.size} selected`;
+                countEl.classList.remove('d-none');
+            } else {
+                countEl.classList.add('d-none');
+            }
+
+            // Update select all checkbox state
+            if (selectAll) {
+                selectAll.checked = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+                selectAll.indeterminate = visibleSelected.length > 0 && visibleSelected.length < visibleIds.length;
+            }
+        }
+
+        function toggleSelectAllBrands() {
+            const selectAll = document.getElementById('brandsSelectAll');
+            const visibleIds = filteredBrandsData.map(b => b.id);
+            if (selectAll.checked) {
+                visibleIds.forEach(id => selectedBrands.add(id));
+            } else {
+                visibleIds.forEach(id => selectedBrands.delete(id));
+            }
+            updateBrandsSelection();
+            renderMasterBrands();
+        }
+
+        function toggleBrandSelect(id) {
+            if (selectedBrands.has(id)) {
+                selectedBrands.delete(id);
+            } else {
+                selectedBrands.add(id);
+            }
+            updateBrandsSelection();
+        }
+
+        function updateBrandsSelection() {
+            const countEl = document.getElementById('brandsSelectedCount');
+            const selectAll = document.getElementById('brandsSelectAll');
+            const visibleIds = filteredBrandsData.map(b => b.id);
+            const visibleSelected = visibleIds.filter(id => selectedBrands.has(id));
+
+            if (selectedBrands.size > 0) {
+                countEl.textContent = `${selectedBrands.size} selected`;
+                countEl.classList.remove('d-none');
+            } else {
+                countEl.classList.add('d-none');
+            }
+
+            if (selectAll) {
+                selectAll.checked = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+                selectAll.indeterminate = visibleSelected.length > 0 && visibleSelected.length < visibleIds.length;
+            }
+        }
+
+        function toggleSelectAllDepts() {
+            const selectAll = document.getElementById('deptsSelectAll');
+            const visibleIds = filteredDeptsData.map(d => d.id);
+            if (selectAll.checked) {
+                visibleIds.forEach(id => selectedDepts.add(id));
+            } else {
+                visibleIds.forEach(id => selectedDepts.delete(id));
+            }
+            updateDeptsSelection();
+            renderMasterDepts();
+        }
+
+        function toggleDeptSelect(id) {
+            if (selectedDepts.has(id)) {
+                selectedDepts.delete(id);
+            } else {
+                selectedDepts.add(id);
+            }
+            updateDeptsSelection();
+        }
+
+        function updateDeptsSelection() {
+            const countEl = document.getElementById('deptsSelectedCount');
+            const selectAll = document.getElementById('deptsSelectAll');
+            const visibleIds = filteredDeptsData.map(d => d.id);
+            const visibleSelected = visibleIds.filter(id => selectedDepts.has(id));
+
+            if (selectedDepts.size > 0) {
+                countEl.textContent = `${selectedDepts.size} selected`;
+                countEl.classList.remove('d-none');
+            } else {
+                countEl.classList.add('d-none');
+            }
+
+            if (selectAll) {
+                selectAll.checked = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+                selectAll.indeterminate = visibleSelected.length > 0 && visibleSelected.length < visibleIds.length;
+            }
+        }
+
+        function toggleSelectAllSubdepts() {
+            const selectAll = document.getElementById('subdeptsSelectAll');
+            const visibleIds = filteredSubdeptsData.map(s => s.id);
+            if (selectAll.checked) {
+                visibleIds.forEach(id => selectedSubdepts.add(id));
+            } else {
+                visibleIds.forEach(id => selectedSubdepts.delete(id));
+            }
+            updateSubdeptsSelection();
+            renderMasterSubdepts();
+        }
+
+        function toggleSubdeptSelect(id) {
+            if (selectedSubdepts.has(id)) {
+                selectedSubdepts.delete(id);
+            } else {
+                selectedSubdepts.add(id);
+            }
+            updateSubdeptsSelection();
+        }
+
+        function updateSubdeptsSelection() {
+            const countEl = document.getElementById('subdeptsSelectedCount');
+            const selectAll = document.getElementById('subdeptsSelectAll');
+            const visibleIds = filteredSubdeptsData.map(s => s.id);
+            const visibleSelected = visibleIds.filter(id => selectedSubdepts.has(id));
+
+            if (selectedSubdepts.size > 0) {
+                countEl.textContent = `${selectedSubdepts.size} selected`;
+                countEl.classList.remove('d-none');
+            } else {
+                countEl.classList.add('d-none');
+            }
+
+            if (selectAll) {
+                selectAll.checked = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+                selectAll.indeterminate = visibleSelected.length > 0 && visibleSelected.length < visibleIds.length;
+            }
+        }
+
+        function toggleSelectAllStructure() {
+            const selectAll = document.getElementById('structureSelectAll');
+            const visibleIds = filteredStructureData.map(s => s.id);
+            if (selectAll.checked) {
+                visibleIds.forEach(id => selectedStructure.add(id));
+            } else {
+                visibleIds.forEach(id => selectedStructure.delete(id));
+            }
+            updateStructureSelection();
+            renderStructure();
+        }
+
+        function toggleStructureSelect(id) {
+            if (selectedStructure.has(id)) {
+                selectedStructure.delete(id);
+            } else {
+                selectedStructure.add(id);
+            }
+            updateStructureSelection();
+        }
+
+        function updateStructureSelection() {
+            const countEl = document.getElementById('structureSelectedCount');
+            const selectAll = document.getElementById('structureSelectAll');
+            const visibleIds = filteredStructureData.map(s => s.id);
+            const visibleSelected = visibleIds.filter(id => selectedStructure.has(id));
+
+            if (selectedStructure.size > 0) {
+                countEl.textContent = `${selectedStructure.size} selected`;
+                countEl.classList.remove('d-none');
+            } else {
+                countEl.classList.add('d-none');
+            }
+
+            if (selectAll) {
+                selectAll.checked = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+                selectAll.indeterminate = visibleSelected.length > 0 && visibleSelected.length < visibleIds.length;
+            }
+        }
+
+        function toggleSelectAllEmployees() {
+            const selectAll = document.getElementById('employeesSelectAll');
+            const visibleIds = filteredEmployeesData.map(e => e.id);
+            if (selectAll.checked) {
+                visibleIds.forEach(id => selectedEmployees.add(id));
+            } else {
+                visibleIds.forEach(id => selectedEmployees.delete(id));
+            }
+            updateEmployeesSelection();
+            renderHrEmployees();
+        }
+
+        function toggleEmployeeSelect(id) {
+            if (selectedEmployees.has(id)) {
+                selectedEmployees.delete(id);
+            } else {
+                selectedEmployees.add(id);
+            }
+            updateEmployeesSelection();
+        }
+
+        function updateEmployeesSelection() {
+            const countEl = document.getElementById('employeesSelectedCount');
+            const selectAll = document.getElementById('employeesSelectAll');
+            const visibleIds = filteredEmployeesData.map(e => e.id);
+            const visibleSelected = visibleIds.filter(id => selectedEmployees.has(id));
+
+            if (selectedEmployees.size > 0) {
+                countEl.textContent = `${selectedEmployees.size} selected`;
+                countEl.classList.remove('d-none');
+            } else {
+                countEl.classList.add('d-none');
+            }
+
+            if (selectAll) {
+                selectAll.checked = visibleIds.length > 0 && visibleSelected.length === visibleIds.length;
+                selectAll.indeterminate = visibleSelected.length > 0 && visibleSelected.length < visibleIds.length;
+            }
         }
 
         function populateHrCompanyFilters() {
@@ -5031,11 +5139,7 @@
         // Track brands for the current company being edited
         let currentCompanyBrands = []; // [{id: null/number, brand: string, isNew: bool, isDeleted: bool}]
 
-        async function openAddHrCompanyModal() {
-            // Ensure master brands are loaded for dropdown
-            if (masterBrandsData.length === 0) {
-                await loadMasterBrands();
-            }
+        function openAddHrCompanyModal() {
             document.getElementById('hrCompanyModalTitle').textContent = 'Add Company';
             document.getElementById('hrCompanyForm').reset();
             document.getElementById('hrCompanyId').value = '';
@@ -5044,11 +5148,7 @@
             renderCompanyBrands();
         }
 
-        async function editHrCompany(companyName) {
-            // Ensure master brands are loaded for dropdown
-            if (masterBrandsData.length === 0) {
-                await loadMasterBrands();
-            }
+        function editHrCompany(companyName) {
             const company = hrCompaniesData.find(c => c.company === companyName);
             if (!company) return;
 
@@ -5058,11 +5158,10 @@
             document.getElementById('hrCompanyName').value = company.company;
             document.getElementById('hrCompanyVat').value = company.vat || '';
 
-            // Load brands from brands_list (now uses brand_id FK)
+            // Load brands from brands_list
             currentCompanyBrands = (company.brands_list || []).map(b => ({
-                id: b.id,           // company_brands.id (for update/delete)
-                brand_id: b.brand_id,  // brands.id (FK)
-                brand: b.brand,     // brand name (for display)
+                id: b.id,
+                brand: b.brand,
                 isNew: false,
                 isDeleted: false
             }));
@@ -5081,22 +5180,12 @@
                 return;
             }
 
-            // Get brand IDs already assigned to this company (to avoid duplicates)
-            const assignedBrandIds = activeBrands.map(b => b.brand_id).filter(id => id);
-
             container.innerHTML = activeBrands.map((b, idx) => {
                 const realIdx = currentCompanyBrands.indexOf(b);
-                // Build options - include current brand_id in options even if assigned
-                const options = masterBrandsData
-                    .filter(mb => !assignedBrandIds.includes(mb.id) || mb.id === b.brand_id)
-                    .map(mb => `<option value="${mb.id}" ${mb.id === b.brand_id ? 'selected' : ''}>${escapeHtml(mb.name)}</option>`)
-                    .join('');
                 return `
                     <div class="d-flex align-items-center gap-2 mb-1" data-idx="${realIdx}">
-                        <select class="form-select form-select-sm" onchange="updateCompanyBrand(${realIdx}, this.value)">
-                            <option value="">Select brand...</option>
-                            ${options}
-                        </select>
+                        <input type="text" class="form-control form-control-sm" value="${b.brand}"
+                               onchange="updateCompanyBrand(${realIdx}, this.value)" placeholder="Brand name">
                         <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCompanyBrand(${realIdx})" title="Remove">
                             <i class="bi bi-x"></i>
                         </button>
@@ -5106,23 +5195,17 @@
         }
 
         function addCompanyBrandRow() {
-            currentCompanyBrands.push({ id: null, brand_id: null, brand: '', isNew: true, isDeleted: false });
+            currentCompanyBrands.push({ id: null, brand: '', isNew: true, isDeleted: false });
             renderCompanyBrands();
-            // Focus the new select
+            // Focus the new input
             const container = document.getElementById('hrCompanyBrandsList');
-            const lastSelect = container.querySelector('select:last-of-type');
-            if (lastSelect) lastSelect.focus();
+            const lastInput = container.querySelector('input:last-of-type');
+            if (lastInput) lastInput.focus();
         }
 
         function updateCompanyBrand(idx, value) {
             if (currentCompanyBrands[idx]) {
-                const brandId = parseInt(value) || null;
-                currentCompanyBrands[idx].brand_id = brandId;
-                // Also update brand name for display purposes
-                const brand = masterBrandsData.find(b => b.id === brandId);
-                currentCompanyBrands[idx].brand = brand ? brand.name : '';
-                // Re-render to update available options in other dropdowns
-                renderCompanyBrands();
+                currentCompanyBrands[idx].brand = value.trim();
             }
         }
 
@@ -5187,24 +5270,24 @@
 
                 // Now save brands if we have a company ID
                 if (companyId) {
-                    // Process brand changes (using brand_id FK)
+                    // Process brand changes
                     for (const brand of currentCompanyBrands) {
                         if (brand.isDeleted && brand.id) {
-                            // Delete existing company-brand link
+                            // Delete existing brand
                             await fetch(`/hr/events/api/structure/company-brands/${brand.id}`, { method: 'DELETE' });
-                        } else if (brand.isNew && brand.brand_id) {
-                            // Create new company-brand link
+                        } else if (brand.isNew && brand.brand) {
+                            // Create new brand
                             await fetch('/hr/events/api/structure/company-brands', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ company_id: parseInt(companyId), brand_id: brand.brand_id })
+                                body: JSON.stringify({ company_id: parseInt(companyId), brand: brand.brand })
                             });
-                        } else if (!brand.isNew && !brand.isDeleted && brand.id && brand.brand_id) {
-                            // Update existing link (in case brand selection changed)
+                        } else if (!brand.isNew && !brand.isDeleted && brand.id && brand.brand) {
+                            // Update existing brand (in case name changed)
                             await fetch(`/hr/events/api/structure/company-brands/${brand.id}`, {
                                 method: 'PUT',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ brand_id: brand.brand_id })
+                                body: JSON.stringify({ brand: brand.brand })
                             });
                         }
                     }
@@ -5393,7 +5476,7 @@
                 const resp = await fetch('/api/employees');
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 hrEmployeesData = await resp.json();
-                renderHrEmployees();
+                // populateHrEmployeeFilters calls filterEmployees which calls renderHrEmployees
                 populateHrEmployeeFilters();
                 const activeCount = hrEmployeesData.filter(e => e.is_active).length;
                 document.getElementById('hrStatsEmployees').textContent = activeCount;
@@ -5501,30 +5584,27 @@
         }
 
         function renderHrEmployees() {
-            const filter = document.getElementById('hrEmployeeCompanyFilter').value;
-            // Filter by company
-            const filtered = filter
-                ? hrEmployeesData.filter(e => e.company && e.company.toLowerCase() === filter.toLowerCase())
-                : hrEmployeesData;
-
             const thead = document.getElementById('employeesTableHead').querySelector('tr');
             const tbody = document.getElementById('hrEmployeesTable');
             const visibleCols = employeeColumnConfig.filter(c => c.visible);
 
-            // Render header
-            thead.innerHTML = visibleCols.map(col => {
-                if (col.id === 'actions') {
-                    return `<th style="width: 80px;">Actions</th>`;
-                }
-                return `<th>${col.name}</th>`;
-            }).join('');
+            // Render header with checkbox column first
+            thead.innerHTML = `<th style="width: 40px;"><input type="checkbox" class="form-check-input" id="employeesSelectAll" onchange="toggleSelectAllEmployees()"></th>` +
+                visibleCols.map(col => {
+                    if (col.id === 'actions') {
+                        return `<th style="width: 80px;">Actions</th>`;
+                    }
+                    return `<th>${col.name}</th>`;
+                }).join('');
 
-            if (filtered.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="${visibleCols.length}" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> No employees found</td></tr>`;
+            // Use filtered data (set by filterEmployees())
+            if (filteredEmployeesData.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="${visibleCols.length + 1}" class="text-center text-muted py-3"><i class="bi bi-inbox"></i> No employees found</td></tr>`;
+                updateEmployeesSelection();
                 return;
             }
 
-            tbody.innerHTML = filtered.map(e => {
+            tbody.innerHTML = filteredEmployeesData.map(e => {
                 const cells = visibleCols.map(col => {
                     switch (col.id) {
                         case 'name':
@@ -5556,8 +5636,10 @@
                             return `<td>-</td>`;
                     }
                 });
-                return `<tr data-id="${e.id}">${cells.join('')}</tr>`;
+                const checkboxCell = `<td><input type="checkbox" class="form-check-input" ${selectedEmployees.has(e.id) ? 'checked' : ''} onchange="toggleEmployeeSelect(${e.id})"></td>`;
+                return `<tr data-id="${e.id}" class="${selectedEmployees.has(e.id) ? 'table-primary' : ''}">${checkboxCell}${cells.join('')}</tr>`;
             }).join('');
+            updateEmployeesSelection();
         }
 
         function populateHrEmployeeFilters() {
@@ -5568,9 +5650,80 @@
             hrCompaniesData.forEach(c => {
                 select.innerHTML += `<option value="${c.company}">${c.company}</option>`;
             });
+
+            // Initialize filtered data
+            filterEmployees();
         }
 
-        document.getElementById('hrEmployeeCompanyFilter').addEventListener('change', renderHrEmployees);
+        function filterEmployees() {
+            const searchTerm = (document.getElementById('employeesSearchInput')?.value || '').toLowerCase().trim();
+            const companyFilter = document.getElementById('hrEmployeeCompanyFilter')?.value || '';
+            const statusFilter = document.getElementById('employeeStatusFilter')?.value || '';
+            const sortOrder = document.getElementById('employeesSortOrder')?.value || 'name_asc';
+
+            // Filter
+            filteredEmployeesData = hrEmployeesData.filter(e => {
+                // Company filter
+                if (companyFilter && (!e.company || e.company.toLowerCase() !== companyFilter.toLowerCase())) return false;
+
+                // Status filter
+                if (statusFilter === 'active' && !e.is_active) return false;
+                if (statusFilter === 'inactive' && e.is_active) return false;
+
+                // Search filter (searches across name, company, brand, department, email, phone)
+                if (searchTerm) {
+                    const searchFields = [
+                        e.name || '',
+                        e.company || '',
+                        e.brand || '',
+                        e.departments || '',
+                        e.subdepartment || '',
+                        e.email || '',
+                        e.phone || ''
+                    ].join(' ').toLowerCase();
+                    if (!searchFields.includes(searchTerm)) return false;
+                }
+
+                return true;
+            });
+
+            // Sort
+            const [sortField, sortDir] = sortOrder.split('_');
+            filteredEmployeesData.sort((a, b) => {
+                let valA, valB;
+                if (sortField === 'name') {
+                    valA = (a.name || '').toLowerCase();
+                    valB = (b.name || '').toLowerCase();
+                } else if (sortField === 'company') {
+                    valA = (a.company || '').toLowerCase();
+                    valB = (b.company || '').toLowerCase();
+                } else {
+                    valA = (a.name || '').toLowerCase();
+                    valB = (b.name || '').toLowerCase();
+                }
+
+                if (sortDir === 'desc') {
+                    return valB.localeCompare(valA);
+                }
+                return valA.localeCompare(valB);
+            });
+
+            // Update count badge
+            const countEl = document.getElementById('employeesCount');
+            if (countEl) {
+                countEl.textContent = filteredEmployeesData.length;
+            }
+
+            renderHrEmployees();
+        }
+
+        function clearEmployeesSearch() {
+            const input = document.getElementById('employeesSearchInput');
+            if (input) {
+                input.value = '';
+                filterEmployees();
+            }
+        }
 
         function openAddHrEmployeeModal() {
             document.getElementById('hrEmployeeModalTitle').textContent = 'Add Employee';
@@ -5789,12 +5942,11 @@
                     bootstrap.Modal.getInstance(document.getElementById('hrEmployeeModal')).hide();
                     loadHrEmployees();
                 } else {
-                    const result = await resp.json().catch(() => ({}));
-                    alert(result.error || 'Error saving employee');
+                    alert('Error saving employee');
                 }
             } catch (err) {
                 console.error('Error:', err);
-                alert('Error saving employee: ' + err.message);
+                alert('Error saving employee');
             }
         }
 
@@ -5827,7 +5979,7 @@
                 const resp = await fetch('/hr/events/api/master/brands', { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 masterBrandsData = await resp.json();
-                renderMasterBrands();
+                filterBrands(); // This sets filteredBrandsData and calls renderMasterBrands
                 document.getElementById('hrStatsBrands').textContent = masterBrandsData.length;
             } catch (err) {
                 console.error('Error loading brands:', err);
@@ -5835,14 +5987,31 @@
             }
         }
 
+        function filterBrands() {
+            const searchTerm = (document.getElementById('brandsSearchInput')?.value || '').toLowerCase().trim();
+            filteredBrandsData = masterBrandsData.filter(b => {
+                if (!searchTerm) return true;
+                return (b.name || '').toLowerCase().includes(searchTerm);
+            });
+            document.getElementById('brandsCount').textContent = filteredBrandsData.length;
+            renderMasterBrands();
+        }
+
+        function clearBrandsSearch() {
+            document.getElementById('brandsSearchInput').value = '';
+            filterBrands();
+        }
+
         function renderMasterBrands() {
             const tbody = document.getElementById('masterBrandsTable');
-            if (masterBrandsData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-3">No brands found</td></tr>';
+            if (filteredBrandsData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">No brands found</td></tr>';
+                updateBrandsSelection();
                 return;
             }
-            tbody.innerHTML = masterBrandsData.map(b => `
-                <tr>
+            tbody.innerHTML = filteredBrandsData.map(b => `
+                <tr class="${selectedBrands.has(b.id) ? 'table-primary' : ''}">
+                    <td><input type="checkbox" class="form-check-input" ${selectedBrands.has(b.id) ? 'checked' : ''} onchange="toggleBrandSelect(${b.id})"></td>
                     <td>${b.name}</td>
                     <td>
                         <button class="btn btn-sm btn-link text-primary p-0 me-2" onclick="editMasterBrand(${b.id}, '${b.name.replace(/'/g, "\\'")}')"><i class="bi bi-pencil"></i></button>
@@ -5850,6 +6019,7 @@
                     </td>
                 </tr>
             `).join('');
+            updateBrandsSelection();
         }
 
         function openAddMasterBrandModal() {
@@ -5910,7 +6080,7 @@
                 const resp = await fetch('/hr/events/api/master/departments', { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 masterDeptsData = await resp.json();
-                renderMasterDepts();
+                filterDepts(); // This sets filteredDeptsData and calls renderMasterDepts
                 document.getElementById('hrStatsDepartments').textContent = masterDeptsData.length;
             } catch (err) {
                 console.error('Error loading departments:', err);
@@ -5918,14 +6088,31 @@
             }
         }
 
+        function filterDepts() {
+            const searchTerm = (document.getElementById('deptsSearchInput')?.value || '').toLowerCase().trim();
+            filteredDeptsData = masterDeptsData.filter(d => {
+                if (!searchTerm) return true;
+                return (d.name || '').toLowerCase().includes(searchTerm);
+            });
+            document.getElementById('deptsCount').textContent = filteredDeptsData.length;
+            renderMasterDepts();
+        }
+
+        function clearDeptsSearch() {
+            document.getElementById('deptsSearchInput').value = '';
+            filterDepts();
+        }
+
         function renderMasterDepts() {
             const tbody = document.getElementById('masterDeptsTable');
-            if (masterDeptsData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-3">No departments found</td></tr>';
+            if (filteredDeptsData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">No departments found</td></tr>';
+                updateDeptsSelection();
                 return;
             }
-            tbody.innerHTML = masterDeptsData.map(d => `
-                <tr>
+            tbody.innerHTML = filteredDeptsData.map(d => `
+                <tr class="${selectedDepts.has(d.id) ? 'table-primary' : ''}">
+                    <td><input type="checkbox" class="form-check-input" ${selectedDepts.has(d.id) ? 'checked' : ''} onchange="toggleDeptSelect(${d.id})"></td>
                     <td>${d.name}</td>
                     <td>
                         <button class="btn btn-sm btn-link text-primary p-0 me-2" onclick="editMasterDept(${d.id}, '${d.name.replace(/'/g, "\\'")}')"><i class="bi bi-pencil"></i></button>
@@ -5933,6 +6120,7 @@
                     </td>
                 </tr>
             `).join('');
+            updateDeptsSelection();
         }
 
         function openAddMasterDeptModal() {
@@ -5993,21 +6181,38 @@
                 const resp = await fetch('/hr/events/api/master/subdepartments', { cache: 'no-store' });
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                 masterSubdeptsData = await resp.json();
-                renderMasterSubdepts();
+                filterSubdepts(); // This sets filteredSubdeptsData and calls renderMasterSubdepts
             } catch (err) {
                 console.error('Error loading subdepartments:', err);
                 document.getElementById('masterSubdeptsTable').innerHTML = '<tr><td colspan="2" class="text-center text-danger py-3">Error loading subdepartments</td></tr>';
             }
         }
 
+        function filterSubdepts() {
+            const searchTerm = (document.getElementById('subdeptsSearchInput')?.value || '').toLowerCase().trim();
+            filteredSubdeptsData = masterSubdeptsData.filter(s => {
+                if (!searchTerm) return true;
+                return (s.name || '').toLowerCase().includes(searchTerm);
+            });
+            document.getElementById('subdeptsCount').textContent = filteredSubdeptsData.length;
+            renderMasterSubdepts();
+        }
+
+        function clearSubdeptsSearch() {
+            document.getElementById('subdeptsSearchInput').value = '';
+            filterSubdepts();
+        }
+
         function renderMasterSubdepts() {
             const tbody = document.getElementById('masterSubdeptsTable');
-            if (masterSubdeptsData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted py-3">No subdepartments found</td></tr>';
+            if (filteredSubdeptsData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-3">No subdepartments found</td></tr>';
+                updateSubdeptsSelection();
                 return;
             }
-            tbody.innerHTML = masterSubdeptsData.map(s => `
-                <tr>
+            tbody.innerHTML = filteredSubdeptsData.map(s => `
+                <tr class="${selectedSubdepts.has(s.id) ? 'table-primary' : ''}">
+                    <td><input type="checkbox" class="form-check-input" ${selectedSubdepts.has(s.id) ? 'checked' : ''} onchange="toggleSubdeptSelect(${s.id})"></td>
                     <td>${s.name}</td>
                     <td>
                         <button class="btn btn-sm btn-link text-primary p-0 me-2" onclick="editMasterSubdept(${s.id}, '${s.name.replace(/'/g, "\\'")}')"><i class="bi bi-pencil"></i></button>
@@ -6015,6 +6220,7 @@
                     </td>
                 </tr>
             `).join('');
+            updateSubdeptsSelection();
         }
 
         function openAddMasterSubdeptModal() {
@@ -6091,7 +6297,7 @@
                 masterSubdeptsData = await subdeptsResp.json();
                 structureData = await structResp.json();
 
-                renderStructure();
+                // populateStructureFilters calls filterStructure which calls renderStructure
                 populateStructureFilters();
             } catch (err) {
                 console.error('Error loading structure:', err);
@@ -6101,20 +6307,17 @@
 
         function renderStructure() {
             const tbody = document.getElementById('hrStructureTable');
-            const filterCompany = document.getElementById('hrStructureCompanyFilter')?.value || '';
 
-            let filtered = structureData;
-            if (filterCompany) {
-                filtered = structureData.filter(s => s.company === filterCompany);
-            }
-
-            if (filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No structure entries found</td></tr>';
+            // Use filtered data (set by filterStructure())
+            if (filteredStructureData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-3">No structure entries found</td></tr>';
+                updateStructureSelection();
                 return;
             }
 
-            tbody.innerHTML = filtered.map(s => `
-                <tr>
+            tbody.innerHTML = filteredStructureData.map(s => `
+                <tr class="${selectedStructure.has(s.id) ? 'table-primary' : ''}">
+                    <td><input type="checkbox" class="form-check-input" ${selectedStructure.has(s.id) ? 'checked' : ''} onchange="toggleStructureSelect(${s.id})"></td>
                     <td>${s.company || '-'}</td>
                     <td>${s.brand || '-'}</td>
                     <td>${s.department || '-'}</td>
@@ -6126,18 +6329,59 @@
                     </td>
                 </tr>
             `).join('');
+            updateStructureSelection();
         }
 
         function populateStructureFilters() {
+            // Populate company filter
             const companies = [...new Set(structureData.map(s => s.company).filter(Boolean))].sort();
-            const filterSelect = document.getElementById('hrStructureCompanyFilter');
-            if (filterSelect) {
-                const currentVal = filterSelect.value;
-                filterSelect.innerHTML = '<option value="">All Companies</option>' +
+            const companySelect = document.getElementById('hrStructureCompanyFilter');
+            if (companySelect) {
+                const currentVal = companySelect.value;
+                companySelect.innerHTML = '<option value="">All Companies</option>' +
                     companies.map(c => `<option value="${c}">${c}</option>`).join('');
-                filterSelect.value = currentVal;
-                filterSelect.onchange = renderStructure;
+                companySelect.value = currentVal;
             }
+
+            // Populate department filter
+            const departments = [...new Set(structureData.map(s => s.department).filter(Boolean))].sort();
+            const deptSelect = document.getElementById('structureDeptFilter');
+            if (deptSelect) {
+                const currentVal = deptSelect.value;
+                deptSelect.innerHTML = '<option value="">All Departments</option>' +
+                    departments.map(d => `<option value="${d}">${d}</option>`).join('');
+                deptSelect.value = currentVal;
+            }
+
+            // Apply initial filter
+            filterStructure();
+        }
+
+        function filterStructure() {
+            const companyFilter = document.getElementById('hrStructureCompanyFilter')?.value || '';
+            const deptFilter = document.getElementById('structureDeptFilter')?.value || '';
+            const searchTerm = document.getElementById('structureSearchInput')?.value?.toLowerCase() || '';
+
+            filteredStructureData = structureData.filter(s => {
+                if (companyFilter && s.company !== companyFilter) return false;
+                if (deptFilter && s.department !== deptFilter) return false;
+                if (searchTerm) {
+                    const searchStr = `${s.company || ''} ${s.brand || ''} ${s.department || ''} ${s.subdepartment || ''} ${s.manager || ''}`.toLowerCase();
+                    if (!searchStr.includes(searchTerm)) return false;
+                }
+                return true;
+            });
+
+            // Update count badge
+            const countBadge = document.getElementById('structureCount');
+            if (countBadge) countBadge.textContent = filteredStructureData.length;
+
+            renderStructure();
+        }
+
+        function clearStructureSearch() {
+            document.getElementById('structureSearchInput').value = '';
+            filterStructure();
         }
 
         function openAddStructureModal() {
@@ -6285,273 +6529,8 @@
                 alert('Error deleting structure entry');
             }
         }
-
-        // ============================================
-        // Partner Types (e-Factura Settings)
-        // ============================================
-
-        let partnerTypesData = [];
-        let pendingTypeChanges = {}; // Track pending hide_in_filter changes: {typeId: newValue}
-
-        async function loadPartnerTypes() {
-            const tbody = document.getElementById('partnerTypesTableBody');
-            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-hourglass-split"></i> Loading...</td></tr>';
-
-            try {
-                const resp = await fetch('/efactura/api/partner-types?include_inactive=true');
-                const data = await resp.json();
-                if (data.success) {
-                    partnerTypesData = data.data || [];
-                    pendingTypeChanges = {}; // Reset pending changes when data is reloaded
-                    renderPartnerTypes();
-                    updateSaveButton();
-                } else {
-                    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3"><i class="bi bi-exclamation-triangle"></i> ${data.error || 'Failed to load partner types'}</td></tr>`;
-                }
-            } catch (err) {
-                tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-3"><i class="bi bi-exclamation-triangle"></i> Error: ${err.message}</td></tr>`;
-            }
-        }
-
-        function renderPartnerTypes() {
-            const tbody = document.getElementById('partnerTypesTableBody');
-            if (partnerTypesData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3"><i class="bi bi-tags"></i> No partner types configured. Click "Add Type" to create one.</td></tr>';
-                return;
-            }
-
-            tbody.innerHTML = partnerTypesData.map(type => `
-                <tr class="${type.is_active ? '' : 'table-secondary'}">
-                    <td><strong>${escapeHtml(type.name)}</strong></td>
-                    <td class="text-muted small">${escapeHtml(type.description || '-')}</td>
-                    <td class="text-center">
-                        <div class="form-check form-switch d-inline-block">
-                            <input class="form-check-input" type="checkbox" id="hideToggle_${type.id}"
-                                   ${type.hide_in_filter ? 'checked' : ''}
-                                   onchange="trackHideInFilterChange(${type.id}, this.checked)"
-                                   ${type.is_active ? '' : 'disabled'}>
-                        </div>
-                    </td>
-                    <td class="text-center">
-                        <span class="badge ${type.is_active ? 'bg-success' : 'bg-secondary'}">${type.is_active ? 'Active' : 'Inactive'}</span>
-                    </td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="showEditPartnerTypeModal(${type.id})" title="Edit">
-                            <i class="bi bi-pencil"></i>
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        function trackHideInFilterChange(typeId, hideInFilter) {
-            // Compare to original value to determine if this is a change
-            const originalType = partnerTypesData.find(t => t.id === typeId);
-            const originalValue = originalType ? originalType.hide_in_filter : false;
-
-            if (hideInFilter === originalValue) {
-                // Value is back to original, remove from pending changes
-                delete pendingTypeChanges[typeId];
-            } else {
-                // Track the new value
-                pendingTypeChanges[typeId] = hideInFilter;
-            }
-            updateSaveButton();
-        }
-
-        function updateSaveButton() {
-            const btn = document.getElementById('savePartnerTypesBtn');
-            const hasChanges = Object.keys(pendingTypeChanges).length > 0;
-            btn.disabled = !hasChanges;
-            if (hasChanges) {
-                btn.innerHTML = `<i class="bi bi-check-lg"></i> Save Changes (${Object.keys(pendingTypeChanges).length})`;
-            } else {
-                btn.innerHTML = `<i class="bi bi-check-lg"></i> Save Changes`;
-            }
-        }
-
-        async function savePartnerTypeChanges() {
-            const btn = document.getElementById('savePartnerTypesBtn');
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
-
-            try {
-                // Save all pending changes
-                const promises = Object.entries(pendingTypeChanges).map(([typeId, hideInFilter]) =>
-                    fetch(`/efactura/api/partner-types/${typeId}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ hide_in_filter: hideInFilter })
-                    })
-                );
-
-                const results = await Promise.all(promises);
-                const allSuccessful = results.every(r => r.ok);
-
-                if (allSuccessful) {
-                    // Clear pending changes
-                    pendingTypeChanges = {};
-
-                    // Signal e-Factura page to refresh when it becomes visible
-                    localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
-
-                    // Show success feedback
-                    btn.innerHTML = '<i class="bi bi-check-circle"></i> Saved!';
-                    btn.classList.remove('btn-primary');
-                    btn.classList.add('btn-success');
-
-                    // Reload data to reflect changes
-                    await loadPartnerTypes();
-
-                    // Reset button after delay
-                    setTimeout(() => {
-                        btn.classList.remove('btn-success');
-                        btn.classList.add('btn-primary');
-                        updateSaveButton();
-                    }, 2000);
-                } else {
-                    alert('Some changes could not be saved');
-                    btn.innerHTML = originalText;
-                    btn.disabled = false;
-                }
-            } catch (err) {
-                console.error('Error saving partner type changes:', err);
-                alert('Failed to save changes');
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-            }
-        }
-
-        function showAddPartnerTypeModal() {
-            document.getElementById('addPartnerTypeName').value = '';
-            document.getElementById('addPartnerTypeDescription').value = '';
-            document.getElementById('addPartnerTypeHideInFilter').checked = true;
-            new bootstrap.Modal(document.getElementById('addPartnerTypeModal')).show();
-        }
-
-        async function savePartnerType() {
-            const name = document.getElementById('addPartnerTypeName').value.trim();
-            const description = document.getElementById('addPartnerTypeDescription').value.trim();
-            const hide_in_filter = document.getElementById('addPartnerTypeHideInFilter').checked;
-
-            if (!name) {
-                alert('Name is required');
-                return;
-            }
-
-            try {
-                const resp = await fetch('/efactura/api/partner-types', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, description, hide_in_filter })
-                });
-                if (resp.ok) {
-                    bootstrap.Modal.getInstance(document.getElementById('addPartnerTypeModal')).hide();
-                    loadPartnerTypes();
-                    // Signal e-Factura page to refresh when it becomes visible
-                    localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
-                } else {
-                    const data = await resp.json();
-                    alert(data.error || 'Failed to create partner type');
-                }
-            } catch (err) {
-                console.error('Error:', err);
-                alert('Failed to create partner type');
-            }
-        }
-
-        function showEditPartnerTypeModal(typeId) {
-            const type = partnerTypesData.find(t => t.id === typeId);
-            if (!type) return;
-
-            document.getElementById('editPartnerTypeId').value = typeId;
-            document.getElementById('editPartnerTypeName').value = type.name || '';
-            document.getElementById('editPartnerTypeDescription').value = type.description || '';
-            document.getElementById('editPartnerTypeHideInFilter').checked = type.hide_in_filter;
-            document.getElementById('editPartnerTypeIsActive').checked = type.is_active;
-            new bootstrap.Modal(document.getElementById('editPartnerTypeModal')).show();
-        }
-
-        async function updatePartnerType() {
-            const typeId = document.getElementById('editPartnerTypeId').value;
-            const name = document.getElementById('editPartnerTypeName').value.trim();
-            const description = document.getElementById('editPartnerTypeDescription').value.trim();
-            const hide_in_filter = document.getElementById('editPartnerTypeHideInFilter').checked;
-            const is_active = document.getElementById('editPartnerTypeIsActive').checked;
-
-            if (!name) {
-                alert('Name is required');
-                return;
-            }
-
-            try {
-                const resp = await fetch(`/efactura/api/partner-types/${typeId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, description, hide_in_filter, is_active })
-                });
-                if (resp.ok) {
-                    bootstrap.Modal.getInstance(document.getElementById('editPartnerTypeModal')).hide();
-                    loadPartnerTypes();
-                    // Signal e-Factura page to refresh when it becomes visible
-                    localStorage.setItem('efacturaPartnerTypesChanged', Date.now().toString());
-                } else {
-                    const data = await resp.json();
-                    alert(data.error || 'Failed to update partner type');
-                }
-            } catch (err) {
-                console.error('Error:', err);
-                alert('Failed to update partner type');
-            }
-        }
-
-        // ANAF Settings functions (placeholder implementations)
-        function saveAnafSettings() {
-            const settings = {
-                defaultSyncDays: document.getElementById('anafDefaultSyncDays').value,
-                defaultDirection: document.getElementById('anafDefaultDirection').value,
-                defaultPageSize: document.getElementById('anafDefaultPageSize').value,
-                autoRefresh: document.getElementById('anafAutoRefresh').checked
-            };
-            localStorage.setItem('anafSettings', JSON.stringify(settings));
-            alert('Settings saved successfully');
-        }
-
-        function resetAnafSettings() {
-            document.getElementById('anafDefaultSyncDays').value = '7';
-            document.getElementById('anafDefaultDirection').value = 'received';
-            document.getElementById('anafDefaultPageSize').value = '50';
-            document.getElementById('anafAutoRefresh').checked = false;
-            localStorage.removeItem('anafSettings');
-            alert('Settings reset to defaults');
-        }
-
-        function loadAnafSettings() {
-            const saved = localStorage.getItem('anafSettings');
-            if (saved) {
-                const settings = JSON.parse(saved);
-                document.getElementById('anafDefaultSyncDays').value = settings.defaultSyncDays || '7';
-                document.getElementById('anafDefaultDirection').value = settings.defaultDirection || 'received';
-                document.getElementById('anafDefaultPageSize').value = settings.defaultPageSize || '50';
-                document.getElementById('anafAutoRefresh').checked = settings.autoRefresh || false;
-            }
-        }
-
-        // Load partner types when Connectors tab is shown
-        document.getElementById('connectors-tab')?.addEventListener('shown.bs.tab', function() {
-            loadPartnerTypes();
-            loadAnafSettings();
-        });
     </script>
 
-    <script src="/static/js/jarvis-dialogs.js"></script>
     <script src="/static/js/online-users.js"></script>
     {% include 'partials/_edit_profile_modal.html' %}
     <script src="/static/js/theme.js"></script>
