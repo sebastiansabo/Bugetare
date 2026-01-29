@@ -1034,10 +1034,15 @@
         // Generate status dropdown HTML for inline editing
         function getStatusDropdownHtml(invoiceId, currentStatus) {
             currentStatus = currentStatus || invoiceStatusOptions[0]?.value || 'new';
+            // Get current option's color for styling
+            const currentOpt = invoiceStatusOptions.find(o => o.value === currentStatus);
+            const bgColor = currentOpt?.color ? `var(--status-color-${currentStatus}, ${currentOpt.color})` : '';
+            const style = bgColor ? `background-color: ${bgColor}; color: #fff;` : '';
             let html = `<select class="form-select form-select-sm status-dropdown"
                         data-invoice-id="${invoiceId}"
+                        data-status="${currentStatus}"
                         onchange="updateInvoiceStatus(${invoiceId}, this.value)"
-                        style="width: auto; min-width: 110px; padding: 2px 24px 2px 8px; font-size: 0.8em;">`;
+                        style="width: auto; min-width: 110px; padding: 2px 24px 2px 8px; font-size: 0.8em; ${style}">`;
             invoiceStatusOptions.forEach(opt => {
                 html += `<option value="${opt.value}" ${currentStatus === opt.value ? 'selected' : ''}>${opt.label}</option>`;
             });
@@ -2985,6 +2990,16 @@
                     const row = dropdown.closest('tr');
                     if (row) {
                         row.setAttribute('data-status', newStatus);
+                    }
+                    // Update dropdown background color
+                    dropdown.setAttribute('data-status', newStatus);
+                    const currentOpt = invoiceStatusOptions.find(o => o.value === newStatus);
+                    if (currentOpt?.color) {
+                        dropdown.style.backgroundColor = `var(--status-color-${newStatus}, ${currentOpt.color})`;
+                        dropdown.style.color = '#fff';
+                    } else {
+                        dropdown.style.backgroundColor = '';
+                        dropdown.style.color = '';
                     }
                 }
             } catch (e) {
