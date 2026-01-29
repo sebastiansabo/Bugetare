@@ -26,6 +26,7 @@
   - Status "Nebugetata" set for all imported invoices
   - Net value and VAT calculations preserved
   - PDF link generated pointing to e-Factura export endpoint
+  - **Responsible auto-populated**: Looks up manager from `department_structure` table based on company/department
 
 ## 2026-01-28
 ### Architecture & Code Quality

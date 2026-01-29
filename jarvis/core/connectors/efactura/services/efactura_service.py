@@ -1876,7 +1876,7 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
             alloc_values = []
             alloc_params = []
 
-            for inv, (_, jarvis_id) in zip(invoices, mappings):
+            for inv, (_, jarvis_id) in zip(invoices_to_create, mappings):
                 company_name = inv.get('company_name')
                 department = inv.get('department')
 
@@ -1886,8 +1886,9 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                     net_value = inv.get('total_without_vat')
                     allocation_value = net_value if net_value else inv['total_amount']
                     subdepartment = inv.get('subdepartment')
+                    responsible = inv.get('responsible')  # From department_structure
 
-                    alloc_values.append("(%s, %s, %s, %s, %s, %s)")
+                    alloc_values.append("(%s, %s, %s, %s, %s, %s, %s)")
                     alloc_params.extend([
                         jarvis_id,        # invoice_id
                         company_name,     # company
@@ -1895,6 +1896,7 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                         subdepartment,    # subdepartment
                         100.0,            # allocation_percent (100% to single dept)
                         allocation_value, # allocation_value (net if available)
+                        responsible,      # responsible (manager from department_structure)
                     ])
 
             # Bulk insert allocations if any
@@ -1902,7 +1904,7 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                 cursor.execute(f'''
                     INSERT INTO allocations (
                         invoice_id, company, department, subdepartment,
-                        allocation_percent, allocation_value
+                        allocation_percent, allocation_value, responsible
                     ) VALUES {', '.join(alloc_values)}
                 ''', alloc_params)
 

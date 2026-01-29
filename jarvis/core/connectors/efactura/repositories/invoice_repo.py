@@ -1521,11 +1521,16 @@ class InvoiceRepository:
                     i.department_override,
                     i.subdepartment_override,
                     sm.department as mapping_department,
-                    sm.subdepartment as mapping_subdepartment
+                    sm.subdepartment as mapping_subdepartment,
+                    ds.manager as responsible
                 FROM efactura_invoices i
                 LEFT JOIN companies c ON c.id = i.company_id
                 LEFT JOIN efactura_supplier_mappings sm
                     ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
+                LEFT JOIN department_structure ds
+                    ON ds.company = c.company
+                    AND ds.department = COALESCE(i.department_override, sm.department)
+                    AND (ds.subdepartment IS NULL OR ds.subdepartment = '' OR ds.subdepartment = COALESCE(i.subdepartment_override, sm.subdepartment))
                 WHERE i.id = ANY(%s)
                 AND i.jarvis_invoice_id IS NULL
                 AND i.deleted_at IS NULL
@@ -1557,6 +1562,7 @@ class InvoiceRepository:
                     'company_name': row['company_name'],
                     'department': effective_department,
                     'subdepartment': effective_subdepartment,
+                    'responsible': row['responsible'],
                 })
 
             logger.info(
