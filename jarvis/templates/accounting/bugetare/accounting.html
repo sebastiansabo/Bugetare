@@ -981,20 +981,10 @@
                 `;
             }).join('\n');
 
-            // Add rule to exclude status dropdown cell from row coloring
-            const exclusionRule = `
-                tr[data-status] > td:has(.status-dropdown) {
-                    background-color: transparent !important;
-                }
-                body.dark-theme tr[data-status] > td:has(.status-dropdown) {
-                    background-color: var(--table-bg, #1e1e1e) !important;
-                }
-            `;
-
             // Inject the style element
             const styleEl = document.createElement('style');
             styleEl.id = 'dynamic-status-css';
-            styleEl.textContent = statusRules + exclusionRule;
+            styleEl.textContent = statusRules;
             document.head.appendChild(styleEl);
         }
 
