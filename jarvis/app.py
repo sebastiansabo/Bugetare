@@ -112,6 +112,10 @@ app.register_blueprint(hr_bp, url_prefix='/hr')
 from accounting.statements import statements_bp
 app.register_blueprint(statements_bp, url_prefix='/statements')
 
+# Register AI Agent Module Blueprint
+from ai_agent import ai_agent_bp
+app.register_blueprint(ai_agent_bp)
+
 # Cache-Control headers for API responses
 # NOTE: Browser caching disabled for all Settings-related endpoints to avoid stale data
 # after edits. Performance impact is minimal (<50ms per request for these simple queries).

@@ -696,15 +696,10 @@ def api_get_departments_full():
     conn = get_db()
     cur = get_cursor(conn)
     cur.execute("""
-        SELECT ds.id, c.company, b.name as brand, d.name as department,
-               s.name as subdepartment, ds.manager, ds.marketing,
-               ds.company_id, ds.brand_id, ds.department_id, ds.subdepartment_id
+        SELECT ds.id, ds.company, ds.brand, ds.department, ds.subdepartment,
+               ds.manager, ds.marketing, ds.company_id
         FROM department_structure ds
-        LEFT JOIN companies c ON ds.company_id = c.id
-        LEFT JOIN brands b ON ds.brand_id = b.id
-        LEFT JOIN departments d ON ds.department_id = d.id
-        LEFT JOIN subdepartments s ON ds.subdepartment_id = s.id
-        ORDER BY c.company, b.name, d.name, s.name
+        ORDER BY ds.company, ds.brand, ds.department, ds.subdepartment
     """)
     rows = cur.fetchall()
     release_db(conn)
@@ -717,10 +712,7 @@ def api_get_departments_full():
         'subdepartment': r['subdepartment'],
         'manager': r['manager'],
         'marketing': r['marketing'],
-        'company_id': r['company_id'],
-        'brand_id': r['brand_id'],
-        'department_id': r['department_id'],
-        'subdepartment_id': r['subdepartment_id']
+        'company_id': r['company_id']
     } for r in rows])
 
 
