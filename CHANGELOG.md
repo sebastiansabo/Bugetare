@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-01-29
+### e-Factura Duplicate Detection
+- **Duplicate Detection Service**: Background service to detect duplicate invoices after ANAF sync
+  - Exact matching: Finds duplicates by supplier name + invoice number
+  - AI fallback (Claude): Fuzzy matching for similar supplier names and amounts
+  - Pre-filters candidates by amount similarity (within 5%) and name similarity (>50%)
+  - AI confidence threshold: 70% for duplicate confirmation
+
+- **Duplicate Management UI**: Banner notification and management tools
+  - Yellow alert banner appears when duplicates detected after sync
+  - "View" button shows detailed list with exact vs AI-detected sections
+  - "Mark All as Duplicates" links e-Factura invoices to existing invoices
+  - Duplicates removed from Unallocated tab automatically
+
+- **API Endpoints**:
+  - `GET /efactura/api/invoices/duplicates` - Exact duplicate detection
+  - `POST /efactura/api/invoices/mark-duplicates` - Mark exact duplicates
+  - `GET /efactura/api/invoices/duplicates/ai` - AI-powered fuzzy duplicate detection
+  - `POST /efactura/api/invoices/mark-duplicates/ai` - Mark AI-detected duplicates
+
+- **Send to Invoice Module Improvements**:
+  - Duplicate prevention: Checks for existing invoices before creating new ones
+  - Automatic linking: Duplicate e-Factura invoices linked to existing jarvis_invoice_id
+  - Status "Nebugetata" set for all imported invoices
+  - Net value and VAT calculations preserved
+  - PDF link generated pointing to e-Factura export endpoint
+
 ## 2026-01-28
 ### Architecture & Code Quality
 - **e-Factura Architecture Refactoring**: Moved SQL operations from routes to repositories

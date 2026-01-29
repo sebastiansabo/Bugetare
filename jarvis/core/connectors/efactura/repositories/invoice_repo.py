@@ -1485,7 +1485,12 @@ class InvoiceRepository:
         Batch fetch invoices for sending to Invoice Module.
 
         Fetches only unallocated invoices (jarvis_invoice_id IS NULL) with
-        minimal columns needed for creating main invoices.
+        all columns needed for creating main invoices AND allocations.
+
+        Includes:
+        - Invoice data (supplier, number, date, amount, currency)
+        - Company info (from company_id FK to companies table)
+        - Department info (from overrides or supplier mapping defaults)
 
         Args:
             invoice_ids: List of e-Factura invoice IDs
@@ -1501,18 +1506,29 @@ class InvoiceRepository:
             cursor = get_cursor(conn)
             cursor.execute("""
                 SELECT
-                    id,
-                    partner_name,
-                    partner_cif,
-                    invoice_number,
-                    invoice_series,
-                    issue_date,
-                    total_amount,
-                    currency
-                FROM efactura_invoices
-                WHERE id = ANY(%s)
-                AND jarvis_invoice_id IS NULL
-                AND deleted_at IS NULL
+                    i.id,
+                    i.partner_name,
+                    i.partner_cif,
+                    i.invoice_number,
+                    i.invoice_series,
+                    i.issue_date,
+                    i.total_amount,
+                    i.total_vat,
+                    i.total_without_vat,
+                    i.currency,
+                    i.company_id,
+                    c.company as company_name,
+                    i.department_override,
+                    i.subdepartment_override,
+                    sm.department as mapping_department,
+                    sm.subdepartment as mapping_subdepartment
+                FROM efactura_invoices i
+                LEFT JOIN companies c ON c.id = i.company_id
+                LEFT JOIN efactura_supplier_mappings sm
+                    ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
+                WHERE i.id = ANY(%s)
+                AND i.jarvis_invoice_id IS NULL
+                AND i.deleted_at IS NULL
             """, (invoice_ids,))
             rows = cursor.fetchall()
 
@@ -1523,6 +1539,10 @@ class InvoiceRepository:
                 if row['invoice_series']:
                     full_number = f"{row['invoice_series']}-{row['invoice_number']}"
 
+                # Use override if set, otherwise use mapping default
+                effective_department = row['department_override'] or row['mapping_department']
+                effective_subdepartment = row['subdepartment_override'] or row['mapping_subdepartment']
+
                 result.append({
                     'id': row['id'],
                     'partner_name': row['partner_name'],
@@ -1530,7 +1550,13 @@ class InvoiceRepository:
                     'invoice_number': full_number,
                     'issue_date': row['issue_date'],
                     'total_amount': float(row['total_amount']),
+                    'total_vat': float(row['total_vat']) if row['total_vat'] else 0.0,
+                    'total_without_vat': float(row['total_without_vat']) if row['total_without_vat'] else None,
                     'currency': row['currency'],
+                    'company_id': row['company_id'],
+                    'company_name': row['company_name'],
+                    'department': effective_department,
+                    'subdepartment': effective_subdepartment,
                 })
 
             logger.info(

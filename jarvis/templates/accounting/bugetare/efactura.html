@@ -280,6 +280,27 @@
                             </div>
                         </div>
 
+                        <!-- Duplicates Banner (hidden by default) -->
+                        <div class="alert alert-warning d-none" id="duplicatesBanner" role="alert">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="bi bi-exclamation-triangle me-2"></i>
+                                    <strong id="duplicatesCount">0</strong> potential duplicate(s) found - these invoices already exist in the Invoices module.
+                                </div>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-sm btn-outline-warning" onclick="viewDuplicates()">
+                                        <i class="bi bi-eye"></i> View
+                                    </button>
+                                    <button class="btn btn-sm btn-warning" onclick="markAllDuplicates()">
+                                        <i class="bi bi-check2-all"></i> Mark All as Duplicates
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" onclick="hideDuplicatesBanner()">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Bulk Actions -->
                         <div class="bulk-action-bar" id="bulkActionBar">
                             <span><strong id="selectedCount">0</strong> selected</span>
@@ -2222,6 +2243,9 @@
                 loadBadgeCounts();
                 hideSyncProgress(3000);
 
+                // Check for duplicates after sync
+                checkForDuplicates();
+
             } catch (err) {
                 showSyncProgress('Sync Failed', err.message, 100, 'error');
                 alert('Error: ' + err.message);
@@ -2276,6 +2300,164 @@
 
             // Refresh all badge counts (both unallocated and hidden counts may have changed)
             loadBadgeCounts();
+        }
+
+        // Duplicate detection
+        let duplicatesCache = [];
+
+        async function checkForDuplicates() {
+            try {
+                // First check for exact duplicates (supplier + invoice_number match)
+                const res = await fetch('/efactura/api/invoices/duplicates');
+                const data = await res.json();
+
+                let allDuplicates = [];
+                if (data.success && data.count > 0) {
+                    allDuplicates = data.duplicates;
+                }
+
+                // Then check for AI-detected duplicates (fallback for fuzzy matching)
+                try {
+                    const aiRes = await fetch('/efactura/api/invoices/duplicates/ai?limit=20');
+                    const aiData = await aiRes.json();
+
+                    if (aiData.success && aiData.count > 0) {
+                        // Add AI duplicates (marked with ai_detected flag)
+                        allDuplicates = [...allDuplicates, ...aiData.duplicates];
+                    }
+                } catch (aiErr) {
+                    console.warn('AI duplicate detection not available:', aiErr);
+                }
+
+                if (allDuplicates.length > 0) {
+                    duplicatesCache = allDuplicates;
+                    showDuplicatesBanner(allDuplicates.length);
+                } else {
+                    hideDuplicatesBanner();
+                }
+            } catch (err) {
+                console.error('Error checking for duplicates:', err);
+            }
+        }
+
+        function showDuplicatesBanner(count) {
+            const banner = document.getElementById('duplicatesBanner');
+            const countEl = document.getElementById('duplicatesCount');
+            if (banner && countEl) {
+                countEl.textContent = count;
+                banner.classList.remove('d-none');
+            }
+        }
+
+        function hideDuplicatesBanner() {
+            const banner = document.getElementById('duplicatesBanner');
+            if (banner) {
+                banner.classList.add('d-none');
+            }
+            duplicatesCache = [];
+        }
+
+        function viewDuplicates() {
+            if (duplicatesCache.length === 0) {
+                alert('No duplicates to display.');
+                return;
+            }
+
+            // Separate exact and AI-detected duplicates
+            const exactDuplicates = duplicatesCache.filter(d => !d.ai_detected);
+            const aiDuplicates = duplicatesCache.filter(d => d.ai_detected);
+
+            let msg = 'Potential duplicates found:\n\n';
+
+            if (exactDuplicates.length > 0) {
+                msg += '=== EXACT MATCHES ===\n';
+                exactDuplicates.forEach((dup, i) => {
+                    const issueDate = dup.issue_date ? new Date(dup.issue_date).toLocaleDateString('ro-RO') : '-';
+                    const amount = parseFloat(dup.total_amount || 0).toLocaleString('ro-RO', {minimumFractionDigits: 2});
+                    msg += `${i + 1}. ${dup.partner_name} - ${dup.invoice_number}\n`;
+                    msg += `   Date: ${issueDate}, Amount: ${amount} ${dup.currency || 'RON'}\n`;
+                    msg += `   → Exact match: Invoice #${dup.existing_invoice_id}\n\n`;
+                });
+            }
+
+            if (aiDuplicates.length > 0) {
+                msg += '=== AI-DETECTED (fuzzy match) ===\n';
+                aiDuplicates.forEach((dup, i) => {
+                    const issueDate = dup.issue_date ? new Date(dup.issue_date).toLocaleDateString('ro-RO') : '-';
+                    const amount = parseFloat(dup.total_amount || 0).toLocaleString('ro-RO', {minimumFractionDigits: 2});
+                    const confidence = Math.round((dup.confidence || 0) * 100);
+                    msg += `${i + 1}. ${dup.partner_name} - ${dup.invoice_number}\n`;
+                    msg += `   Date: ${issueDate}, Amount: ${amount} ${dup.currency || 'RON'}\n`;
+                    msg += `   → AI match (${confidence}% confidence): Invoice #${dup.existing_invoice_id}\n`;
+                    if (dup.reasoning) {
+                        msg += `   Reason: ${dup.reasoning}\n`;
+                    }
+                    msg += '\n';
+                });
+            }
+
+            msg += 'Click "Mark All as Duplicates" to link these to existing invoices and remove them from Unallocated.';
+
+            alert(msg);
+        }
+
+        async function markAllDuplicates() {
+            if (duplicatesCache.length === 0) {
+                alert('No duplicates to mark.');
+                return;
+            }
+
+            const count = duplicatesCache.length;
+            if (!confirm(`Mark ${count} invoice(s) as duplicates?\n\nThis will link them to the existing invoices in the Invoices module and remove them from the Unallocated list.`)) {
+                return;
+            }
+
+            try {
+                let totalMarked = 0;
+
+                // Separate exact duplicates from AI-detected ones
+                const exactDuplicates = duplicatesCache.filter(d => !d.ai_detected);
+                const aiDuplicates = duplicatesCache.filter(d => d.ai_detected);
+
+                // Mark exact duplicates
+                if (exactDuplicates.length > 0) {
+                    const ids = exactDuplicates.map(d => d.efactura_id);
+                    const res = await fetch('/efactura/api/invoices/mark-duplicates', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ invoice_ids: ids })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        totalMarked += data.marked;
+                    }
+                }
+
+                // Mark AI-detected duplicates (need explicit mappings)
+                if (aiDuplicates.length > 0) {
+                    const mappings = aiDuplicates.map(d => ({
+                        efactura_id: d.efactura_id,
+                        existing_invoice_id: d.existing_invoice_id
+                    }));
+                    const res = await fetch('/efactura/api/invoices/mark-duplicates/ai', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mappings: mappings })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        totalMarked += data.marked;
+                    }
+                }
+
+                alert(`Successfully marked ${totalMarked} invoice(s) as duplicates.`);
+                hideDuplicatesBanner();
+                loadUnallocatedInvoices(1, true);
+                loadBadgeCounts();
+
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
         }
 
         function renderInvoices(invoices) {
@@ -2565,7 +2747,11 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    alert('Invoice sent to Invoices module successfully!');
+                    if (data.duplicates > 0) {
+                        alert('⚠️ Invoice already exists in Invoices module (duplicate skipped).');
+                    } else {
+                        alert('Invoice sent to Invoices module successfully!');
+                    }
                     loadUnallocatedInvoices(currentPage, true);  // Force reload after data change
                     loadBadgeCounts();
                 } else {
@@ -2721,7 +2907,11 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    alert(`${data.sent} invoice(s) sent successfully!`);
+                    let msg = `${data.sent} invoice(s) sent successfully!`;
+                    if (data.duplicates > 0) {
+                        msg += `\n\n⚠️ ${data.duplicates} duplicate(s) skipped (already exist in Invoices).`;
+                    }
+                    alert(msg);
                     clearSelection();
                     loadUnallocatedInvoices(currentPage, true);  // Force reload after data change
                     loadBadgeCounts();

@@ -441,9 +441,40 @@ The Unallocated Invoices page (`/accounting/efactura`):
 1. **Import from ANAF**: Fetch messages from SPV inbox
 2. **Parse XML**: Extract invoice data using UBL 2.1 parser
 3. **Store**: Save to `efactura_invoices` table with XML content
-4. **Review**: View unallocated invoices in `/accounting/efactura`
-5. **Send to Module**: Create record in main `invoices` table
-6. **Mark Allocated**: Set `jarvis_invoice_id` to link records
+4. **Detect Duplicates**: Background check for existing invoices (exact + AI matching)
+5. **Review**: View unallocated invoices in `/accounting/efactura`
+6. **Send to Module**: Create record in main `invoices` table
+7. **Mark Allocated**: Set `jarvis_invoice_id` to link records
+
+### Duplicate Detection
+Automatic detection of duplicate invoices after ANAF sync:
+
+**Two-Layer Detection:**
+1. **Exact Matching**: Finds duplicates by supplier name + invoice number (case-insensitive)
+2. **AI Fallback (Claude)**: Fuzzy matching for similar supplier names and amounts
+   - Pre-filters by amount similarity (within 5%)
+   - Pre-filters by supplier name similarity (>50% using SequenceMatcher)
+   - AI analyzes candidates with confidence threshold (70%)
+
+**API Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/efactura/api/invoices/duplicates` | GET | Detect exact duplicates |
+| `/efactura/api/invoices/mark-duplicates` | POST | Mark exact duplicates |
+| `/efactura/api/invoices/duplicates/ai` | GET | Detect AI fuzzy duplicates |
+| `/efactura/api/invoices/mark-duplicates/ai` | POST | Mark AI duplicates with explicit mappings |
+
+**UI Features:**
+- Yellow banner appears when duplicates detected after sync
+- "View" button shows detailed list (exact vs AI-detected sections)
+- "Mark All as Duplicates" links e-Factura invoices to existing `jarvis_invoice_id`
+- Duplicates automatically removed from Unallocated tab
+
+**Send to Module Enhancements:**
+- Duplicate prevention: Checks before INSERT, skips if exists
+- Status set to "Nebugetata" for all imported invoices
+- Net value and VAT calculations preserved from e-Factura
+- PDF link points to `/efactura/api/invoices/{id}/pdf`
 
 ### Supplier Mappings
 Supplier mappings define default categorization for invoices from specific suppliers:

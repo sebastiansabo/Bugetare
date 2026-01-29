@@ -1744,7 +1744,11 @@
                 const data = await res.json();
 
                 if (data.success) {
-                    alert(`Invoice sent to Invoice Module successfully!`);
+                    if (data.duplicates > 0) {
+                        alert('⚠️ Invoice already exists in Invoices module (duplicate skipped).');
+                    } else {
+                        alert(`Invoice sent to Invoice Module successfully!`);
+                    }
                     loadUnallocatedInvoices(unallocatedPage);
                     loadUnallocatedCount();
                 } else {
@@ -1780,8 +1784,11 @@
 
                 if (data.success) {
                     let msg = `${data.sent} invoice(s) sent to Invoice Module successfully!`;
+                    if (data.duplicates > 0) {
+                        msg += `\n\n⚠️ ${data.duplicates} duplicate(s) skipped (already exist in Invoices).`;
+                    }
                     if (data.errors && data.errors.length > 0) {
-                        msg += `\n\nErrors:\n${data.errors.join('\n')}`;
+                        msg += `\n\nNotes:\n${data.errors.join('\n')}`;
                     }
                     alert(msg);
                     // Clear checkboxes
