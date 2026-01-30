@@ -86,20 +86,6 @@ def _set_cache_data(cache_dict: dict, data, key: str = 'data'):
         cache_dict['timestamp'] = time.time()
 
 
-def create_cache(ttl: int = 300) -> dict:
-    """Create a new cache dictionary with specified TTL."""
-    return {
-        'data': None,
-        'timestamp': 0,
-        'ttl': ttl
-    }
-
-
-def get_cache_lock():
-    """Get the shared cache lock for custom cache operations."""
-    return _cache_lock
-
-
 def _get_summary_cache(cache_type: str, cache_key: str):
     """Thread-safe getter for summary cache entries."""
     with _cache_lock:
@@ -200,15 +186,14 @@ if not DATABASE_URL:
 # Connection pool configuration
 # minconn: minimum connections kept open
 # maxconn: maximum connections allowed
-# Note: DigitalOcean managed DB has 22 max connections
-# Single unified pool - core/database.py re-exports from here
+# Note: DigitalOcean managed DB has ~25 max connections total
+# With multiple workers, keep pool small: 2 workers × 3 min = 6 connections
 _connection_pool = None
 
 # Pool size configuration - can be tuned via environment variables
-# DigitalOcean managed DB has 22 max connections
-# With 3 Gunicorn workers: 3 workers × 6 max = 18 connections (4 reserved for admin)
-POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '2'))
-POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '6'))
+# Defaults optimized for 3 Gunicorn workers with 1-10 concurrent users
+POOL_MIN_CONN = int(os.environ.get('DB_POOL_MIN_CONN', '3'))
+POOL_MAX_CONN = int(os.environ.get('DB_POOL_MAX_CONN', '12'))
 
 
 def _get_pool():
@@ -1104,25 +1089,6 @@ def init_db():
         )
     ''')
 
-    # Performance reports table - tracks request timing for debugging
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS performance_reports (
-            id SERIAL PRIMARY KEY,
-            endpoint TEXT NOT NULL,
-            method TEXT NOT NULL,
-            duration_ms REAL NOT NULL,
-            status_code INTEGER,
-            user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-            query_params TEXT,
-            request_size INTEGER,
-            response_size INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_performance_reports_endpoint ON performance_reports(endpoint)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_performance_reports_created_at ON performance_reports(created_at DESC)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_performance_reports_duration ON performance_reports(duration_ms DESC)')
-
     # VAT rates table - configurable VAT percentages
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS vat_rates (
@@ -1184,25 +1150,6 @@ def init_db():
             END IF;
         END $$;
     ''')
-
-    # Add min_role column if it doesn't exist (for role-based status access)
-    cursor.execute('''
-        DO $$
-        BEGIN
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
-                          WHERE table_name = 'dropdown_options' AND column_name = 'min_role') THEN
-                ALTER TABLE dropdown_options ADD COLUMN min_role TEXT DEFAULT 'Viewer';
-            END IF;
-        END $$;
-    ''')
-
-    # Set 'processed' status to require Manager role by default
-    cursor.execute('''
-        UPDATE dropdown_options
-        SET min_role = 'Manager'
-        WHERE dropdown_type = 'invoice_status' AND value = 'processed' AND min_role = 'Viewer'
-    ''')
-    conn.commit()
 
     # Insert default dropdown options if table is empty
     cursor.execute('SELECT COUNT(*) as cnt FROM dropdown_options')
@@ -1728,388 +1675,6 @@ def init_db():
             cursor.execute('UPDATE invoices SET vat_rate = %s WHERE id = %s', (closest_rate, inv['id']))
 
         conn.commit()
-
-    # ============================================================
-    # e-Factura Connector Tables
-    # ============================================================
-
-    # Company connections for e-Factura sync
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_company_connections (
-            id SERIAL PRIMARY KEY,
-            cif VARCHAR(20) NOT NULL UNIQUE,
-            display_name VARCHAR(255) NOT NULL,
-            environment VARCHAR(20) NOT NULL DEFAULT 'test',
-            last_sync_at TIMESTAMP,
-            last_received_cursor VARCHAR(100),
-            last_sent_cursor VARCHAR(100),
-            status VARCHAR(20) NOT NULL DEFAULT 'active',
-            status_message TEXT,
-            config JSONB DEFAULT '{}'::JSONB,
-            cert_fingerprint VARCHAR(64),
-            cert_expires_at TIMESTAMP,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    ''')
-
-    # e-Factura invoices
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_invoices (
-            id SERIAL PRIMARY KEY,
-            cif_owner VARCHAR(20) NOT NULL,
-            direction VARCHAR(20) NOT NULL,
-            partner_cif VARCHAR(20) NOT NULL,
-            partner_name VARCHAR(500),
-            invoice_number VARCHAR(100) NOT NULL,
-            invoice_series VARCHAR(50),
-            issue_date DATE,
-            due_date DATE,
-            total_amount NUMERIC(15, 2) NOT NULL DEFAULT 0,
-            total_vat NUMERIC(15, 2) NOT NULL DEFAULT 0,
-            total_without_vat NUMERIC(15, 2) NOT NULL DEFAULT 0,
-            currency VARCHAR(3) NOT NULL DEFAULT 'RON',
-            status VARCHAR(20) NOT NULL DEFAULT 'processed',
-            company_id INTEGER REFERENCES companies(id),
-            jarvis_invoice_id INTEGER REFERENCES invoices(id),
-            xml_content TEXT,
-            ignored BOOLEAN NOT NULL DEFAULT FALSE,
-            deleted_at TIMESTAMP,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    ''')
-
-    # Add ignored column if not exists (migration for existing databases)
-    cursor.execute('''
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_invoices' AND column_name = 'ignored'
-            ) THEN
-                ALTER TABLE efactura_invoices ADD COLUMN ignored BOOLEAN NOT NULL DEFAULT FALSE;
-            END IF;
-        END $$;
-    ''')
-
-    # Add deleted_at column if not exists (migration for existing databases - bin functionality)
-    cursor.execute('''
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_invoices' AND column_name = 'deleted_at'
-            ) THEN
-                ALTER TABLE efactura_invoices ADD COLUMN deleted_at TIMESTAMP;
-            END IF;
-        END $$;
-    ''')
-
-    # Add override columns for per-invoice Type/Department/Subdepartment
-    cursor.execute('''
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_invoices' AND column_name = 'type_override'
-            ) THEN
-                ALTER TABLE efactura_invoices ADD COLUMN type_override VARCHAR(100);
-            END IF;
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_invoices' AND column_name = 'department_override'
-            ) THEN
-                ALTER TABLE efactura_invoices ADD COLUMN department_override VARCHAR(255);
-            END IF;
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_invoices' AND column_name = 'subdepartment_override'
-            ) THEN
-                ALTER TABLE efactura_invoices ADD COLUMN subdepartment_override VARCHAR(255);
-            END IF;
-        END $$;
-    ''')
-
-    # e-Factura invoice references (ANAF IDs)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_invoice_refs (
-            id SERIAL PRIMARY KEY,
-            invoice_id INTEGER NOT NULL REFERENCES efactura_invoices(id) ON DELETE CASCADE,
-            external_system VARCHAR(20) NOT NULL DEFAULT 'anaf',
-            message_id VARCHAR(100) NOT NULL,
-            upload_id VARCHAR(100),
-            download_id VARCHAR(100),
-            xml_hash VARCHAR(64),
-            signature_hash VARCHAR(64),
-            raw_response_hash VARCHAR(64),
-            created_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    ''')
-
-    # e-Factura invoice artifacts (ZIP, XML, PDF)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_invoice_artifacts (
-            id SERIAL PRIMARY KEY,
-            invoice_id INTEGER NOT NULL REFERENCES efactura_invoices(id) ON DELETE CASCADE,
-            artifact_type VARCHAR(20) NOT NULL,
-            storage_uri TEXT NOT NULL,
-            original_filename VARCHAR(255),
-            mime_type VARCHAR(100),
-            checksum VARCHAR(64),
-            size_bytes INTEGER DEFAULT 0,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    ''')
-
-    # e-Factura sync runs tracking
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_sync_runs (
-            id SERIAL PRIMARY KEY,
-            run_id VARCHAR(36) NOT NULL UNIQUE,
-            company_cif VARCHAR(20) NOT NULL,
-            started_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            finished_at TIMESTAMP,
-            success BOOLEAN DEFAULT FALSE,
-            direction VARCHAR(20),
-            messages_checked INTEGER DEFAULT 0,
-            invoices_fetched INTEGER DEFAULT 0,
-            invoices_created INTEGER DEFAULT 0,
-            invoices_updated INTEGER DEFAULT 0,
-            invoices_skipped INTEGER DEFAULT 0,
-            errors_count INTEGER DEFAULT 0,
-            cursor_before VARCHAR(100),
-            cursor_after VARCHAR(100),
-            error_summary TEXT
-        )
-    ''')
-
-    # e-Factura sync errors
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_sync_errors (
-            id SERIAL PRIMARY KEY,
-            run_id VARCHAR(36) NOT NULL,
-            message_id VARCHAR(100),
-            invoice_ref VARCHAR(100),
-            error_type VARCHAR(20) NOT NULL,
-            error_code VARCHAR(50),
-            error_message TEXT NOT NULL,
-            request_hash VARCHAR(64),
-            response_hash VARCHAR(64),
-            stack_trace TEXT,
-            is_retryable BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    ''')
-
-    # e-Factura OAuth tokens storage
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_oauth_tokens (
-            id SERIAL PRIMARY KEY,
-            cif VARCHAR(20) NOT NULL UNIQUE,
-            access_token TEXT NOT NULL,
-            refresh_token TEXT,
-            token_type VARCHAR(20) DEFAULT 'Bearer',
-            expires_at TIMESTAMP,
-            scope VARCHAR(100),
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    ''')
-
-    # e-Factura partner types - defines supplier types (Service, Merchandise, etc.)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_partner_types (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) NOT NULL UNIQUE,
-            description TEXT,
-            is_active BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-    ''')
-    # Commit to ensure partner_types table exists before creating FK reference
-    conn.commit()
-
-    # e-Factura supplier mappings - maps e-Factura partner names to standardized supplier names
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_supplier_mappings (
-            id SERIAL PRIMARY KEY,
-            partner_name VARCHAR(255) NOT NULL,
-            partner_cif VARCHAR(50),
-            supplier_name VARCHAR(255) NOT NULL,
-            supplier_note TEXT,
-            supplier_vat VARCHAR(50),
-            kod_konto VARCHAR(50),
-            type_id INTEGER REFERENCES efactura_partner_types(id),
-            is_active BOOLEAN NOT NULL DEFAULT TRUE,
-            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-            UNIQUE(partner_name, partner_cif)
-        )
-    ''')
-
-    # Migration: Add kod_konto column if it doesn't exist
-    cursor.execute('''
-        DO $
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'kod_konto'
-            ) THEN
-                ALTER TABLE efactura_supplier_mappings ADD COLUMN kod_konto VARCHAR(50);
-            END IF;
-        END $;
-    ''')
-
-    # Migration: Add type_id column if it doesn't exist (legacy, will be replaced by junction table)
-    cursor.execute('''
-        DO $
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'type_id'
-            ) THEN
-                ALTER TABLE efactura_supplier_mappings ADD COLUMN type_id INTEGER REFERENCES efactura_partner_types(id);
-            END IF;
-        END $;
-    ''')
-
-    # Migration: Add department, subdepartment, and brand columns to supplier mappings
-    cursor.execute('''
-        DO $
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'department'
-            ) THEN
-                ALTER TABLE efactura_supplier_mappings ADD COLUMN department VARCHAR(255);
-            END IF;
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'subdepartment'
-            ) THEN
-                ALTER TABLE efactura_supplier_mappings ADD COLUMN subdepartment VARCHAR(255);
-            END IF;
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'brand'
-            ) THEN
-                ALTER TABLE efactura_supplier_mappings ADD COLUMN brand VARCHAR(255);
-            END IF;
-        END $;
-    ''')
-
-    # Commit to ensure supplier_mappings table exists before creating junction table FK
-    conn.commit()
-
-    # Junction table for many-to-many mapping between suppliers and types
-    try:
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS efactura_supplier_mapping_types (
-                mapping_id INTEGER NOT NULL REFERENCES efactura_supplier_mappings(id) ON DELETE CASCADE,
-                type_id INTEGER NOT NULL REFERENCES efactura_partner_types(id) ON DELETE CASCADE,
-                created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-                PRIMARY KEY (mapping_id, type_id)
-            )
-        ''')
-        conn.commit()
-        print("Created efactura_supplier_mapping_types table successfully")
-    except Exception as e:
-        print(f"Error creating efactura_supplier_mapping_types table: {e}")
-        conn.rollback()
-
-    # Migration: Move existing type_id data to junction table
-    try:
-        cursor.execute('''
-            INSERT INTO efactura_supplier_mapping_types (mapping_id, type_id)
-            SELECT id, type_id FROM efactura_supplier_mappings
-            WHERE type_id IS NOT NULL
-            ON CONFLICT (mapping_id, type_id) DO NOTHING
-        ''')
-        conn.commit()
-    except Exception as e:
-        print(f"Error migrating type_id data to junction table: {e}")
-        conn.rollback()
-
-    # Seed default partner types if table is empty
-    cursor.execute('SELECT COUNT(*) FROM efactura_partner_types')
-    result = cursor.fetchone()
-    if result['count'] == 0:
-        cursor.execute('''
-            INSERT INTO efactura_partner_types (name, description) VALUES
-            ('Service', 'Service-based suppliers (consultancy, IT, maintenance, etc.)'),
-            ('Merchandise', 'Product/goods suppliers (inventory, parts, materials, etc.)')
-        ''')
-
-    # Migration: Add hide_in_filter column to partner_types (for "Hide Typed" filter configuration)
-    cursor.execute('''
-        DO $$
-        BEGIN
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_partner_types' AND column_name = 'hide_in_filter'
-            ) THEN
-                ALTER TABLE efactura_partner_types ADD COLUMN hide_in_filter BOOLEAN NOT NULL DEFAULT TRUE;
-            END IF;
-        END $$;
-    ''')
-
-    # Create indexes for e-Factura tables
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_connections_status ON efactura_company_connections(status)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_owner ON efactura_invoices(cif_owner, direction)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_date ON efactura_invoices(issue_date)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_status ON efactura_invoices(status)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_jarvis ON efactura_invoices(jarvis_invoice_id)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_ignored ON efactura_invoices(ignored)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_deleted_at ON efactura_invoices(deleted_at)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_refs_message ON efactura_invoice_refs(message_id)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_sync_runs_cif ON efactura_sync_runs(company_cif)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_oauth_cif ON efactura_oauth_tokens(cif)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_supplier_mappings_partner ON efactura_supplier_mappings(partner_name)')
-    cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_supplier_mappings_cif ON efactura_supplier_mappings(partner_cif)')
-
-    # Enable pg_trgm extension for trigram indexes (faster ILIKE searches)
-    try:
-        cursor.execute('CREATE EXTENSION IF NOT EXISTS pg_trgm')
-        conn.commit()
-    except Exception as e:
-        print(f"Note: pg_trgm extension may already exist or require superuser: {e}")
-        conn.rollback()
-
-    # Create trigram indexes for e-Factura invoice search fields
-    try:
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_partner_name_trgm ON efactura_invoices USING gin (partner_name gin_trgm_ops)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_partner_cif_trgm ON efactura_invoices USING gin (partner_cif gin_trgm_ops)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_invoice_number_trgm ON efactura_invoices USING gin (invoice_number gin_trgm_ops)')
-        conn.commit()
-        print("Created trigram indexes for efactura_invoices")
-    except Exception as e:
-        print(f"Note: Could not create trigram indexes for efactura_invoices: {e}")
-        conn.rollback()
-
-    # Create trigram indexes for e-Factura supplier mappings search fields
-    try:
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_mappings_partner_name_trgm ON efactura_supplier_mappings USING gin (partner_name gin_trgm_ops)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_mappings_supplier_name_trgm ON efactura_supplier_mappings USING gin (supplier_name gin_trgm_ops)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_mappings_partner_cif_trgm ON efactura_supplier_mappings USING gin (partner_cif gin_trgm_ops)')
-        conn.commit()
-        print("Created trigram indexes for efactura_supplier_mappings")
-    except Exception as e:
-        print(f"Note: Could not create trigram indexes for efactura_supplier_mappings: {e}")
-        conn.rollback()
-
-    # Create functional indexes for LOWER() case-insensitive matching (used in JOINs)
-    try:
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_invoices_partner_name_lower ON efactura_invoices (LOWER(partner_name))')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_efactura_mappings_partner_name_lower ON efactura_supplier_mappings (LOWER(partner_name))')
-        conn.commit()
-        print("Created functional indexes for LOWER() matching")
-    except Exception as e:
-        print(f"Note: Could not create LOWER() functional indexes: {e}")
-        conn.rollback()
-
-    conn.commit()
 
     # Seed initial data if tables are empty
     cursor.execute('SELECT COUNT(*) FROM department_structure')
@@ -4133,156 +3698,6 @@ def get_connector_sync_logs(connector_id: int, limit: int = 20) -> list[dict]:
     return logs
 
 
-# ============ e-Factura OAuth Token Functions ============
-
-def get_efactura_oauth_tokens(company_cif: str) -> Optional[dict]:
-    """
-    Get OAuth tokens for a company's e-Factura connection.
-
-    Args:
-        company_cif: Company CIF (without RO prefix)
-
-    Returns:
-        Dict with tokens or None if not found
-    """
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        SELECT credentials FROM connectors
-        WHERE connector_type = 'efactura'
-        AND name = %s
-        AND status = 'connected'
-    ''', (company_cif,))
-
-    row = cursor.fetchone()
-    release_db(conn)
-
-    if row and row['credentials']:
-        return row['credentials']
-    return None
-
-
-def save_efactura_oauth_tokens(company_cif: str, tokens: dict) -> bool:
-    """
-    Save OAuth tokens for a company's e-Factura connection.
-    Creates connector if not exists, updates if exists.
-
-    Args:
-        company_cif: Company CIF (without RO prefix)
-        tokens: Dict with access_token, refresh_token, expires_at, etc.
-
-    Returns:
-        True if successful
-    """
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    try:
-        # Check if connector exists
-        cursor.execute('''
-            SELECT id FROM connectors
-            WHERE connector_type = 'efactura' AND name = %s
-        ''', (company_cif,))
-        existing = cursor.fetchone()
-
-        if existing:
-            # Update existing connector
-            cursor.execute('''
-                UPDATE connectors
-                SET credentials = %s,
-                    status = 'connected',
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
-            ''', (json.dumps(tokens), existing['id']))
-        else:
-            # Create new connector
-            cursor.execute('''
-                INSERT INTO connectors (connector_type, name, status, credentials, config)
-                VALUES ('efactura', %s, 'connected', %s, '{}')
-            ''', (company_cif, json.dumps(tokens)))
-
-        conn.commit()
-        return True
-
-    except Exception as e:
-        conn.rollback()
-        raise
-    finally:
-        release_db(conn)
-
-
-def delete_efactura_oauth_tokens(company_cif: str) -> bool:
-    """
-    Remove OAuth tokens for a company (disconnect).
-
-    Args:
-        company_cif: Company CIF
-
-    Returns:
-        True if tokens were removed
-    """
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    try:
-        cursor.execute('''
-            UPDATE connectors
-            SET credentials = '{}',
-                status = 'disconnected',
-                updated_at = CURRENT_TIMESTAMP
-            WHERE connector_type = 'efactura' AND name = %s
-        ''', (company_cif,))
-
-        affected = cursor.rowcount
-        conn.commit()
-        return affected > 0
-
-    except Exception as e:
-        conn.rollback()
-        raise
-    finally:
-        release_db(conn)
-
-
-def get_efactura_oauth_status(company_cif: str) -> dict:
-    """
-    Get OAuth authentication status for a company.
-
-    Args:
-        company_cif: Company CIF
-
-    Returns:
-        Dict with authenticated, expires_at, etc.
-    """
-    tokens = get_efactura_oauth_tokens(company_cif)
-
-    if not tokens or not tokens.get('access_token'):
-        return {
-            'authenticated': False,
-            'expires_at': None,
-            'cif': company_cif,
-        }
-
-    from datetime import datetime
-    expires_at = tokens.get('expires_at')
-    is_expired = False
-
-    if expires_at:
-        if isinstance(expires_at, str):
-            expires_dt = datetime.fromisoformat(expires_at.replace('Z', ''))
-        else:
-            expires_dt = expires_at
-        is_expired = datetime.utcnow() >= expires_dt
-
-    return {
-        'authenticated': True,
-        'expires_at': expires_at,
-        'is_expired': is_expired,
-        'cif': company_cif,
-    }
-
-
 # ============ Role Management Functions ============
 
 def get_all_roles() -> list[dict]:
@@ -4772,330 +4187,6 @@ def delete_responsable(responsable_id: int) -> bool:
     if deleted:
         clear_responsables_cache()
     return deleted
-
-
-# ============== Profile Page Queries ==============
-
-def get_responsable_by_email(email: str) -> Optional[dict]:
-    """Get responsable record matching user email (case insensitive)."""
-    if not email:
-        return None
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        SELECT * FROM responsables
-        WHERE LOWER(email) = LOWER(%s) AND is_active = TRUE
-        LIMIT 1
-    ''', (email,))
-
-    row = cursor.fetchone()
-    release_db(conn)
-    return dict_from_row(row) if row else None
-
-
-def get_user_invoices_by_responsible_name(responsible_name: str, status: str = None,
-                                          start_date: str = None, end_date: str = None,
-                                          search: str = None,
-                                          limit: int = 100, offset: int = 0) -> list[dict]:
-    """Get invoices where allocations.responsible matches the given name."""
-    if not responsible_name:
-        return []
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    # Build query with optional filters
-    conditions = ['a.responsible = %s', 'i.deleted_at IS NULL']
-    params = [responsible_name]
-
-    if status:
-        conditions.append('i.status = %s')
-        params.append(status)
-
-    if start_date:
-        conditions.append('i.invoice_date >= %s')
-        params.append(start_date)
-
-    if end_date:
-        conditions.append('i.invoice_date <= %s')
-        params.append(end_date)
-
-    if search:
-        conditions.append('(i.supplier ILIKE %s OR i.invoice_number ILIKE %s)')
-        search_term = f'%{search}%'
-        params.extend([search_term, search_term])
-
-    where_clause = ' AND '.join(conditions)
-    params.extend([limit, offset])
-
-    cursor.execute(f'''
-        SELECT DISTINCT
-            i.id, i.invoice_number, i.supplier, i.invoice_date,
-            i.invoice_value, i.currency, i.status, i.payment_status,
-            i.drive_link, i.created_at,
-            a.company, a.brand, a.department, a.subdepartment,
-            a.allocation_percent, a.allocation_value, a.responsible
-        FROM invoices i
-        INNER JOIN allocations a ON a.invoice_id = i.id
-        WHERE {where_clause}
-        ORDER BY i.invoice_date DESC
-        LIMIT %s OFFSET %s
-    ''', tuple(params))
-
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
-    return results
-
-
-def get_user_invoices_count(responsible_name: str, status: str = None,
-                            start_date: str = None, end_date: str = None,
-                            search: str = None) -> int:
-    """Get total count of invoices for a responsible (for pagination)."""
-    if not responsible_name:
-        return 0
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    conditions = ['a.responsible = %s', 'i.deleted_at IS NULL']
-    params = [responsible_name]
-
-    if status:
-        conditions.append('i.status = %s')
-        params.append(status)
-
-    if start_date:
-        conditions.append('i.invoice_date >= %s')
-        params.append(start_date)
-
-    if end_date:
-        conditions.append('i.invoice_date <= %s')
-        params.append(end_date)
-
-    if search:
-        conditions.append('(i.supplier ILIKE %s OR i.invoice_number ILIKE %s)')
-        search_term = f'%{search}%'
-        params.extend([search_term, search_term])
-
-    where_clause = ' AND '.join(conditions)
-
-    cursor.execute(f'''
-        SELECT COUNT(DISTINCT i.id) as count
-        FROM invoices i
-        INNER JOIN allocations a ON a.invoice_id = i.id
-        WHERE {where_clause}
-    ''', tuple(params))
-
-    row = cursor.fetchone()
-    release_db(conn)
-    return row['count'] if row else 0
-
-
-def get_user_invoices_summary(responsible_name: str) -> dict:
-    """Get invoice stats (total count, by status, total value) for a responsible."""
-    if not responsible_name:
-        return {'total': 0, 'by_status': {}, 'total_value': 0}
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    # Get count and total by status
-    cursor.execute('''
-        SELECT
-            i.status,
-            COUNT(DISTINCT i.id) as count,
-            COALESCE(SUM(a.allocation_value), 0) as total_value
-        FROM invoices i
-        INNER JOIN allocations a ON a.invoice_id = i.id
-        WHERE a.responsible = %s AND i.deleted_at IS NULL
-        GROUP BY i.status
-    ''', (responsible_name,))
-
-    rows = cursor.fetchall()
-    release_db(conn)
-
-    by_status = {}
-    total_count = 0
-    total_value = 0
-
-    for row in rows:
-        status = row['status'] or 'Unknown'
-        by_status[status] = row['count']
-        total_count += row['count']
-        total_value += float(row['total_value'])
-
-    return {
-        'total': total_count,
-        'by_status': by_status,
-        'total_value': total_value
-    }
-
-
-def get_user_event_bonuses(responsable_id: int, year: int = None,
-                           limit: int = 100, offset: int = 0) -> list[dict]:
-    """Get HR event bonuses for a specific responsable."""
-    if not responsable_id:
-        return []
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    conditions = ['b.responsable_id = %s']
-    params = [responsable_id]
-
-    if year:
-        conditions.append('b.year = %s')
-        params.append(year)
-
-    where_clause = ' AND '.join(conditions)
-    params.extend([limit, offset])
-
-    cursor.execute(f'''
-        SELECT
-            b.id, b.year, b.month, b.participation_start, b.participation_end,
-            b.bonus_days, b.hours_free, b.bonus_net, b.details, b.allocation_month,
-            b.created_at,
-            e.id as event_id, e.name as event_name, e.start_date as event_start,
-            e.end_date as event_end, e.company, e.brand
-        FROM hr.event_bonuses b
-        JOIN hr.events e ON e.id = b.event_id
-        WHERE {where_clause}
-        ORDER BY b.year DESC, b.month DESC
-        LIMIT %s OFFSET %s
-    ''', tuple(params))
-
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
-    return results
-
-
-def get_user_event_bonuses_summary(responsable_id: int) -> dict:
-    """Get HR event bonuses summary for a responsable."""
-    if not responsable_id:
-        return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        SELECT
-            COUNT(*) as total_bonuses,
-            COALESCE(SUM(b.bonus_net), 0) as total_amount,
-            COUNT(DISTINCT b.event_id) as events_count
-        FROM hr.event_bonuses b
-        WHERE b.responsable_id = %s
-    ''', (responsable_id,))
-
-    row = cursor.fetchone()
-    release_db(conn)
-
-    return {
-        'total_bonuses': row['total_bonuses'],
-        'total_amount': float(row['total_amount']),
-        'events_count': row['events_count']
-    }
-
-
-def get_user_notifications(responsable_id: int, limit: int = 100, offset: int = 0) -> list[dict]:
-    """Get notification log for a specific responsable."""
-    if not responsable_id:
-        return []
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        SELECT
-            nl.*,
-            i.invoice_number, i.supplier
-        FROM notification_log nl
-        LEFT JOIN invoices i ON nl.invoice_id = i.id
-        WHERE nl.responsable_id = %s
-        ORDER BY nl.created_at DESC
-        LIMIT %s OFFSET %s
-    ''', (responsable_id, limit, offset))
-
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
-    return results
-
-
-def get_user_notifications_summary(responsable_id: int) -> dict:
-    """Get notification summary for a responsable."""
-    if not responsable_id:
-        return {'total': 0, 'sent': 0, 'failed': 0}
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        SELECT
-            COUNT(*) as total,
-            COUNT(*) FILTER (WHERE status = 'sent') as sent,
-            COUNT(*) FILTER (WHERE status = 'failed') as failed
-        FROM notification_log
-        WHERE responsable_id = %s
-    ''', (responsable_id,))
-
-    row = cursor.fetchone()
-    release_db(conn)
-
-    return {
-        'total': row['total'],
-        'sent': row['sent'],
-        'failed': row['failed']
-    }
-
-
-def get_user_activity(user_id: int, event_type: str = None,
-                      limit: int = 100, offset: int = 0) -> list[dict]:
-    """Get activity log for a specific user."""
-    if not user_id:
-        return []
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    conditions = ['user_id = %s']
-    params = [user_id]
-
-    if event_type:
-        conditions.append('event_type = %s')
-        params.append(event_type)
-
-    where_clause = ' AND '.join(conditions)
-    params.extend([limit, offset])
-
-    cursor.execute(f'''
-        SELECT *
-        FROM user_events
-        WHERE {where_clause}
-        ORDER BY created_at DESC
-        LIMIT %s OFFSET %s
-    ''', tuple(params))
-
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
-    return results
-
-
-def get_user_activity_count(user_id: int) -> int:
-    """Get total activity count for a user."""
-    if not user_id:
-        return 0
-
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        SELECT COUNT(*) as count FROM user_events WHERE user_id = %s
-    ''', (user_id,))
-
-    row = cursor.fetchone()
-    release_db(conn)
-    return row['count'] if row else 0
 
 
 # ============== Notification Settings CRUD ==============
@@ -5899,17 +4990,16 @@ def get_dropdown_option(option_id: int) -> Optional[dict]:
 
 
 def add_dropdown_option(dropdown_type: str, value: str, label: str,
-                        color: str = None, opacity: float = 0.7, sort_order: int = 0,
-                        is_active: bool = True, min_role: str = 'Viewer') -> int:
+                        color: str = None, opacity: float = 0.7, sort_order: int = 0, is_active: bool = True) -> int:
     """Add a new dropdown option. Returns the new option ID."""
     conn = get_db()
     cursor = get_cursor(conn)
 
     cursor.execute('''
-        INSERT INTO dropdown_options (dropdown_type, value, label, color, opacity, sort_order, is_active, min_role)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO dropdown_options (dropdown_type, value, label, color, opacity, sort_order, is_active)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
-    ''', (dropdown_type, value, label, color, opacity, sort_order, is_active, min_role))
+    ''', (dropdown_type, value, label, color, opacity, sort_order, is_active))
 
     option_id = cursor.fetchone()['id']
     conn.commit()
@@ -5918,8 +5008,7 @@ def add_dropdown_option(dropdown_type: str, value: str, label: str,
 
 
 def update_dropdown_option(option_id: int, value: str = None, label: str = None,
-                           color: str = None, opacity: float = None, sort_order: int = None,
-                           is_active: bool = None, min_role: str = None) -> bool:
+                           color: str = None, opacity: float = None, sort_order: int = None, is_active: bool = None) -> bool:
     """Update a dropdown option. Returns True if updated."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -5945,9 +5034,6 @@ def update_dropdown_option(option_id: int, value: str = None, label: str = None,
     if is_active is not None:
         updates.append('is_active = %s')
         params.append(is_active)
-    if min_role is not None:
-        updates.append('min_role = %s')
-        params.append(min_role)
 
     if not updates:
         release_db(conn)
@@ -6380,158 +5466,6 @@ def get_event_types() -> list[str]:
     results = [row['event_type'] for row in cursor.fetchall()]
     release_db(conn)
     return results
-
-
-# ============== Performance Monitoring Functions ==============
-
-def save_performance_report(
-    endpoint: str,
-    method: str,
-    duration_ms: float,
-    status_code: int = None,
-    user_id: int = None,
-    query_params: str = None,
-    request_size: int = None,
-    response_size: int = None
-) -> int:
-    """Save a performance report for request timing analysis. Returns report ID."""
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        INSERT INTO performance_reports
-        (endpoint, method, duration_ms, status_code, user_id, query_params, request_size, response_size)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
-    ''', (
-        endpoint,
-        method,
-        duration_ms,
-        status_code,
-        user_id,
-        query_params,
-        request_size,
-        response_size
-    ))
-
-    report_id = cursor.fetchone()['id']
-    conn.commit()
-    release_db(conn)
-    return report_id
-
-
-def get_performance_reports(
-    limit: int = 100,
-    offset: int = 0,
-    endpoint: str = None,
-    min_duration_ms: float = None,
-    start_date: str = None,
-    end_date: str = None
-) -> list[dict]:
-    """Get performance reports with optional filtering."""
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    query = '''
-        SELECT pr.*, u.name as user_name, u.email as user_email
-        FROM performance_reports pr
-        LEFT JOIN users u ON pr.user_id = u.id
-    '''
-    params = []
-    conditions = []
-
-    if endpoint:
-        conditions.append('pr.endpoint LIKE %s')
-        params.append(f'%{endpoint}%')
-    if min_duration_ms:
-        conditions.append('pr.duration_ms >= %s')
-        params.append(min_duration_ms)
-    if start_date:
-        conditions.append('pr.created_at >= %s')
-        params.append(start_date)
-    if end_date:
-        conditions.append('pr.created_at <= %s')
-        params.append(end_date)
-
-    if conditions:
-        query += ' WHERE ' + ' AND '.join(conditions)
-
-    query += ' ORDER BY pr.created_at DESC LIMIT %s OFFSET %s'
-    params.extend([limit, offset])
-
-    cursor.execute(query, params)
-    results = [dict_from_row(row) for row in cursor.fetchall()]
-    release_db(conn)
-    return results
-
-
-def get_performance_summary(hours: int = 24) -> dict:
-    """Get performance summary statistics for the last N hours."""
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        SELECT
-            endpoint,
-            COUNT(*) as request_count,
-            AVG(duration_ms) as avg_duration,
-            MAX(duration_ms) as max_duration,
-            MIN(duration_ms) as min_duration,
-            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_duration
-        FROM performance_reports
-        WHERE created_at >= NOW() - INTERVAL '%s hours'
-        GROUP BY endpoint
-        ORDER BY avg_duration DESC
-    ''', (hours,))
-
-    by_endpoint = [dict_from_row(row) for row in cursor.fetchall()]
-
-    cursor.execute('''
-        SELECT
-            COUNT(*) as total_requests,
-            AVG(duration_ms) as avg_duration,
-            MAX(duration_ms) as max_duration,
-            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) as p95_duration
-        FROM performance_reports
-        WHERE created_at >= NOW() - INTERVAL '%s hours'
-    ''', (hours,))
-
-    overall = dict_from_row(cursor.fetchone())
-
-    # Get slowest requests
-    cursor.execute('''
-        SELECT endpoint, method, duration_ms, created_at, query_params
-        FROM performance_reports
-        WHERE created_at >= NOW() - INTERVAL '%s hours'
-        ORDER BY duration_ms DESC
-        LIMIT 10
-    ''', (hours,))
-
-    slowest = [dict_from_row(row) for row in cursor.fetchall()]
-
-    release_db(conn)
-    return {
-        'overall': overall,
-        'by_endpoint': by_endpoint,
-        'slowest_requests': slowest,
-        'hours': hours
-    }
-
-
-def cleanup_old_performance_reports(days: int = 7) -> int:
-    """Delete performance reports older than N days. Returns count deleted."""
-    conn = get_db()
-    cursor = get_cursor(conn)
-
-    cursor.execute('''
-        DELETE FROM performance_reports
-        WHERE created_at < NOW() - INTERVAL '%s days'
-    ''', (days,))
-
-    deleted = cursor.rowcount
-    conn.commit()
-    release_db(conn)
-    return deleted
 
 
 # ============== Permission Management ==============
@@ -7046,5 +5980,415 @@ def check_permission_v2(role_id: int, module: str, entity: str, action: str) -> 
     return {'has_permission': False, 'scope': 'deny'}
 
 
-# Note: init_db() is called from app.py, not at import time
-# This allows the module to be imported without requiring a database connection
+# ============== Profile Page Functions ==============
+
+def get_responsable_by_email(email: str) -> Optional[dict]:
+    """
+    Find a responsable record by email address.
+    Returns the responsable with their department/brand info.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT r.id, r.name, r.email, r.phone,
+               ds.company, ds.brand, ds.department, ds.subdepartment
+        FROM responsables r
+        LEFT JOIN department_structure ds ON r.org_unit_id = ds.id
+        WHERE LOWER(r.email) = LOWER(%s)
+        LIMIT 1
+    ''', (email,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row:
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'email': row['email'],
+            'phone': row['phone'],
+            'company': row['company'],
+            'brand': row['brand'],
+            'department': row['department'],
+            'subdepartment': row['subdepartment'],
+            'departments': row['department'],  # Alias for profile page
+        }
+    return None
+
+
+def get_user_invoices_by_responsible_name(
+    responsible_name: str,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get invoices where the user is listed as responsible in allocations.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Build query with proper joins
+    query = '''
+        SELECT DISTINCT
+            i.id, i.invoice_number, i.invoice_date, i.invoice_value,
+            i.currency, i.supplier, i.supplier_vat, i.dedicated_to,
+            i.status, i.payment_status, i.drive_link, i.notes,
+            i.created_at, i.updated_at
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+    '''
+    params = [responsible_name]
+
+    if status:
+        query += ' AND i.status = %s'
+        params.append(status)
+
+    if start_date:
+        query += ' AND i.invoice_date >= %s'
+        params.append(start_date)
+
+    if end_date:
+        query += ' AND i.invoice_date <= %s'
+        params.append(end_date)
+
+    if search:
+        query += ''' AND (
+            i.invoice_number ILIKE %s
+            OR i.supplier ILIKE %s
+            OR i.dedicated_to ILIKE %s
+        )'''
+        search_pattern = f'%{search}%'
+        params.extend([search_pattern, search_pattern, search_pattern])
+
+    query += ' ORDER BY i.invoice_date DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_invoices_count(
+    responsible_name: str,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    search: Optional[str] = None,
+) -> int:
+    """
+    Count invoices where the user is listed as responsible.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    query = '''
+        SELECT COUNT(DISTINCT i.id) as count
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+    '''
+    params = [responsible_name]
+
+    if status:
+        query += ' AND i.status = %s'
+        params.append(status)
+
+    if start_date:
+        query += ' AND i.invoice_date >= %s'
+        params.append(start_date)
+
+    if end_date:
+        query += ' AND i.invoice_date <= %s'
+        params.append(end_date)
+
+    if search:
+        query += ''' AND (
+            i.invoice_number ILIKE %s
+            OR i.supplier ILIKE %s
+            OR i.dedicated_to ILIKE %s
+        )'''
+        search_pattern = f'%{search}%'
+        params.extend([search_pattern, search_pattern, search_pattern])
+
+    cursor.execute(query, params)
+    row = cursor.fetchone()
+    release_db(conn)
+
+    return row['count'] if row else 0
+
+
+def get_user_invoices_summary(responsible_name: str) -> dict:
+    """
+    Get invoice summary stats for a responsible person.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Get status breakdown
+    cursor.execute('''
+        SELECT i.status, COUNT(DISTINCT i.id) as count
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+        GROUP BY i.status
+    ''', (responsible_name,))
+
+    by_status = {}
+    for row in cursor.fetchall():
+        by_status[row['status'] or 'unknown'] = row['count']
+
+    # Get total value
+    cursor.execute('''
+        SELECT COUNT(DISTINCT i.id) as total, COALESCE(SUM(DISTINCT i.invoice_value), 0) as total_value
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+    ''', (responsible_name,))
+
+    totals = cursor.fetchone()
+    release_db(conn)
+
+    return {
+        'total': totals['total'] if totals else 0,
+        'total_value': float(totals['total_value']) if totals else 0,
+        'by_status': by_status,
+    }
+
+
+def get_user_event_bonuses(
+    responsable_id: int,
+    year: Optional[int] = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get HR event bonuses for a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Find employee by responsable_id (via email match or user_id)
+    cursor.execute('''
+        SELECT e.id as employee_id
+        FROM hr.employees e
+        INNER JOIN responsables r ON (
+            LOWER(r.email) = (SELECT LOWER(email) FROM users WHERE id = e.user_id)
+            OR LOWER(r.name) = LOWER(e.name)
+        )
+        WHERE r.id = %s
+        LIMIT 1
+    ''', (responsable_id,))
+
+    emp_row = cursor.fetchone()
+    if not emp_row:
+        release_db(conn)
+        return []
+
+    employee_id = emp_row['employee_id']
+
+    query = '''
+        SELECT
+            eb.id, eb.year, eb.month, eb.bonus_days, eb.hours_free,
+            eb.bonus_net, eb.details, eb.allocation_month,
+            eb.created_at, eb.updated_at,
+            e.name as event_name, e.start_date, e.end_date,
+            e.company, e.brand
+        FROM hr.event_bonuses eb
+        INNER JOIN hr.events e ON eb.event_id = e.id
+        WHERE eb.employee_id = %s
+    '''
+    params = [employee_id]
+
+    if year:
+        query += ' AND eb.year = %s'
+        params.append(year)
+
+    query += ' ORDER BY eb.year DESC, eb.month DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_event_bonuses_summary(responsable_id: int) -> dict:
+    """
+    Get summary of HR event bonuses for a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Find employee by responsable
+    cursor.execute('''
+        SELECT e.id as employee_id
+        FROM hr.employees e
+        INNER JOIN responsables r ON (
+            LOWER(r.email) = (SELECT LOWER(email) FROM users WHERE id = e.user_id)
+            OR LOWER(r.name) = LOWER(e.name)
+        )
+        WHERE r.id = %s
+        LIMIT 1
+    ''', (responsable_id,))
+
+    emp_row = cursor.fetchone()
+    if not emp_row:
+        release_db(conn)
+        return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
+
+    employee_id = emp_row['employee_id']
+
+    cursor.execute('''
+        SELECT
+            COUNT(*) as total_bonuses,
+            COALESCE(SUM(bonus_net), 0) as total_amount,
+            COUNT(DISTINCT event_id) as events_count
+        FROM hr.event_bonuses
+        WHERE employee_id = %s
+    ''', (employee_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row:
+        return {
+            'total_bonuses': row['total_bonuses'],
+            'total_amount': float(row['total_amount']),
+            'events_count': row['events_count'],
+        }
+    return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
+
+
+def get_user_notifications(
+    responsable_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get notifications sent to a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Get responsable email
+    cursor.execute('SELECT email FROM responsables WHERE id = %s', (responsable_id,))
+    resp_row = cursor.fetchone()
+
+    if not resp_row or not resp_row['email']:
+        release_db(conn)
+        return []
+
+    cursor.execute('''
+        SELECT id, event_type, invoice_id, recipient_email, status,
+               error_message, created_at
+        FROM notification_logs
+        WHERE LOWER(recipient_email) = LOWER(%s)
+        ORDER BY created_at DESC
+        LIMIT %s OFFSET %s
+    ''', (resp_row['email'], limit, offset))
+
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_notifications_summary(responsable_id: int) -> dict:
+    """
+    Get notification summary for a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Get responsable email
+    cursor.execute('SELECT email FROM responsables WHERE id = %s', (responsable_id,))
+    resp_row = cursor.fetchone()
+
+    if not resp_row or not resp_row['email']:
+        release_db(conn)
+        return {'total': 0, 'sent': 0, 'failed': 0}
+
+    cursor.execute('''
+        SELECT
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE status = 'sent') as sent,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed
+        FROM notification_logs
+        WHERE LOWER(recipient_email) = LOWER(%s)
+    ''', (resp_row['email'],))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row:
+        return {
+            'total': row['total'],
+            'sent': row['sent'],
+            'failed': row['failed'],
+        }
+    return {'total': 0, 'sent': 0, 'failed': 0}
+
+
+def get_user_activity(
+    user_id: int,
+    event_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get activity log for a user.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    query = '''
+        SELECT id, event_type, details, ip_address, user_agent, created_at
+        FROM user_events
+        WHERE user_id = %s
+    '''
+    params = [user_id]
+
+    if event_type:
+        query += ' AND event_type = %s'
+        params.append(event_type)
+
+    query += ' ORDER BY created_at DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_activity_count(user_id: int) -> int:
+    """
+    Count activity events for a user.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT COUNT(*) as count
+        FROM user_events
+        WHERE user_id = %s
+    ''', (user_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    return row['count'] if row else 0
+
+
+# Initialize database on import
+init_db()

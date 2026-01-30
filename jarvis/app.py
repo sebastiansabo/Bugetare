@@ -4,7 +4,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from functools import wraps
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response, g
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response
 
 # Structured logging
 from core.utils.logging_config import setup_logging, get_logger
@@ -16,44 +16,31 @@ from models import load_structure, get_companies, get_brands_for_company, get_de
 from services import (
     get_companies_with_vat, match_company_by_vat, add_company_with_vat, update_company_vat, delete_company
 )
-
-# Core Services (business logic layer)
-from core.services import InvoiceService, SettingsService
-invoice_service = InvoiceService()
-settings_service = SettingsService()
 from accounting.bugetare.invoice_parser import parse_invoice, parse_invoice_with_template_from_bytes, auto_detect_and_parse, generate_template_from_invoice, match_campaigns_with_ai
 from database import (
-    # Invoice operations (still used directly in some routes)
-    update_invoice, save_invoice, update_invoice_allocations, check_invoice_number_exists,
-    # Template operations
+    get_all_invoices, get_invoice_with_allocations, get_invoices_with_allocations, search_invoices,
+    get_summary_by_company, get_summary_by_department, get_summary_by_brand, get_summary_by_supplier, delete_invoice, update_invoice, save_invoice,
+    update_invoice_allocations,
     get_all_invoice_templates, get_invoice_template, save_invoice_template,
     update_invoice_template, delete_invoice_template,
-    # User & Role management
-    get_all_users, get_user, save_user, update_user, delete_user,
+    check_invoice_number_exists,
+    restore_invoice, bulk_soft_delete_invoices, bulk_restore_invoices,
+    permanently_delete_invoice, bulk_permanently_delete_invoices,
+    get_invoice_drive_link, get_invoice_drive_links,
+    get_all_users, get_user, get_user_by_email, save_user, update_user, delete_user,
     get_all_roles, get_role, save_role, update_role, delete_role,
-    # Responsables
     get_all_responsables, get_responsable, save_responsable, update_responsable, delete_responsable,
-    # Notifications
     get_notification_settings, save_notification_settings_bulk, save_notification_setting, get_notification_logs,
-    # Companies & Structure
     get_all_companies, get_company, save_company, update_company, delete_company as delete_company_db,
     get_all_department_structures, get_department_structure, save_department_structure,
     update_department_structure, delete_department_structure, get_unique_departments, get_unique_brands,
-    # Auth & User activity
     authenticate_user, set_user_password, update_user_last_login, update_user_last_seen, get_online_users_count, set_default_password_for_users,
     log_user_event, get_user_events, get_event_types,
-    # Performance monitoring
-    save_performance_report, get_performance_reports, get_performance_summary, cleanup_old_performance_reports,
-    # VAT rates
+    update_allocation_comment,
     get_vat_rates, add_vat_rate, update_vat_rate, delete_vat_rate,
-    # Dropdown options
-    get_dropdown_options, add_dropdown_option, update_dropdown_option, delete_dropdown_option,
-    # System utilities
+    get_dropdown_options, get_dropdown_option, add_dropdown_option, update_dropdown_option, delete_dropdown_option,
     refresh_connection_pool, ping_db, cleanup_expired_caches,
-    # Permissions
-    get_all_permissions, get_permissions_flat, get_role_permissions_list, set_role_permissions,
-    # Invoice with allocations (still needed for some routes)
-    get_invoice_with_allocations,
+    get_all_permissions, get_permissions_flat, get_role_permissions, get_role_permissions_list, set_role_permissions
 )
 
 # Google Drive integration (optional)
@@ -117,14 +104,6 @@ app.config['REMEMBER_COOKIE_SECURE'] = True  # Only send over HTTPS
 app.config['REMEMBER_COOKIE_HTTPONLY'] = True  # Not accessible via JavaScript
 app.config['REMEMBER_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 
-# Initialize database tables (moved from database.py to avoid import-time DB connection)
-from database import init_db
-try:
-    init_db()
-    app_logger.info("Database initialized successfully")
-except Exception as e:
-    app_logger.warning(f"Database initialization skipped: {e}")
-
 # Register HR Module Blueprint (section-level, includes /events sub-routes)
 from hr import hr_bp
 app.register_blueprint(hr_bp, url_prefix='/hr')
@@ -133,17 +112,11 @@ app.register_blueprint(hr_bp, url_prefix='/hr')
 from accounting.statements import statements_bp
 app.register_blueprint(statements_bp, url_prefix='/statements')
 
-# Register e-Factura Connector (core connector for ANAF integration)
-try:
-    from core.connectors.efactura import efactura_bp
-    app.register_blueprint(efactura_bp, url_prefix='/efactura')
-    EFACTURA_ENABLED = True
-    app_logger.info("e-Factura connector enabled")
-except ImportError as e:
-    EFACTURA_ENABLED = False
-    app_logger.warning(f"e-Factura connector not available: {e}")
+# Register AI Agent Module Blueprint
+from ai_agent import ai_agent_bp
+app.register_blueprint(ai_agent_bp)
 
-# Register Profile Module Blueprint (core module for user profile page)
+# Register Profile Module Blueprint
 from core.profile import profile_bp
 app.register_blueprint(profile_bp)
 
@@ -153,46 +126,6 @@ app.register_blueprint(profile_bp)
 CACHEABLE_API_ENDPOINTS = {
     # All reference data endpoints removed - fresh data is more valuable than caching
 }
-
-# Performance monitoring - enable with PERF_MONITOR=true environment variable
-PERF_MONITOR_ENABLED = os.environ.get('PERF_MONITOR', 'false').lower() == 'true'
-PERF_MONITOR_MIN_MS = float(os.environ.get('PERF_MONITOR_MIN_MS', '100'))  # Only log requests slower than this
-
-import time
-
-@app.before_request
-def start_timer():
-    """Start timing the request."""
-    if PERF_MONITOR_ENABLED:
-        g.start_time = time.time()
-
-@app.after_request
-def log_request_timing(response):
-    """Log request timing to performance_reports table."""
-    if PERF_MONITOR_ENABLED and hasattr(g, 'start_time'):
-        duration_ms = (time.time() - g.start_time) * 1000
-
-        # Only log requests slower than threshold (skip health checks, static files)
-        if duration_ms >= PERF_MONITOR_MIN_MS and not request.path.startswith('/static'):
-            try:
-                user_id = current_user.id if current_user.is_authenticated else None
-                save_performance_report(
-                    endpoint=request.path,
-                    method=request.method,
-                    duration_ms=round(duration_ms, 2),
-                    status_code=response.status_code,
-                    user_id=user_id,
-                    query_params=request.query_string.decode('utf-8')[:500] if request.query_string else None,
-                    request_size=request.content_length,
-                    response_size=len(response.data) if response.data else None
-                )
-            except Exception as e:
-                app_logger.warning(f"Failed to save performance report: {e}")
-
-        # Add timing header for debugging
-        response.headers['X-Response-Time'] = f'{duration_ms:.2f}ms'
-
-    return response
 
 @app.after_request
 def add_cache_headers(response):
@@ -508,60 +441,6 @@ def api_get_event_types():
         return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
     return jsonify(get_event_types())
-
-
-# ============== Performance Monitoring ==============
-
-@app.route('/api/performance/reports', methods=['GET'])
-@login_required
-def api_get_performance_reports():
-    """Get performance reports with filtering."""
-    if not current_user.can_access_settings:
-        return jsonify({'success': False, 'error': 'Permission denied'}), 403
-
-    limit = request.args.get('limit', 100, type=int)
-    offset = request.args.get('offset', 0, type=int)
-    endpoint = request.args.get('endpoint')
-    min_duration = request.args.get('min_duration', type=float)
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-
-    reports = get_performance_reports(
-        limit=limit,
-        offset=offset,
-        endpoint=endpoint,
-        min_duration_ms=min_duration,
-        start_date=start_date,
-        end_date=end_date
-    )
-
-    return jsonify({'success': True, 'data': reports})
-
-
-@app.route('/api/performance/summary', methods=['GET'])
-@login_required
-def api_get_performance_summary():
-    """Get performance summary statistics."""
-    if not current_user.can_access_settings:
-        return jsonify({'success': False, 'error': 'Permission denied'}), 403
-
-    hours = request.args.get('hours', 24, type=int)
-    summary = get_performance_summary(hours=hours)
-
-    return jsonify({'success': True, 'data': summary})
-
-
-@app.route('/api/performance/cleanup', methods=['POST'])
-@login_required
-def api_cleanup_performance_reports():
-    """Delete old performance reports."""
-    if not current_user.can_access_settings:
-        return jsonify({'success': False, 'error': 'Permission denied'}), 403
-
-    days = request.json.get('days', 7) if request.json else 7
-    deleted = cleanup_old_performance_reports(days=days)
-
-    return jsonify({'success': True, 'deleted': deleted})
 
 
 # ============== Health Check ==============
@@ -1037,16 +916,6 @@ def accounting():
     return render_template('accounting/bugetare/accounting.html')
 
 
-@app.route('/accounting/efactura')
-@login_required
-def accounting_efactura():
-    """e-Factura unallocated invoices page."""
-    if not current_user.can_access_accounting:
-        flash('You do not have permission to access this page.', 'error')
-        return redirect(url_for('add_invoice'))
-    return render_template('accounting/bugetare/efactura.html')
-
-
 # ============== CONNECTORS INTERFACE ENDPOINTS ==============
 # NOTE: Connectors feature is disabled/under development
 # Connector files (google_ads_connector.py, anthropic_connector.py) removed as dead code
@@ -1177,23 +1046,23 @@ def api_db_invoices():
     end_date = request.args.get('end_date')
     include_allocations = request.args.get('include_allocations', 'false').lower() == 'true'
 
-    result = invoice_service.get_all(
-        limit=limit,
-        offset=offset,
-        company=company,
-        department=department,
-        subdepartment=subdepartment,
-        brand=brand,
-        start_date=start_date,
-        end_date=end_date,
-        status=status,
-        payment_status=payment_status,
-        include_allocations=include_allocations,
-    )
-
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 500
+    if include_allocations:
+        # Use optimized query that fetches invoices with allocations in single query
+        invoices = get_invoices_with_allocations(
+            limit=limit, offset=offset, company=company,
+            start_date=start_date, end_date=end_date,
+            department=department, subdepartment=subdepartment, brand=brand,
+            status=status, payment_status=payment_status
+        )
+    else:
+        # Original behavior - invoices only, allocations fetched separately
+        invoices = get_all_invoices(
+            limit=limit, offset=offset, company=company,
+            start_date=start_date, end_date=end_date,
+            department=department, subdepartment=subdepartment, brand=brand,
+            status=status, payment_status=payment_status
+        )
+    return jsonify(invoices)
 
 
 @app.route('/api/db/invoices/<int:invoice_id>')
@@ -1203,10 +1072,10 @@ def api_db_invoice_detail(invoice_id):
     if not current_user.can_view_invoices:
         return jsonify({'error': 'You do not have permission to view invoices'}), 403
 
-    result = invoice_service.get_by_id(invoice_id)
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 404
+    invoice = get_invoice_with_allocations(invoice_id)
+    if invoice:
+        return jsonify(invoice)
+    return jsonify({'error': 'Invoice not found'}), 404
 
 
 @app.route('/api/db/invoices/<int:invoice_id>', methods=['DELETE'])
@@ -1215,13 +1084,11 @@ def api_db_delete_invoice(invoice_id):
     """Soft delete an invoice (move to bin)."""
     if not current_user.can_delete_invoices:
         return jsonify({'success': False, 'error': 'You do not have permission to delete invoices'}), 403
-
-    result = invoice_service.soft_delete(invoice_id)
-    if result.success:
+    if delete_invoice(invoice_id):
         log_event('invoice_deleted', f'Moved invoice ID {invoice_id} to bin',
                   entity_type='invoice', entity_id=invoice_id)
         return jsonify({'success': True})
-    return jsonify({'error': result.error}), 404
+    return jsonify({'error': 'Invoice not found'}), 404
 
 
 @app.route('/api/db/invoices/<int:invoice_id>/restore', methods=['POST'])
@@ -1230,13 +1097,11 @@ def api_db_restore_invoice(invoice_id):
     """Restore a soft-deleted invoice from the bin."""
     if not current_user.can_delete_invoices:
         return jsonify({'success': False, 'error': 'You do not have permission to restore invoices'}), 403
-
-    result = invoice_service.restore(invoice_id)
-    if result.success:
+    if restore_invoice(invoice_id):
         log_event('invoice_restored', f'Restored invoice ID {invoice_id} from bin',
                   entity_type='invoice', entity_id=invoice_id)
         return jsonify({'success': True})
-    return jsonify({'error': result.error}), 404
+    return jsonify({'error': 'Invoice not found in bin'}), 404
 
 
 @app.route('/api/db/invoices/<int:invoice_id>/permanent', methods=['DELETE'])
@@ -1245,13 +1110,10 @@ def api_db_permanently_delete_invoice(invoice_id):
     """Permanently delete an invoice (cannot be restored). Also deletes from Google Drive."""
     if not current_user.can_delete_invoices:
         return jsonify({'success': False, 'error': 'You do not have permission to delete invoices'}), 403
-
     # Get drive_link before deleting the invoice
-    drive_result = invoice_service.get_drive_link(invoice_id)
-    drive_link = drive_result.data.get('link') if drive_result.success else None
+    drive_link = get_invoice_drive_link(invoice_id)
 
-    result = invoice_service.permanent_delete(invoice_id)
-    if result.success:
+    if permanently_delete_invoice(invoice_id):
         # Delete from Google Drive if link exists and Drive is enabled
         drive_deleted = False
         if drive_link and DRIVE_ENABLED and delete_file_from_drive:
@@ -1259,7 +1121,7 @@ def api_db_permanently_delete_invoice(invoice_id):
         log_event('invoice_permanently_deleted', f'Permanently deleted invoice ID {invoice_id}',
                   entity_type='invoice', entity_id=invoice_id)
         return jsonify({'success': True, 'drive_deleted': drive_deleted})
-    return jsonify({'error': result.error}), 404
+    return jsonify({'error': 'Invoice not found'}), 404
 
 
 @app.route('/api/db/invoices/bulk-delete', methods=['POST'])
@@ -1272,11 +1134,8 @@ def api_db_bulk_delete_invoices():
     invoice_ids = data.get('invoice_ids', [])
     if not invoice_ids:
         return jsonify({'error': 'No invoice IDs provided'}), 400
-
-    result = invoice_service.bulk_soft_delete(invoice_ids)
-    if result.success:
-        return jsonify({'success': True, 'deleted_count': result.data.get('deleted_count', 0)})
-    return jsonify({'error': result.error}), 500
+    count = bulk_soft_delete_invoices(invoice_ids)
+    return jsonify({'success': True, 'deleted_count': count})
 
 
 @app.route('/api/db/invoices/bulk-restore', methods=['POST'])
@@ -1289,11 +1148,8 @@ def api_db_bulk_restore_invoices():
     invoice_ids = data.get('invoice_ids', [])
     if not invoice_ids:
         return jsonify({'error': 'No invoice IDs provided'}), 400
-
-    result = invoice_service.bulk_restore(invoice_ids)
-    if result.success:
-        return jsonify({'success': True, 'restored_count': result.data.get('restored_count', 0)})
-    return jsonify({'error': result.error}), 500
+    count = bulk_restore_invoices(invoice_ids)
+    return jsonify({'success': True, 'restored_count': count})
 
 
 @app.route('/api/db/invoices/bulk-permanent-delete', methods=['POST'])
@@ -1308,23 +1164,16 @@ def api_db_bulk_permanently_delete_invoices():
         return jsonify({'error': 'No invoice IDs provided'}), 400
 
     # Get drive_links before deleting the invoices
-    links_result = invoice_service.get_drive_links(invoice_ids)
-    drive_links = links_result.data.get('links', []) if links_result.success else []
+    drive_links = get_invoice_drive_links(invoice_ids)
 
-    result = invoice_service.bulk_permanent_delete(invoice_ids)
+    count = bulk_permanently_delete_invoices(invoice_ids)
 
     # Delete from Google Drive if links exist and Drive is enabled
     drive_deleted_count = 0
     if drive_links and DRIVE_ENABLED and delete_files_from_drive:
         drive_deleted_count = delete_files_from_drive(drive_links)
 
-    if result.success:
-        return jsonify({
-            'success': True,
-            'deleted_count': result.data.get('deleted_count', 0),
-            'drive_deleted_count': drive_deleted_count
-        })
-    return jsonify({'error': result.error}), 500
+    return jsonify({'success': True, 'deleted_count': count, 'drive_deleted_count': drive_deleted_count})
 
 
 @app.route('/api/db/invoices/bin', methods=['GET'])
@@ -1334,10 +1183,8 @@ def api_db_get_deleted_invoices():
     if not current_user.can_view_invoices:
         return jsonify({'error': 'You do not have permission to view invoices'}), 403
 
-    result = invoice_service.get_all(include_deleted=True, limit=500)
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 500
+    invoices = get_all_invoices(include_deleted=True, limit=500)
+    return jsonify(invoices)
 
 
 @app.route('/api/db/invoices/<int:invoice_id>', methods=['PUT'])
@@ -1446,10 +1293,13 @@ def api_update_allocation_comment(allocation_id):
     data = request.json
     comment = data.get('comment', '')
 
-    result = invoice_service.update_allocation_comment(allocation_id, comment)
-    if result.success:
-        return jsonify({'success': True})
-    return jsonify({'success': False, 'error': result.error}), 404
+    try:
+        updated = update_allocation_comment(allocation_id, comment)
+        if updated:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Allocation not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/invoices/<int:invoice_id>/drive-link', methods=['PUT'])
@@ -1496,10 +1346,8 @@ def api_db_search():
     # Remove None values
     filters = {k: v for k, v in filters.items() if v}
 
-    result = invoice_service.search(query, filters)
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 500
+    results = search_invoices(query, filters)
+    return jsonify(results)
 
 
 @app.route('/api/invoices/search')
@@ -1517,15 +1365,13 @@ def api_invoices_search():
 
     # Check if query is a numeric ID
     if query.isdigit():
-        result = invoice_service.get_by_id(int(query))
-        if result.success:
-            return jsonify({'success': True, 'invoices': [result.data]})
+        invoice = get_invoice_with_allocations(int(query))
+        if invoice:
+            return jsonify({'success': True, 'invoices': [invoice]})
         # Fall through to text search if not found by ID
 
-    result = invoice_service.search(query)
-    if result.success:
-        return jsonify({'success': True, 'invoices': result.data[:limit]})
-    return jsonify({'success': False, 'error': result.error}), 500
+    results = search_invoices(query)[:limit]
+    return jsonify({'success': True, 'invoices': results})
 
 
 @app.route('/api/db/check-invoice-number')
@@ -1548,10 +1394,11 @@ def api_db_summary_company():
     """Get summary grouped by company."""
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    result = invoice_service.get_summary_by_company(start_date, end_date)
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 500
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    summary = get_summary_by_company(start_date, end_date, department, subdepartment, brand)
+    return jsonify(summary)
 
 
 @app.route('/api/db/summary/department')
@@ -1561,10 +1408,11 @@ def api_db_summary_department():
     company = request.args.get('company')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    result = invoice_service.get_summary_by_department(company, start_date, end_date)
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 500
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    summary = get_summary_by_department(company, start_date, end_date, department, subdepartment, brand)
+    return jsonify(summary)
 
 
 @app.route('/api/db/summary/brand')
@@ -1574,10 +1422,11 @@ def api_db_summary_brand():
     company = request.args.get('company')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    result = invoice_service.get_summary_by_brand(company, start_date, end_date)
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 500
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    summary = get_summary_by_brand(company, start_date, end_date, department, subdepartment, brand)
+    return jsonify(summary)
 
 
 @app.route('/api/db/summary/supplier')
@@ -1587,10 +1436,11 @@ def api_db_summary_supplier():
     company = request.args.get('company')
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
-    result = invoice_service.get_summary_by_supplier(company, start_date, end_date)
-    if result.success:
-        return jsonify(result.data)
-    return jsonify({'error': result.error}), 500
+    department = request.args.get('department')
+    subdepartment = request.args.get('subdepartment')
+    brand = request.args.get('brand')
+    summary = get_summary_by_supplier(company, start_date, end_date, department, subdepartment, brand)
+    return jsonify(summary)
 
 
 # ============== COMPANY VAT MANAGEMENT ENDPOINTS ==============
@@ -2476,8 +2326,7 @@ def api_add_dropdown_option():
             color=data.get('color'),
             opacity=data.get('opacity', 0.7),
             sort_order=data.get('sort_order', 0),
-            is_active=data.get('is_active', True),
-            min_role=data.get('min_role', 'Viewer')
+            is_active=data.get('is_active', True)
         )
         return jsonify({'success': True, 'id': option_id})
     except Exception as e:
@@ -2500,8 +2349,7 @@ def api_update_dropdown_option(option_id):
             color=data.get('color'),
             opacity=data.get('opacity'),
             sort_order=data.get('sort_order'),
-            is_active=data.get('is_active'),
-            min_role=data.get('min_role')
+            is_active=data.get('is_active')
         )
         if success:
             return jsonify({'success': True})
