@@ -9,10 +9,10 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/theme.css') }}" rel="stylesheet">
     <style>
-        /* Summary stats inline bar */
-        .summary-stat { display: flex; align-items: center; gap: 4px; color: var(--bs-secondary-color); font-size: 0.85rem; }
-        .summary-stat i { font-size: 1rem; }
-        .summary-stat strong { color: var(--bs-body-color); }
+        /* Summary stats bar - matching efactura style */
+        .summary-filter-bar { font-size: 0.9rem; }
+        .summary-stat { display: flex; align-items: center; gap: 6px; color: var(--bs-secondary-color); }
+        .summary-stat i { font-size: 1.1rem; }
         /* File list in modal */
         .file-list .file-item {
             display: flex;
@@ -68,13 +68,36 @@
     </div>
 
     <div class="container-fluid px-4 mt-3">
-        {% set active_page = 'invoices' %}
-        {% set inline_nav = true %}
-        {% include 'partials/_accounting_nav.html' %}
+        <!-- Nav + Summary Stats (same row) -->
+        <div class="d-flex justify-content-between align-items-end flex-wrap gap-2">
+            {% set active_page = 'invoices' %}
+            {% set inline_nav = true %}
+            {% include 'partials/_accounting_nav.html' %}
+
+            <!-- Summary Stats on right -->
+            <div class="summary-filter-bar d-flex align-items-center flex-wrap gap-3" id="summaryStats">
+                <span class="summary-stat" title="Total Invoices">
+                    <i class="bi bi-cloud-download text-warning"></i>
+                    <span id="totalCount" class="text-success fw-bold">0</span> invoices
+                </span>
+                <span class="summary-stat" title="Total Value">
+                    <i class="bi bi-cash-stack text-success"></i>
+                    <span id="totalValue" class="fw-bold">0,00</span> <span id="totalCurrency">RON</span>
+                </span>
+                <span class="summary-stat" title="Suppliers">
+                    <i class="bi bi-building text-info"></i>
+                    <span id="supplierCount" class="text-info fw-bold">0</span> suppliers
+                </span>
+                <span class="summary-stat" title="Items">
+                    <i class="bi bi-list-ul text-warning"></i>
+                    <span id="campaignCount" class="text-warning fw-bold">0</span> items
+                </span>
+            </div>
+        </div>
 
         <!-- Page Tabs with Upload Button -->
-        <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
-            <ul class="nav nav-tabs mb-0">
+        <div class="d-flex justify-content-between align-items-end mt-3 mb-3 border-bottom">
+            <ul class="nav nav-tabs border-bottom-0">
                 <li class="nav-item">
                     <a class="nav-link" href="/add-invoice">
                         <i class="bi bi-plus-circle"></i> Add Invoice
@@ -91,204 +114,92 @@
                     </a>
                 </li>
             </ul>
-            <div class="d-flex gap-2 align-items-center">
-                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
-                    <i class="bi bi-cloud-upload"></i> Upload Invoices
-                </button>
-                <button type="button" class="btn btn-success btn-sm" id="exportBtn" onclick="exportToExcel()" disabled>
-                    <i class="bi bi-file-earmark-excel"></i> Export Excel
-                </button>
-            </div>
         </div>
 
-        <!-- Summary Statistics Bar (collapsible, inline style) -->
-        <div class="card mb-3" id="summarySection">
-            <div class="card-header py-2 d-flex justify-content-between align-items-center" style="cursor: pointer;" onclick="toggleSummarySection()">
-                <div class="d-flex align-items-center gap-2">
-                    <i class="bi bi-bar-chart"></i>
-                    <span class="fw-semibold">Summary Statistics</span>
-                </div>
-                <div class="d-flex align-items-center gap-4" id="summaryStats">
-                    <span class="summary-stat" title="Total Invoices">
-                        <i class="bi bi-receipt text-primary"></i>
-                        <strong id="totalCount">0</strong> invoices
-                    </span>
-                    <span class="summary-stat text-success" title="Total Value">
-                        <i class="bi bi-currency-exchange"></i>
-                        <strong id="totalValue">0</strong> <span id="totalCurrency">RON</span>
-                    </span>
-                    <span class="summary-stat" title="Suppliers">
-                        <i class="bi bi-building text-info"></i>
-                        <strong id="supplierCount">0</strong> suppliers
-                    </span>
-                    <span class="summary-stat" title="Items">
-                        <i class="bi bi-list-ul text-warning"></i>
-                        <strong id="campaignCount">0</strong> items
-                    </span>
-                    <i class="bi bi-chevron-down" id="summaryToggleIcon"></i>
-                </div>
-            </div>
-        </div>
-
-        <!-- Results Section (hidden until processing) -->
-        <div id="resultsSection" style="display: none;">
-            <!-- Tabs for different views -->
-            <div class="card">
-                <div class="card-header">
-                    <ul class="nav nav-tabs card-header-tabs" id="resultTabs" role="tablist">
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link active" id="invoices-tab" data-bs-toggle="tab" data-bs-target="#invoices" type="button" role="tab">
-                                <i class="bi bi-receipt"></i> Invoices
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="campaigns-tab" data-bs-toggle="tab" data-bs-target="#campaigns" type="button" role="tab">
-                                <i class="bi bi-list-ul"></i> By Item
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="monthly-tab" data-bs-toggle="tab" data-bs-target="#monthly" type="button" role="tab">
-                                <i class="bi bi-calendar3"></i> Monthly
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="suppliers-tab" data-bs-toggle="tab" data-bs-target="#suppliers" type="button" role="tab">
-                                <i class="bi bi-building"></i> By Supplier
-                            </button>
-                        </li>
-                        {% if current_user.can_add_invoices %}
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="distribute-tab" data-bs-toggle="tab" data-bs-target="#distribute" type="button" role="tab">
-                                <i class="bi bi-diagram-3"></i> Bulk Distribute
-                            </button>
-                        </li>
-                        {% endif %}
-                    </ul>
-                </div>
-                <div class="card-body">
-                    <div class="tab-content" id="resultTabsContent">
-                        <!-- Invoices Tab -->
-                        <div class="tab-pane fade show active" id="invoices" role="tabpanel">
-                            <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-                                <table class="table table-hover invoice-table">
-                                    <thead>
-                                        <tr>
-                                            <th>#</th>
-                                            <th>Date</th>
-                                            <th>Invoice Number</th>
-                                            <th>Supplier</th>
-                                            <th class="text-end">Value</th>
-                                            <th>File</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="invoicesTableBody">
-                                    </tbody>
-                                </table>
+        <!-- Bulk Distribute Section -->
+        <div id="resultsSection">
+            {% if current_user.can_add_invoices %}
+            <!-- Bulk Distribute Content -->
+            <div class="row mt-3">
+                <!-- Left: Invoice List (sticky on scroll) -->
+                <div class="col-md-4">
+                    <div style="position: sticky; top: 1rem;">
+                        <div class="card">
+                            <div class="card-header bg-light">
+                                <strong><i class="bi bi-receipt"></i> Invoices</strong>
+                                <span class="badge bg-primary ms-2" id="invoiceCountBadge">0</span>
                             </div>
-                        </div>
-
-                        <!-- Campaigns Tab -->
-                        <div class="tab-pane fade" id="campaigns" role="tabpanel">
-                            <div id="campaignsList"></div>
-                        </div>
-
-                        <!-- Monthly Tab -->
-                        <div class="tab-pane fade" id="monthly" role="tabpanel">
-                            <div id="monthlyList"></div>
-                        </div>
-
-                        <!-- Suppliers Tab -->
-                        <div class="tab-pane fade" id="suppliers" role="tabpanel">
-                            <div id="suppliersList"></div>
-                        </div>
-
-                        {% if current_user.can_add_invoices %}
-                        <!-- Bulk Distribute Tab -->
-                        <div class="tab-pane fade" id="distribute" role="tabpanel">
-                            <!-- Invoice Selection and Campaign Allocation -->
-                            <div class="row">
-                                <!-- Left: Invoice List -->
-                                <div class="col-md-4">
-                                    <div class="card h-100">
-                                        <div class="card-header bg-light">
-                                            <strong><i class="bi bi-receipt"></i> Invoices</strong>
-                                            <span class="badge bg-primary ms-2" id="invoiceCountBadge">0</span>
-                                        </div>
-                                        <div class="card-body p-0" style="max-height: 600px; overflow-y: auto;">
-                                            <div class="list-group list-group-flush" id="invoiceSelectList">
-                                                <!-- Invoices will be populated here -->
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Right: Campaign Allocation Forms -->
-                                <div class="col-md-8">
-                                    <div class="card h-100">
-                                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
-                                            <div>
-                                                <strong><i class="bi bi-pie-chart"></i> Cost Distribution</strong>
-                                                <span class="badge bg-success ms-2" id="campaignCountBadge">0</span>
-                                                <span class="badge ms-2" id="allocationStatusBadge" style="display:none;">0%</span>
-                                            </div>
-                                            <div class="d-flex gap-2">
-                                                <!-- Hidden for now: Merge Similar, Copy Pattern, Apply Pattern -->
-                                                <button type="button" class="btn btn-outline-info btn-sm" id="mergeSimilarBtn" onclick="mergeSimilarItems()" disabled title="Automatically merge items with same/similar names" style="display:none;">
-                                                    <i class="bi bi-union"></i> Merge Similar
-                                                </button>
-                                                <button type="button" class="btn btn-outline-primary btn-sm" id="copyPatternBtn" onclick="copyAllocationPattern()" disabled title="Copy allocation pattern from this invoice" style="display:none;">
-                                                    <i class="bi bi-clipboard"></i> Copy Pattern
-                                                </button>
-                                                <button type="button" class="btn btn-outline-secondary btn-sm" id="applyPatternBtn" onclick="applyAllocationPattern()" disabled title="Apply saved pattern to this invoice" style="display:none;">
-                                                    <i class="bi bi-clipboard-check"></i> Apply Pattern
-                                                </button>
-                                                <button type="button" class="btn btn-success btn-sm" id="transferBtn" onclick="saveToAccounting()" disabled>
-                                                    <i class="bi bi-check-circle"></i> Save to Accounting
-                                                </button>
-                                            </div>
-                                        </div>
-                                        <div class="card-body p-2" id="campaignDetailsPanel" style="max-height: 550px; overflow-y: auto;">
-                                            <div class="text-center text-muted py-5">
-                                                <i class="bi bi-arrow-left fs-1"></i>
-                                                <p class="mt-2">Select an invoice to configure allocations</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- Selected Invoice Summary -->
-                            <div class="card mt-3" id="selectedInvoiceSummary" style="display: none;">
-                                <div class="card-body py-2">
-                                    <div class="row align-items-center">
-                                        <div class="col-md-4">
-                                            <h6 class="mb-0" id="selectedInvoiceTitle">-</h6>
-                                            <small class="text-muted" id="selectedInvoiceSubtitle">-</small>
-                                        </div>
-                                        <div class="col-md-2 text-center">
-                                            <small class="text-muted">Invoice Value</small>
-                                            <div class="fw-bold text-success" id="selectedInvoiceValue">-</div>
-                                        </div>
-                                        <div class="col-md-2 text-center">
-                                            <small class="text-muted">Allocated</small>
-                                            <div class="fw-bold" id="selectedAllocatedTotal">-</div>
-                                        </div>
-                                        <div class="col-md-2 text-center">
-                                            <small class="text-muted">Total %</small>
-                                            <div class="fw-bold" id="selectedTotalPercent">-</div>
-                                        </div>
-                                        <div class="col-md-2 text-center">
-                                            <small class="text-muted">Validation</small>
-                                            <div id="validationStatus">-</div>
-                                        </div>
-                                    </div>
+                            <div class="card-body p-0">
+                                <div class="list-group list-group-flush" id="invoiceSelectList">
+                                    <!-- Invoices will be populated here -->
                                 </div>
                             </div>
                         </div>
-                        {% endif %}
+
+                        <!-- Selected Invoice Summary -->
+                        <div class="card mt-3" id="selectedInvoiceSummary" style="display: none;">
+                            <div class="card-header bg-light py-2">
+                                <h6 class="mb-0" id="selectedInvoiceTitle">-</h6>
+                                <small class="text-muted" id="selectedInvoiceSubtitle">-</small>
+                            </div>
+                            <div class="card-body py-2">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <small class="text-muted">Invoice Value</small>
+                                    <span class="fw-bold text-success" id="selectedInvoiceValue">-</span>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <small class="text-muted">Allocated</small>
+                                    <span class="fw-bold" id="selectedAllocatedTotal">-</span>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <small class="text-muted">Total %</small>
+                                    <span class="fw-bold" id="selectedTotalPercent">-</span>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted">Validation</small>
+                                    <span id="validationStatus">-</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Campaign Allocation Forms -->
+                <div class="col-md-8">
+                    <div class="card h-100">
+                        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong><i class="bi bi-pie-chart"></i> Cost Distribution</strong>
+                                <span class="badge bg-success ms-2" id="campaignCountBadge">0</span>
+                                <span class="badge ms-2" id="allocationStatusBadge" style="display:none;">0%</span>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                                    <i class="bi bi-cloud-upload"></i> Upload Invoices
+                                </button>
+                                <button type="button" class="btn btn-outline-success btn-sm" id="exportBtn" onclick="exportToExcel()" disabled>
+                                    <i class="bi bi-file-earmark-excel"></i> Export Excel
+                                </button>
+                                <button type="button" class="btn btn-success btn-sm" id="transferBtn" onclick="saveToAccounting()" disabled>
+                                    <i class="bi bi-check-circle"></i> Save to Accounting
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body p-2" id="campaignDetailsPanel">
+                            <div class="text-center text-muted py-5">
+                                <i class="bi bi-arrow-left fs-1"></i>
+                                <p class="mt-2">Select an invoice to configure allocations</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
+            {% else %}
+            <!-- No permission message -->
+            <div class="alert alert-warning">
+                <i class="bi bi-lock me-2"></i>You don't have permission to distribute invoices.
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -420,6 +331,45 @@
         let uploadedFiles = [];
         let reportData = null;
 
+        // Session storage key for caching invoice data
+        const BULK_CACHE_KEY = 'jarvis_bulk_invoice_cache';
+
+        // Save report data to session storage
+        function saveToCache(data) {
+            try {
+                sessionStorage.setItem(BULK_CACHE_KEY, JSON.stringify({
+                    timestamp: Date.now(),
+                    data: data
+                }));
+            } catch (e) {
+                console.warn('Failed to cache bulk data:', e);
+            }
+        }
+
+        // Load report data from session storage
+        function loadFromCache() {
+            try {
+                const cached = sessionStorage.getItem(BULK_CACHE_KEY);
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    // Cache expires after 1 hour
+                    if (Date.now() - parsed.timestamp < 3600000) {
+                        return parsed.data;
+                    }
+                    // Clear expired cache
+                    sessionStorage.removeItem(BULK_CACHE_KEY);
+                }
+            } catch (e) {
+                console.warn('Failed to load cached bulk data:', e);
+            }
+            return null;
+        }
+
+        // Clear cache (call after saving to accounting)
+        function clearCache() {
+            sessionStorage.removeItem(BULK_CACHE_KEY);
+        }
+
         // File upload handling
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
@@ -524,15 +474,20 @@
             loadingOverlay.classList.add('show');
 
             const totalFiles = uploadedFiles.length;
-            let allInvoices = [];
-            let byItem = {};
-            let byCampaign = {};
-            let byMonth = {};
-            let bySupplier = {};
-            let total = 0;
-            let currency = 'RON';
+
+            // Start with existing data if available (allows adding invoices incrementally)
+            let allInvoices = reportData?.invoices ? [...reportData.invoices] : [];
+            let byItem = reportData?.by_item ? {...reportData.by_item} : {};
+            let byCampaign = reportData?.by_campaign ? {...reportData.by_campaign} : {};
+            let byMonth = reportData?.by_month ? JSON.parse(JSON.stringify(reportData.by_month)) : {};
+            let bySupplier = reportData?.by_supplier ? JSON.parse(JSON.stringify(reportData.by_supplier)) : {};
+            let total = reportData?.total || 0;
+            let currency = reportData?.currency || 'RON';
 
             try {
+                // Track duplicate invoices
+                let duplicateInvoices = [];
+
                 // Process files one at a time for progress display
                 for (let i = 0; i < uploadedFiles.length; i++) {
                     const file = uploadedFiles[i];
@@ -550,10 +505,23 @@
 
                     if (data.success && data.report) {
                         const report = data.report;
-                        // Aggregate results
-                        if (report.invoices) allInvoices.push(...report.invoices);
+                        // Check for duplicates before adding
+                        if (report.invoices) {
+                            for (const inv of report.invoices) {
+                                const isDuplicate = allInvoices.some(existing =>
+                                    existing.invoice_number && inv.invoice_number &&
+                                    existing.invoice_number === inv.invoice_number
+                                );
+                                if (isDuplicate) {
+                                    duplicateInvoices.push(inv.invoice_number || file.name);
+                                } else {
+                                    allInvoices.push(inv);
+                                    // Only add to totals if not duplicate
+                                    if (report.total) total += inv.invoice_value || 0;
+                                }
+                            }
+                        }
                         if (report.currency) currency = report.currency;
-                        if (report.total) total += report.total;
 
                         // Merge by_item
                         if (report.by_item) {
@@ -567,16 +535,20 @@
                                 byCampaign[key] = (byCampaign[key] || 0) + val;
                             }
                         }
-                        // Merge by_month
+                        // Merge by_month (objects with count and total)
                         if (report.by_month) {
                             for (const [key, val] of Object.entries(report.by_month)) {
-                                byMonth[key] = (byMonth[key] || 0) + val;
+                                if (!byMonth[key]) byMonth[key] = {count: 0, total: 0};
+                                byMonth[key].count += val.count || 0;
+                                byMonth[key].total += val.total || 0;
                             }
                         }
-                        // Merge by_supplier
+                        // Merge by_supplier (objects with count and total)
                         if (report.by_supplier) {
                             for (const [key, val] of Object.entries(report.by_supplier)) {
-                                bySupplier[key] = (bySupplier[key] || 0) + val;
+                                if (!bySupplier[key]) bySupplier[key] = {count: 0, total: 0};
+                                bySupplier[key].count += val.count || 0;
+                                bySupplier[key].total += val.total || 0;
                             }
                         }
                     }
@@ -594,8 +566,24 @@
                     by_supplier: bySupplier
                 };
 
+                // Cache the report data for page refresh persistence
+                saveToCache(reportData);
+
                 displayResults(reportData);
                 document.getElementById('exportBtn').disabled = false;
+
+                // Show alert if there were duplicate invoices
+                if (duplicateInvoices.length > 0) {
+                    showModal(
+                        `${duplicateInvoices.length} duplicate invoice(s) skipped:\n\n${duplicateInvoices.join('\n')}`,
+                        'warning',
+                        'Duplicates Skipped'
+                    );
+                }
+
+                // Clear the uploaded files list (they've been processed)
+                uploadedFiles = [];
+                updateFileList();
             } catch (error) {
                 showModal('Error: ' + error.message, 'error');
             } finally {
@@ -605,74 +593,18 @@
         }
 
         function displayResults(report) {
-            document.getElementById('resultsSection').style.display = 'block';
-
-            // Collapse Upload and Summary sections after processing
+            // Close upload modal after processing
             collapseSections();
 
-            // Update summary cards
+            // Update summary stats bar
             document.getElementById('totalCount').textContent = report.count;
             document.getElementById('totalValue').textContent = formatNumber(report.total);
             document.getElementById('totalCurrency').textContent = report.currency;
             document.getElementById('supplierCount').textContent = Object.keys(report.by_supplier || {}).length;
             document.getElementById('campaignCount').textContent = Object.keys(report.by_campaign || {}).length;
 
-            // Invoices table
-            const tbody = document.getElementById('invoicesTableBody');
-            tbody.innerHTML = report.invoices.map((inv, idx) => `
-                <tr>
-                    <td>${idx + 1}</td>
-                    <td>${formatDate(inv.invoice_date)}</td>
-                    <td><code>${inv.invoice_number || '-'}</code></td>
-                    <td>${inv.supplier || '-'}</td>
-                    <td class="text-end fw-bold">${formatNumber(inv.invoice_value || 0)} ${inv.currency || 'RON'}</td>
-                    <td><small class="text-muted">${inv.filename}</small></td>
-                </tr>
-            `).join('');
-
-            // Campaigns list
-            const campaignsList = document.getElementById('campaignsList');
-            const campaigns = Object.entries(report.by_campaign || {}).sort((a, b) => b[1] - a[1]);
-            if (campaigns.length > 0) {
-                campaignsList.innerHTML = campaigns.map(([name, value]) => `
-                    <div class="campaign-row d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-megaphone text-primary me-2"></i>${name}</span>
-                        <span class="fw-bold">${formatNumber(value)} ${report.currency}</span>
-                    </div>
-                `).join('');
-            } else {
-                campaignsList.innerHTML = '<p class="text-muted">No item data found in invoices.</p>';
-            }
-
-            // Monthly list
-            const monthlyList = document.getElementById('monthlyList');
-            const months = Object.entries(report.by_month || {}).sort((a, b) => a[0].localeCompare(b[0]));
-            monthlyList.innerHTML = months.map(([month, data]) => {
-                const date = new Date(month + '-01');
-                const monthName = date.toLocaleDateString('ro-RO', { month: 'long', year: 'numeric' });
-                return `
-                    <div class="campaign-row d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-calendar3 text-primary me-2"></i>${monthName}</span>
-                        <div>
-                            <span class="badge bg-secondary me-2">${data.count} invoices</span>
-                            <span class="fw-bold">${formatNumber(data.total)} ${report.currency}</span>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            // Suppliers list
-            const suppliersList = document.getElementById('suppliersList');
-            const suppliers = Object.entries(report.by_supplier || {}).sort((a, b) => b[1].total - a[1].total);
-            suppliersList.innerHTML = suppliers.map(([name, data]) => `
-                <div class="campaign-row d-flex justify-content-between align-items-center">
-                    <span><i class="bi bi-building text-primary me-2"></i>${name}</span>
-                    <div>
-                        <span class="badge bg-secondary me-2">${data.count} invoices</span>
-                        <span class="fw-bold">${formatNumber(data.total)} ${report.currency}</span>
-                    </div>
-                </div>
-            `).join('');
+            // Populate invoice list for Bulk Distribute
+            renderInvoiceList();
 
             // Scroll to results
             document.getElementById('resultsSection').scrollIntoView({ behavior: 'smooth' });
@@ -921,10 +853,13 @@
                 allocations: allocations
             };
 
-            // Update Apply button state
-            document.getElementById('applyPatternBtn').disabled = false;
-            document.getElementById('applyPatternBtn').classList.remove('btn-outline-secondary');
-            document.getElementById('applyPatternBtn').classList.add('btn-primary');
+            // Update Apply button state (if it exists)
+            const applyBtnRef = document.getElementById('applyPatternBtn');
+            if (applyBtnRef) {
+                applyBtnRef.disabled = false;
+                applyBtnRef.classList.remove('btn-outline-secondary');
+                applyBtnRef.classList.add('btn-primary');
+            }
 
             showModal(`Pattern copied: ${company} with ${allocations.length} allocation(s). Click "Apply Pattern" on another invoice to use it.`, 'success', 'Pattern Copied');
         }
@@ -991,9 +926,12 @@
                     try {
                         // Show loading indicator
                         const applyBtn = document.getElementById('applyPatternBtn');
-                        const originalBtnHtml = applyBtn.innerHTML;
-                        applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> AI Matching...';
-                        applyBtn.disabled = true;
+                        let originalBtnHtml = '';
+                        if (applyBtn) {
+                            originalBtnHtml = applyBtn.innerHTML;
+                            applyBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> AI Matching...';
+                            applyBtn.disabled = true;
+                        }
 
                         const response = await fetch('/api/bulk/match-campaigns', {
                             method: 'POST',
@@ -1012,14 +950,18 @@
                         }
 
                         // Restore button
-                        applyBtn.innerHTML = originalBtnHtml;
-                        applyBtn.disabled = false;
+                        if (applyBtn) {
+                            applyBtn.innerHTML = originalBtnHtml;
+                            applyBtn.disabled = false;
+                        }
                     } catch (err) {
                         console.error('AI matching failed, using local matching:', err);
                         // Keep local matching results
                         const applyBtn = document.getElementById('applyPatternBtn');
-                        applyBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> Apply Pattern';
-                        applyBtn.disabled = false;
+                        if (applyBtn) {
+                            applyBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> Apply Pattern';
+                            applyBtn.disabled = false;
+                        }
                     }
                 }
             }
@@ -1231,9 +1173,12 @@
 
                 // Show loading indicator
                 const btn = document.getElementById('mergeSimilarBtn');
-                const originalBtnHtml = btn.innerHTML;
-                btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> AI Analyzing...';
-                btn.disabled = true;
+                let originalBtnHtml = '';
+                if (btn) {
+                    originalBtnHtml = btn.innerHTML;
+                    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> AI Analyzing...';
+                    btn.disabled = true;
+                }
 
                 try {
                     // Call AI to group similar items
@@ -1291,8 +1236,10 @@
                 } catch (err) {
                     console.error('AI grouping failed:', err);
                 } finally {
-                    btn.innerHTML = originalBtnHtml;
-                    btn.disabled = false;
+                    if (btn) {
+                        btn.innerHTML = originalBtnHtml;
+                        btn.disabled = false;
+                    }
                 }
             }
 
@@ -1452,8 +1399,9 @@
 
             // Create merged campaign UI element with preserved settings
             const mergedHtml = createMergedCampaignHtml(mergedKey, mergedEntry, mergedPercent, currency, invoiceIdx, campaignEntries, invoiceValue, first);
-            const mergeToolbar = document.getElementById('mergeToolbar');
-            mergeToolbar.insertAdjacentHTML('afterend', mergedHtml);
+            // Insert after the sticky header, not inside it
+            const stickyHeader = document.querySelector('.sticky-panel-header');
+            stickyHeader.insertAdjacentHTML('afterend', mergedHtml);
 
             // Attach event listeners to the new merged item
             attachMergedCampaignListeners(mergedKey, invoiceIdx, campaignEntries, invoiceValue);
@@ -1793,6 +1741,55 @@
             return match ? match.company : null;
         }
 
+        async function deleteInvoiceFromList(idx) {
+            if (!reportData?.invoices || idx < 0 || idx >= reportData.invoices.length) return;
+
+            const inv = reportData.invoices[idx];
+            const invoiceName = inv.invoice_number || `Invoice ${idx + 1}`;
+
+            const confirmed = await JarvisDialog.confirm(
+                `Remove "${invoiceName}" from the list?`,
+                { danger: true, confirmText: 'Remove' }
+            );
+
+            if (!confirmed) return;
+
+            // Remove the invoice from the array
+            const removedInvoice = reportData.invoices.splice(idx, 1)[0];
+
+            // Update totals
+            reportData.count = reportData.invoices.length;
+            reportData.total -= (removedInvoice.invoice_value || 0);
+
+            // Update cache
+            saveToCache(reportData);
+
+            // Reset selection if the deleted invoice was selected
+            if (selectedInvoiceIndex === idx) {
+                selectedInvoiceIndex = null;
+                document.getElementById('selectedInvoiceSummary').style.display = 'none';
+                document.getElementById('campaignDetailsPanel').innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-arrow-left fs-1"></i>
+                        <p class="mt-2">Select an invoice to configure allocations</p>
+                    </div>
+                `;
+            } else if (selectedInvoiceIndex > idx) {
+                // Adjust selected index if it was after the deleted one
+                selectedInvoiceIndex--;
+            }
+
+            // Update display
+            displayResults(reportData);
+
+            // If no invoices left, disable buttons
+            if (reportData.invoices.length === 0) {
+                document.getElementById('exportBtn').disabled = true;
+                document.getElementById('transferBtn').disabled = true;
+                clearCache();
+            }
+        }
+
         function renderInvoiceList() {
             if (!reportData?.invoices) return;
 
@@ -1808,24 +1805,30 @@
                 const isSaved = inv.saved || false;
 
                 return `
-                    <a href="#" class="list-group-item list-group-item-action ${isSelected ? 'active' : ''} ${isSaved ? 'list-group-item-success' : ''}"
-                       data-idx="${idx}" onclick="selectInvoice(${idx}); return false;">
+                    <div class="list-group-item list-group-item-action ${isSelected ? 'active' : ''} ${isSaved ? 'list-group-item-success' : ''}"
+                       data-idx="${idx}" style="cursor: pointer;">
                         <div class="d-flex justify-content-between align-items-start">
-                            <div>
+                            <div class="flex-grow-1" onclick="selectInvoice(${idx})">
                                 <span class="fw-bold">${inv.invoice_number || 'Invoice ' + (idx + 1)}</span>
                                 ${isSaved ? '<span class="badge bg-success ms-2"><i class="bi bi-check"></i> Saved</span>' : ''}
                                 <br><small class="${isSelected ? 'text-white-50' : 'text-muted'}">${inv.supplier || 'Unknown'}</small>
                             </div>
-                            <div class="text-end">
-                                <span class="fw-bold">${formatNumber(inv.invoice_value || 0)}</span>
-                                <br>
-                                ${hasCampaigns
-                                    ? `<span class="badge ${isSelected ? 'bg-light text-primary' : 'bg-primary'}">${campaignCount} items</span>`
-                                    : `<span class="badge ${isSelected ? 'bg-light text-secondary' : 'bg-secondary'}">No items</span>`
-                                }
+                            <div class="text-end d-flex align-items-start gap-2">
+                                <div onclick="selectInvoice(${idx})">
+                                    <span class="fw-bold">${formatNumber(inv.invoice_value || 0)}</span>
+                                    <br>
+                                    ${hasCampaigns
+                                        ? `<span class="badge ${isSelected ? 'bg-light text-primary' : 'bg-primary'}">${campaignCount} items</span>`
+                                        : `<span class="badge ${isSelected ? 'bg-light text-secondary' : 'bg-secondary'}">No items</span>`
+                                    }
+                                </div>
+                                <button type="button" class="btn btn-sm ${isSelected ? 'btn-outline-light' : 'btn-outline-danger'} p-0 px-1"
+                                        onclick="event.stopPropagation(); deleteInvoiceFromList(${idx});" title="Remove from list">
+                                    <i class="bi bi-x"></i>
+                                </button>
                             </div>
                         </div>
-                    </a>
+                    </div>
                 `;
             }).join('');
         }
@@ -1858,12 +1861,15 @@
             // Render campaign details (this will update allocation summary)
             await renderCampaignDetails(inv, idx);
 
-            // Enable copy pattern and merge similar buttons
-            document.getElementById('copyPatternBtn').disabled = false;
-            document.getElementById('mergeSimilarBtn').disabled = false;
+            // Enable copy pattern and merge similar buttons (if they exist)
+            const copyPatternBtn = document.getElementById('copyPatternBtn');
+            const mergeSimilarBtn = document.getElementById('mergeSimilarBtn');
+            const applyPatternBtn = document.getElementById('applyPatternBtn');
+            if (copyPatternBtn) copyPatternBtn.disabled = false;
+            if (mergeSimilarBtn) mergeSimilarBtn.disabled = false;
             // Enable apply pattern button if a pattern is saved
-            if (savedAllocationPattern) {
-                document.getElementById('applyPatternBtn').disabled = false;
+            if (savedAllocationPattern && applyPatternBtn) {
+                applyPatternBtn.disabled = false;
             }
         }
 
@@ -3001,6 +3007,9 @@
             if (!reportData?.invoices[idx]) return;
             reportData.invoices[idx].saved = true;
 
+            // Update the cache with new saved status
+            saveToCache(reportData);
+
             // Re-render the list to show updated saved status
             renderInvoiceList();
         }
@@ -3018,6 +3027,8 @@
                 const allSaved = reportData.invoices.every(inv => inv.saved);
                 if (allSaved) {
                     showModal('All invoices have been saved successfully!', 'success', 'Complete');
+                    // Clear the cache since all work is done
+                    clearCache();
                     // Reset selection
                     selectedInvoiceIndex = null;
                     document.getElementById('campaignDetailsPanel').innerHTML = `
@@ -3028,14 +3039,24 @@
                     `;
                     document.getElementById('selectedInvoiceSummary').style.display = 'none';
                     document.getElementById('transferBtn').disabled = true;
-                    document.getElementById('copyPatternBtn').disabled = true;
-                    document.getElementById('mergeSimilarBtn').disabled = true;
+                    const copyBtn1 = document.getElementById('copyPatternBtn');
+                    const mergeBtn1 = document.getElementById('mergeSimilarBtn');
+                    if (copyBtn1) copyBtn1.disabled = true;
+                    if (mergeBtn1) mergeBtn1.disabled = true;
                 }
             }
         }
 
-        // Initialize distribute tab when shown
+        // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
+            // Restore cached invoice data if available
+            const cachedData = loadFromCache();
+            if (cachedData) {
+                reportData = cachedData;
+                displayResults(reportData);
+                console.log('Restored bulk invoice data from cache');
+            }
+
             const distributeTab = document.getElementById('distribute-tab');
             if (distributeTab) {
                 distributeTab.addEventListener('shown.bs.tab', function() {
@@ -3051,8 +3072,10 @@
                         `;
                         document.getElementById('selectedInvoiceSummary').style.display = 'none';
                         document.getElementById('transferBtn').disabled = true;
-                        document.getElementById('copyPatternBtn').disabled = true;
-                        document.getElementById('mergeSimilarBtn').disabled = true;
+                        const copyBtn2 = document.getElementById('copyPatternBtn');
+                        const mergeBtn2 = document.getElementById('mergeSimilarBtn');
+                        if (copyBtn2) copyBtn2.disabled = true;
+                        if (mergeBtn2) mergeBtn2.disabled = true;
                         document.getElementById('campaignCountBadge').textContent = '0';
                         document.getElementById('allocationStatusBadge').style.display = 'none';
                     }
