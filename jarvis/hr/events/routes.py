@@ -11,7 +11,18 @@ from .database import (
     get_all_event_bonuses, get_event_bonus, save_event_bonus,
     save_event_bonuses_bulk, update_event_bonus, delete_event_bonus,
     get_event_bonuses_summary, get_bonuses_by_month, get_bonuses_by_employee, get_bonuses_by_event,
-    get_all_bonus_types, get_bonus_type, save_bonus_type, update_bonus_type, delete_bonus_type
+    get_all_bonus_types, get_bonus_type, save_bonus_type, update_bonus_type, delete_bonus_type,
+    # Company CRUD
+    get_all_companies_with_brands, create_company, update_company, delete_company,
+    # Company Brands CRUD
+    get_all_company_brands, create_company_brand, update_company_brand, delete_company_brand,
+    # Department Structure CRUD
+    get_all_department_structures, create_department_structure, update_department_structure,
+    delete_department_structure, get_name_by_id,
+    # Master tables CRUD
+    get_all_master_brands, create_master_brand, update_master_brand, delete_master_brand,
+    get_all_master_departments, create_master_department, update_master_department, delete_master_department,
+    get_all_master_subdepartments, create_master_subdepartment, update_master_subdepartment, delete_master_subdepartment
 )
 
 # Import from app root for structure data
@@ -452,45 +463,14 @@ def api_get_departments(company):
 @hr_required
 def api_get_companies_full():
     """API: Get all companies with full details including brands from company_brands."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    # Get companies
-    cur.execute("""
-        SELECT id, company, vat, created_at
-        FROM companies
-        ORDER BY company
-    """)
-    companies = []
-    for r in cur.fetchall():
-        companies.append({
-            'id': r['id'],
-            'company': r['company'],
-            'vat': r['vat'],
-            'created_at': r['created_at'].isoformat() if r['created_at'] else None
-        })
-
-    # Get brands for all companies
-    cur.execute("""
-        SELECT company_id, brand FROM company_brands
-        WHERE is_active = TRUE ORDER BY brand
-    """)
-    brands_by_company = {}
-    for r in cur.fetchall():
-        cid = r['company_id']
-        if cid not in brands_by_company:
-            brands_by_company[cid] = []
-        brands_by_company[cid].append(r['brand'])
-
-    # Add brands to companies
+    companies = get_all_companies_with_brands()
+    # Format for API response
     for company in companies:
-        brand_list = brands_by_company.get(company['id'], [])
-        company['brands'] = ', '.join(brand_list)
-        company['brands_list'] = [{'brand': b} for b in brand_list]
-
-    release_db(conn)
+        if company.get('created_at'):
+            company['created_at'] = company['created_at'].isoformat() if hasattr(company['created_at'], 'isoformat') else company['created_at']
+        brand_list = company.get('brands', [])
+        company['brands'] = ', '.join(brand_list) if isinstance(brand_list, list) else brand_list
+        company['brands_list'] = [{'brand': b} for b in (brand_list if isinstance(brand_list, list) else [])]
     return jsonify(companies)
 
 
@@ -499,21 +479,8 @@ def api_get_companies_full():
 @hr_required
 def api_create_company():
     """API: Create a new company."""
-    from database import get_db, get_cursor, release_db
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("""
-        INSERT INTO companies (company, vat)
-        VALUES (%s, %s)
-        RETURNING id
-    """, (data['company'], data.get('vat')))
-    company_id = cur.fetchone()['id']
-    conn.commit()
-    release_db(conn)
-
+    company_id = create_company(data['company'], data.get('vat'))
     return jsonify({'success': True, 'id': company_id})
 
 
@@ -522,20 +489,8 @@ def api_create_company():
 @hr_required
 def api_update_company(company_id):
     """API: Update a company."""
-    from database import get_db, get_cursor, release_db
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("""
-        UPDATE companies
-        SET company = %s, vat = %s
-        WHERE id = %s
-    """, (data['company'], data.get('vat'), company_id))
-    conn.commit()
-    release_db(conn)
-
+    update_company(company_id, data['company'], data.get('vat'))
     return jsonify({'success': True})
 
 
@@ -544,14 +499,7 @@ def api_update_company(company_id):
 @hr_required
 def api_delete_company(company_id):
     """API: Delete a company."""
-    from jarvis.core.database import get_db_connection
-
-    with get_db_connection() as conn:
-        cur = conn.cursor()
-        cur.execute("DELETE FROM companies WHERE id = %s", (company_id,))
-        conn.commit()
-        cur.close()
-
+    delete_company(company_id)
     return jsonify({'success': True})
 
 
@@ -562,34 +510,9 @@ def api_delete_company(company_id):
 @hr_required
 def api_get_company_brands():
     """API: Get all company brands."""
-    from database import get_db, get_cursor, release_db, dict_from_row
-
     company_id = request.args.get('company_id', type=int)
-
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    if company_id:
-        cur.execute("""
-            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
-            FROM company_brands cb
-            JOIN companies c ON cb.company_id = c.id
-            WHERE cb.company_id = %s AND cb.is_active = TRUE
-            ORDER BY cb.brand
-        """, (company_id,))
-    else:
-        cur.execute("""
-            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
-            FROM company_brands cb
-            JOIN companies c ON cb.company_id = c.id
-            WHERE cb.is_active = TRUE
-            ORDER BY c.company, cb.brand
-        """)
-
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([dict_from_row(r) for r in rows])
+    brands = get_all_company_brands(company_id)
+    return jsonify(brands)
 
 
 @events_bp.route('/api/structure/company-brands', methods=['POST'])
@@ -597,27 +520,13 @@ def api_get_company_brands():
 @hr_required
 def api_create_company_brand():
     """API: Create a new company brand."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
     try:
-        cur.execute("""
-            INSERT INTO company_brands (company_id, brand)
-            VALUES (%s, %s)
-            RETURNING id
-        """, (data['company_id'], data['brand']))
-        brand_id = cur.fetchone()['id']
-        conn.commit()
-        release_db(conn)
+        brand_id = create_company_brand(data['company_id'], data['brand'])
         clear_structure_cache()
         return jsonify({'success': True, 'id': brand_id})
     except Exception as e:
-        conn.rollback()
-        release_db(conn)
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
@@ -626,22 +535,10 @@ def api_create_company_brand():
 @hr_required
 def api_update_company_brand(brand_id):
     """API: Update a company brand."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("""
-        UPDATE company_brands
-        SET brand = %s, is_active = %s
-        WHERE id = %s
-    """, (data['brand'], data.get('is_active', True), brand_id))
-    conn.commit()
-    release_db(conn)
+    update_company_brand(brand_id, data.get('company_id'), data['brand'], data.get('is_active', True))
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -650,16 +547,9 @@ def api_update_company_brand(brand_id):
 @hr_required
 def api_delete_company_brand(brand_id):
     """API: Delete a company brand."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("DELETE FROM company_brands WHERE id = %s", (brand_id,))
-    conn.commit()
-    release_db(conn)
+    delete_company_brand(brand_id)
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -668,20 +558,8 @@ def api_delete_company_brand(brand_id):
 @hr_required
 def api_get_brands_for_company(company_id):
     """API: Get brands for a specific company."""
-    from database import get_db, get_cursor, release_db, dict_from_row
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("""
-        SELECT id, brand, is_active
-        FROM company_brands
-        WHERE company_id = %s AND is_active = TRUE
-        ORDER BY brand
-    """, (company_id,))
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([dict_from_row(r) for r in rows])
+    brands = get_all_company_brands(company_id)
+    return jsonify(brands)
 
 
 # ============== Departments CRUD API ==============
@@ -691,29 +569,8 @@ def api_get_brands_for_company(company_id):
 @hr_required
 def api_get_departments_full():
     """API: Get all department structure entries with full details via JOINs."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("""
-        SELECT ds.id, ds.company, ds.brand, ds.department, ds.subdepartment,
-               ds.manager, ds.marketing, ds.company_id
-        FROM department_structure ds
-        ORDER BY ds.company, ds.brand, ds.department, ds.subdepartment
-    """)
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([{
-        'id': r['id'],
-        'company': r['company'],
-        'brand': r['brand'],
-        'department': r['department'],
-        'subdepartment': r['subdepartment'],
-        'manager': r['manager'],
-        'marketing': r['marketing'],
-        'company_id': r['company_id']
-    } for r in rows])
+    structures = get_all_department_structures()
+    return jsonify(structures)
 
 
 @events_bp.route('/api/structure/departments', methods=['POST'])
@@ -721,55 +578,22 @@ def api_get_departments_full():
 @hr_required
 def api_create_department():
     """API: Create a new department structure entry using foreign keys."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
 
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
 
     # Look up the text values from master tables
-    company_name = None
-    brand_name = None
-    dept_name = None
-    subdept_name = None
+    company_name = get_name_by_id('companies', data.get('company_id'))
+    brand_name = get_name_by_id('brands', data.get('brand_id'))
+    dept_name = get_name_by_id('departments', data.get('department_id'))
+    subdept_name = get_name_by_id('subdepartments', data.get('subdepartment_id'))
 
-    if data.get('company_id'):
-        cur.execute("SELECT company FROM companies WHERE id = %s", (data['company_id'],))
-        row = cur.fetchone()
-        if row:
-            company_name = row['company']
-
-    if data.get('brand_id'):
-        cur.execute("SELECT name FROM brands WHERE id = %s", (data['brand_id'],))
-        row = cur.fetchone()
-        if row:
-            brand_name = row['name']
-
-    if data.get('department_id'):
-        cur.execute("SELECT name FROM departments WHERE id = %s", (data['department_id'],))
-        row = cur.fetchone()
-        if row:
-            dept_name = row['name']
-
-    if data.get('subdepartment_id'):
-        cur.execute("SELECT name FROM subdepartments WHERE id = %s", (data['subdepartment_id'],))
-        row = cur.fetchone()
-        if row:
-            subdept_name = row['name']
-
-    cur.execute("""
-        INSERT INTO department_structure (company_id, brand_id, department_id, subdepartment_id, manager, company, brand, department, subdepartment)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id
-    """, (data.get('company_id'), data.get('brand_id'), data.get('department_id'),
-          data.get('subdepartment_id'), data.get('manager'),
-          company_name, brand_name, dept_name, subdept_name))
-    dept_id = cur.fetchone()['id']
-    conn.commit()
-    release_db(conn)
+    dept_id = create_department_structure(
+        data.get('company_id'), data.get('brand_id'), data.get('department_id'),
+        data.get('subdepartment_id'), data.get('manager'),
+        company_name, brand_name, dept_name, subdept_name
+    )
     clear_structure_cache()
-
     return jsonify({'success': True, 'id': dept_id})
 
 
@@ -778,55 +602,22 @@ def api_create_department():
 @hr_required
 def api_update_department(dept_id):
     """API: Update a department structure entry using foreign keys."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
 
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
 
     # Look up the text values from master tables
-    company_name = None
-    brand_name = None
-    dept_name = None
-    subdept_name = None
+    company_name = get_name_by_id('companies', data.get('company_id'))
+    brand_name = get_name_by_id('brands', data.get('brand_id'))
+    dept_name = get_name_by_id('departments', data.get('department_id'))
+    subdept_name = get_name_by_id('subdepartments', data.get('subdepartment_id'))
 
-    if data.get('company_id'):
-        cur.execute("SELECT company FROM companies WHERE id = %s", (data['company_id'],))
-        row = cur.fetchone()
-        if row:
-            company_name = row['company']
-
-    if data.get('brand_id'):
-        cur.execute("SELECT name FROM brands WHERE id = %s", (data['brand_id'],))
-        row = cur.fetchone()
-        if row:
-            brand_name = row['name']
-
-    if data.get('department_id'):
-        cur.execute("SELECT name FROM departments WHERE id = %s", (data['department_id'],))
-        row = cur.fetchone()
-        if row:
-            dept_name = row['name']
-
-    if data.get('subdepartment_id'):
-        cur.execute("SELECT name FROM subdepartments WHERE id = %s", (data['subdepartment_id'],))
-        row = cur.fetchone()
-        if row:
-            subdept_name = row['name']
-
-    cur.execute("""
-        UPDATE department_structure
-        SET company_id = %s, brand_id = %s, department_id = %s, subdepartment_id = %s, manager = %s,
-            company = %s, brand = %s, department = %s, subdepartment = %s
-        WHERE id = %s
-    """, (data.get('company_id'), data.get('brand_id'), data.get('department_id'),
-          data.get('subdepartment_id'), data.get('manager'),
-          company_name, brand_name, dept_name, subdept_name, dept_id))
-    conn.commit()
-    release_db(conn)
+    update_department_structure(
+        dept_id, data.get('company_id'), data.get('brand_id'), data.get('department_id'),
+        data.get('subdepartment_id'), data.get('manager'),
+        company_name, brand_name, dept_name, subdept_name
+    )
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -835,14 +626,7 @@ def api_update_department(dept_id):
 @hr_required
 def api_delete_department(dept_id):
     """API: Delete a department."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("DELETE FROM department_structure WHERE id = %s", (dept_id,))
-    conn.commit()
-    release_db(conn)
-
+    delete_department_structure(dept_id)
     return jsonify({'success': True})
 
 
@@ -855,15 +639,8 @@ def api_delete_department(dept_id):
 @hr_required
 def api_get_master_brands():
     """API: Get all brands from master table."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("SELECT id, name, is_active FROM brands WHERE is_active = TRUE ORDER BY name")
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([{'id': r['id'], 'name': r['name'], 'is_active': r['is_active']} for r in rows])
+    brands = get_all_master_brands()
+    return jsonify(brands)
 
 
 @events_bp.route('/api/master/brands', methods=['POST'])
@@ -871,23 +648,13 @@ def api_get_master_brands():
 @hr_required
 def api_create_master_brand():
     """API: Create a new brand in master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
     try:
-        cur.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (data['name'],))
-        brand_id = cur.fetchone()['id']
-        conn.commit()
-        release_db(conn)
+        brand_id = create_master_brand(data['name'])
         clear_structure_cache()
         return jsonify({'success': True, 'id': brand_id})
     except Exception as e:
-        conn.rollback()
-        release_db(conn)
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
@@ -896,19 +663,10 @@ def api_create_master_brand():
 @hr_required
 def api_update_master_brand(brand_id):
     """API: Update a brand in master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("UPDATE brands SET name = %s, is_active = %s WHERE id = %s",
-                (data['name'], data.get('is_active', True), brand_id))
-    conn.commit()
-    release_db(conn)
+    update_master_brand(brand_id, data['name'], data.get('is_active', True))
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -917,16 +675,9 @@ def api_update_master_brand(brand_id):
 @hr_required
 def api_delete_master_brand(brand_id):
     """API: Delete a brand from master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("UPDATE brands SET is_active = FALSE WHERE id = %s", (brand_id,))
-    conn.commit()
-    release_db(conn)
+    delete_master_brand(brand_id)
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -937,15 +688,8 @@ def api_delete_master_brand(brand_id):
 @hr_required
 def api_get_master_departments():
     """API: Get all departments from master table."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("SELECT id, name, is_active FROM departments WHERE is_active = TRUE ORDER BY name")
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([{'id': r['id'], 'name': r['name'], 'is_active': r['is_active']} for r in rows])
+    departments = get_all_master_departments()
+    return jsonify(departments)
 
 
 @events_bp.route('/api/master/departments', methods=['POST'])
@@ -953,23 +697,13 @@ def api_get_master_departments():
 @hr_required
 def api_create_master_department():
     """API: Create a new department in master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
     try:
-        cur.execute("INSERT INTO departments (name) VALUES (%s) RETURNING id", (data['name'],))
-        dept_id = cur.fetchone()['id']
-        conn.commit()
-        release_db(conn)
+        dept_id = create_master_department(data['name'])
         clear_structure_cache()
         return jsonify({'success': True, 'id': dept_id})
     except Exception as e:
-        conn.rollback()
-        release_db(conn)
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
@@ -978,19 +712,10 @@ def api_create_master_department():
 @hr_required
 def api_update_master_department(dept_id):
     """API: Update a department in master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("UPDATE departments SET name = %s, is_active = %s WHERE id = %s",
-                (data['name'], data.get('is_active', True), dept_id))
-    conn.commit()
-    release_db(conn)
+    update_master_department(dept_id, data['name'], data.get('is_active', True))
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -999,16 +724,9 @@ def api_update_master_department(dept_id):
 @hr_required
 def api_delete_master_department(dept_id):
     """API: Delete a department from master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("UPDATE departments SET is_active = FALSE WHERE id = %s", (dept_id,))
-    conn.commit()
-    release_db(conn)
+    delete_master_department(dept_id)
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -1019,15 +737,8 @@ def api_delete_master_department(dept_id):
 @hr_required
 def api_get_master_subdepartments():
     """API: Get all subdepartments from master table."""
-    from database import get_db, get_cursor, release_db
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("SELECT id, name, is_active FROM subdepartments WHERE is_active = TRUE ORDER BY name")
-    rows = cur.fetchall()
-    release_db(conn)
-
-    return jsonify([{'id': r['id'], 'name': r['name'], 'is_active': r['is_active']} for r in rows])
+    subdepartments = get_all_master_subdepartments()
+    return jsonify(subdepartments)
 
 
 @events_bp.route('/api/master/subdepartments', methods=['POST'])
@@ -1035,23 +746,13 @@ def api_get_master_subdepartments():
 @hr_required
 def api_create_master_subdepartment():
     """API: Create a new subdepartment in master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
     try:
-        cur.execute("INSERT INTO subdepartments (name) VALUES (%s) RETURNING id", (data['name'],))
-        subdept_id = cur.fetchone()['id']
-        conn.commit()
-        release_db(conn)
+        subdept_id = create_master_subdepartment(data['name'])
         clear_structure_cache()
         return jsonify({'success': True, 'id': subdept_id})
     except Exception as e:
-        conn.rollback()
-        release_db(conn)
         return jsonify({'success': False, 'error': str(e)}), 400
 
 
@@ -1060,19 +761,10 @@ def api_create_master_subdepartment():
 @hr_required
 def api_update_master_subdepartment(subdept_id):
     """API: Update a subdepartment in master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
     data = request.get_json()
-    conn = get_db()
-    cur = get_cursor(conn)
-
-    cur.execute("UPDATE subdepartments SET name = %s, is_active = %s WHERE id = %s",
-                (data['name'], data.get('is_active', True), subdept_id))
-    conn.commit()
-    release_db(conn)
+    update_master_subdepartment(subdept_id, data['name'], data.get('is_active', True))
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 
@@ -1081,16 +773,9 @@ def api_update_master_subdepartment(subdept_id):
 @hr_required
 def api_delete_master_subdepartment(subdept_id):
     """API: Delete a subdepartment from master table."""
-    from database import get_db, get_cursor, release_db
     from models import clear_structure_cache
-
-    conn = get_db()
-    cur = get_cursor(conn)
-    cur.execute("UPDATE subdepartments SET is_active = FALSE WHERE id = %s", (subdept_id,))
-    conn.commit()
-    release_db(conn)
+    delete_master_subdepartment(subdept_id)
     clear_structure_cache()
-
     return jsonify({'success': True})
 
 

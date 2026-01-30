@@ -71,11 +71,15 @@ class ArchitectureHook(BaseHook):
     ]
 
     # Forbidden imports by layer
+    # Note: Importing encapsulated database functions (like get_user_invoices) is allowed
+    # Only raw database utilities (get_db, cursor, execute) are forbidden in routes
     FORBIDDEN_IMPORTS: Dict[str, List[str]] = {
         "routes": [
             "psycopg2",
             "sqlalchemy.orm.Session",
-            ".database import",
+            "from database import get_db",      # Raw database connection
+            "from database import get_cursor",  # Raw cursor access
+            "from database import release_db",  # Raw connection management
             "get_db_connection",
             "execute_query",
         ],

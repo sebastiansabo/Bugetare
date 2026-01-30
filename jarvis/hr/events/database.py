@@ -484,3 +484,326 @@ def delete_bonus_type(bonus_type_id):
     ''', (bonus_type_id,))
     conn.commit()
     release_db(conn)
+
+
+# ============== Companies CRUD ==============
+
+def get_all_companies_with_brands():
+    """Get all companies with their brands."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        SELECT id, company, vat, created_at
+        FROM companies
+        ORDER BY company
+    """)
+    companies = [dict_from_row(row) for row in cursor.fetchall()]
+
+    # Get brands for each company
+    cursor.execute("SELECT company_id, brand FROM company_brands WHERE is_active = TRUE")
+    brand_rows = cursor.fetchall()
+    release_db(conn)
+
+    brands_by_company = {}
+    for row in brand_rows:
+        cid = row['company_id']
+        if cid not in brands_by_company:
+            brands_by_company[cid] = []
+        brands_by_company[cid].append(row['brand'])
+
+    for c in companies:
+        c['brands'] = brands_by_company.get(c['id'], [])
+
+    return companies
+
+
+def create_company(company_name, vat=None):
+    """Create a new company."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        INSERT INTO companies (company, vat)
+        VALUES (%s, %s)
+        RETURNING id
+    """, (company_name, vat))
+    company_id = cursor.fetchone()['id']
+    conn.commit()
+    release_db(conn)
+    return company_id
+
+
+def update_company(company_id, company_name, vat=None):
+    """Update a company."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        UPDATE companies
+        SET company = %s, vat = %s
+        WHERE id = %s
+    """, (company_name, vat, company_id))
+    conn.commit()
+    release_db(conn)
+
+
+def delete_company(company_id):
+    """Delete a company."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("DELETE FROM companies WHERE id = %s", (company_id,))
+    conn.commit()
+    release_db(conn)
+
+
+# ============== Company Brands CRUD ==============
+
+def get_all_company_brands(company_id=None):
+    """Get all company brands, optionally filtered by company."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    if company_id:
+        cursor.execute("""
+            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
+            FROM company_brands cb
+            JOIN companies c ON cb.company_id = c.id
+            WHERE cb.company_id = %s AND cb.is_active = TRUE
+            ORDER BY cb.brand
+        """, (company_id,))
+    else:
+        cursor.execute("""
+            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
+            FROM company_brands cb
+            JOIN companies c ON cb.company_id = c.id
+            WHERE cb.is_active = TRUE
+            ORDER BY c.company, cb.brand
+        """)
+
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [dict_from_row(r) for r in rows]
+
+
+def create_company_brand(company_id, brand):
+    """Create a new company brand."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        INSERT INTO company_brands (company_id, brand)
+        VALUES (%s, %s)
+        RETURNING id
+    """, (company_id, brand))
+    brand_id = cursor.fetchone()['id']
+    conn.commit()
+    release_db(conn)
+    return brand_id
+
+
+def update_company_brand(brand_id, company_id, brand, is_active=True):
+    """Update a company brand."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        UPDATE company_brands
+        SET company_id = %s, brand = %s, is_active = %s
+        WHERE id = %s
+    """, (company_id, brand, is_active, brand_id))
+    conn.commit()
+    release_db(conn)
+
+
+def delete_company_brand(brand_id):
+    """Delete a company brand."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("DELETE FROM company_brands WHERE id = %s", (brand_id,))
+    conn.commit()
+    release_db(conn)
+
+
+# ============== Department Structure CRUD ==============
+
+def get_all_department_structures():
+    """Get all department structure entries."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        SELECT ds.id, ds.company, ds.brand, ds.department, ds.subdepartment,
+               ds.manager, ds.company_id, ds.brand_id, ds.department_id, ds.subdepartment_id
+        FROM department_structure ds
+        ORDER BY ds.company, ds.brand, ds.department
+    """)
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [dict_from_row(r) for r in rows]
+
+
+def create_department_structure(company_id, brand_id, department_id, subdepartment_id, manager, company, brand, department, subdepartment):
+    """Create a new department structure entry."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        INSERT INTO department_structure (company_id, brand_id, department_id, subdepartment_id, manager, company, brand, department, subdepartment)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (company_id, brand_id, department_id, subdepartment_id, manager, company, brand, department, subdepartment))
+    struct_id = cursor.fetchone()['id']
+    conn.commit()
+    release_db(conn)
+    return struct_id
+
+
+def update_department_structure(struct_id, company_id, brand_id, department_id, subdepartment_id, manager, company, brand, department, subdepartment):
+    """Update a department structure entry."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("""
+        UPDATE department_structure
+        SET company_id = %s, brand_id = %s, department_id = %s, subdepartment_id = %s,
+            manager = %s, company = %s, brand = %s, department = %s, subdepartment = %s
+        WHERE id = %s
+    """, (company_id, brand_id, department_id, subdepartment_id, manager, company, brand, department, subdepartment, struct_id))
+    conn.commit()
+    release_db(conn)
+
+
+def delete_department_structure(struct_id):
+    """Delete a department structure entry."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("DELETE FROM department_structure WHERE id = %s", (struct_id,))
+    conn.commit()
+    release_db(conn)
+
+
+def get_name_by_id(table, id_value):
+    """Get name from a lookup table by ID."""
+    if not id_value:
+        return None
+    conn = get_db()
+    cursor = get_cursor(conn)
+    if table == 'companies':
+        cursor.execute("SELECT company as name FROM companies WHERE id = %s", (id_value,))
+    else:
+        cursor.execute(f"SELECT name FROM {table} WHERE id = %s", (id_value,))
+    row = cursor.fetchone()
+    release_db(conn)
+    return row['name'] if row else None
+
+
+# ============== Master Tables CRUD (brands, departments, subdepartments) ==============
+
+def get_all_master_brands():
+    """Get all master brands."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT id, name, is_active FROM brands WHERE is_active = TRUE ORDER BY name")
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [dict_from_row(r) for r in rows]
+
+
+def create_master_brand(name):
+    """Create a new master brand."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("INSERT INTO brands (name) VALUES (%s) RETURNING id", (name,))
+    brand_id = cursor.fetchone()['id']
+    conn.commit()
+    release_db(conn)
+    return brand_id
+
+
+def update_master_brand(brand_id, name, is_active=True):
+    """Update a master brand."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("UPDATE brands SET name = %s, is_active = %s WHERE id = %s", (name, is_active, brand_id))
+    conn.commit()
+    release_db(conn)
+
+
+def delete_master_brand(brand_id):
+    """Soft delete a master brand."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("UPDATE brands SET is_active = FALSE WHERE id = %s", (brand_id,))
+    conn.commit()
+    release_db(conn)
+
+
+def get_all_master_departments():
+    """Get all master departments."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT id, name, is_active FROM departments WHERE is_active = TRUE ORDER BY name")
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [dict_from_row(r) for r in rows]
+
+
+def create_master_department(name):
+    """Create a new master department."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("INSERT INTO departments (name) VALUES (%s) RETURNING id", (name,))
+    dept_id = cursor.fetchone()['id']
+    conn.commit()
+    release_db(conn)
+    return dept_id
+
+
+def update_master_department(dept_id, name, is_active=True):
+    """Update a master department."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("UPDATE departments SET name = %s, is_active = %s WHERE id = %s", (name, is_active, dept_id))
+    conn.commit()
+    release_db(conn)
+
+
+def delete_master_department(dept_id):
+    """Soft delete a master department."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("UPDATE departments SET is_active = FALSE WHERE id = %s", (dept_id,))
+    conn.commit()
+    release_db(conn)
+
+
+def get_all_master_subdepartments():
+    """Get all master subdepartments."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("SELECT id, name, is_active FROM subdepartments WHERE is_active = TRUE ORDER BY name")
+    rows = cursor.fetchall()
+    release_db(conn)
+    return [dict_from_row(r) for r in rows]
+
+
+def create_master_subdepartment(name):
+    """Create a new master subdepartment."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("INSERT INTO subdepartments (name) VALUES (%s) RETURNING id", (name,))
+    subdept_id = cursor.fetchone()['id']
+    conn.commit()
+    release_db(conn)
+    return subdept_id
+
+
+def update_master_subdepartment(subdept_id, name, is_active=True):
+    """Update a master subdepartment."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("UPDATE subdepartments SET name = %s, is_active = %s WHERE id = %s", (name, is_active, subdept_id))
+    conn.commit()
+    release_db(conn)
+
+
+def delete_master_subdepartment(subdept_id):
+    """Soft delete a master subdepartment."""
+    conn = get_db()
+    cursor = get_cursor(conn)
+    cursor.execute("UPDATE subdepartments SET is_active = FALSE WHERE id = %s", (subdept_id,))
+    conn.commit()
+    release_db(conn)
