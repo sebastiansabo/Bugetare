@@ -363,6 +363,7 @@
                                             <th>Color</th>
                                             <th>Opacity</th>
                                             <th>Order</th>
+                                            <th>Min Role</th>
                                             <th>Active</th>
                                             <th width="100">Actions</th>
                                         </tr>
@@ -370,30 +371,38 @@
                                     <tbody></tbody>
                                 </table>
                             </div>
-                            <div class="row g-2 mt-2">
-                                <div class="col-md-2">
-                                    <input type="text" class="form-control form-control-sm" id="newInvoiceStatusValue" placeholder="Value (e.g., pending)">
+                            <div class="row g-2 mt-2 align-items-center">
+                                <div class="col-auto">
+                                    <input type="text" class="form-control form-control-sm" id="newInvoiceStatusValue" placeholder="Value (e.g., pending)" style="width: 120px;">
                                 </div>
-                                <div class="col-md-2">
-                                    <input type="text" class="form-control form-control-sm" id="newInvoiceStatusLabel" placeholder="Label (e.g., Pending)">
+                                <div class="col-auto">
+                                    <input type="text" class="form-control form-control-sm" id="newInvoiceStatusLabel" placeholder="Label (e.g., Pending)" style="width: 130px;">
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-auto">
                                     <div class="input-group input-group-sm">
                                         <input type="color" class="form-control form-control-color" id="newInvoiceStatusColor" value="#0d6efd" title="Choose color">
-                                        <input type="text" class="form-control" id="newInvoiceStatusColorText" value="#0d6efd" placeholder="#hex">
+                                        <input type="text" class="form-control" id="newInvoiceStatusColorText" value="#0d6efd" placeholder="#hex" style="width: 75px;">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-auto">
                                     <div class="input-group input-group-sm">
-                                        <input type="range" class="form-range" id="newInvoiceStatusOpacity" min="0" max="1" step="0.1" value="0.7" style="width: 70px;">
+                                        <input type="range" class="form-range" id="newInvoiceStatusOpacity" min="0" max="1" step="0.1" value="0.7" style="width: 60px;">
                                         <span class="input-group-text small" id="newInvoiceStatusOpacityValue">70%</span>
                                     </div>
                                 </div>
-                                <div class="col-md-1">
-                                    <input type="number" class="form-control form-control-sm" id="newInvoiceStatusOrder" placeholder="Order" value="0">
+                                <div class="col-auto">
+                                    <input type="number" class="form-control form-control-sm" id="newInvoiceStatusOrder" placeholder="Order" value="0" style="width: 60px;">
                                 </div>
-                                <div class="col-md-2">
-                                    <button class="btn btn-primary btn-sm w-100" onclick="addDropdownOption('invoice_status')">
+                                <div class="col-auto">
+                                    <select class="form-select form-select-sm" id="newInvoiceStatusMinRole" style="width: 100px;">
+                                        <option value="Viewer">Viewer</option>
+                                        <option value="User">User</option>
+                                        <option value="Manager">Manager</option>
+                                        <option value="Admin">Admin</option>
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <button class="btn btn-primary btn-sm" onclick="addDropdownOption('invoice_status')">
                                         <i class="bi bi-plus"></i> Add
                                     </button>
                                 </div>
@@ -412,6 +421,7 @@
                                             <th>Color</th>
                                             <th>Opacity</th>
                                             <th>Order</th>
+                                            <th>Min Role</th>
                                             <th>Active</th>
                                             <th width="100">Actions</th>
                                         </tr>
@@ -419,30 +429,38 @@
                                     <tbody></tbody>
                                 </table>
                             </div>
-                            <div class="row g-2 mt-2">
-                                <div class="col-md-2">
-                                    <input type="text" class="form-control form-control-sm" id="newPaymentStatusValue" placeholder="Value (e.g., partial)">
+                            <div class="row g-2 mt-2 align-items-center">
+                                <div class="col-auto">
+                                    <input type="text" class="form-control form-control-sm" id="newPaymentStatusValue" placeholder="Value (e.g., partial)" style="width: 120px;">
                                 </div>
-                                <div class="col-md-2">
-                                    <input type="text" class="form-control form-control-sm" id="newPaymentStatusLabel" placeholder="Label (e.g., Partial)">
+                                <div class="col-auto">
+                                    <input type="text" class="form-control form-control-sm" id="newPaymentStatusLabel" placeholder="Label (e.g., Partial)" style="width: 130px;">
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-auto">
                                     <div class="input-group input-group-sm">
                                         <input type="color" class="form-control form-control-color" id="newPaymentStatusColor" value="#0d6efd" title="Choose color">
-                                        <input type="text" class="form-control" id="newPaymentStatusColorText" value="#0d6efd" placeholder="#hex">
+                                        <input type="text" class="form-control" id="newPaymentStatusColorText" value="#0d6efd" placeholder="#hex" style="width: 75px;">
                                     </div>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-auto">
                                     <div class="input-group input-group-sm">
-                                        <input type="range" class="form-range" id="newPaymentStatusOpacity" min="0" max="1" step="0.1" value="0.7" style="width: 70px;">
+                                        <input type="range" class="form-range" id="newPaymentStatusOpacity" min="0" max="1" step="0.1" value="0.7" style="width: 60px;">
                                         <span class="input-group-text small" id="newPaymentStatusOpacityValue">70%</span>
                                     </div>
                                 </div>
-                                <div class="col-md-1">
-                                    <input type="number" class="form-control form-control-sm" id="newPaymentStatusOrder" placeholder="Order" value="0">
+                                <div class="col-auto">
+                                    <input type="number" class="form-control form-control-sm" id="newPaymentStatusOrder" placeholder="Order" value="0" style="width: 60px;">
                                 </div>
-                                <div class="col-md-2">
-                                    <button class="btn btn-primary btn-sm w-100" onclick="addDropdownOption('payment_status')">
+                                <div class="col-auto">
+                                    <select class="form-select form-select-sm" id="newPaymentStatusMinRole" style="width: 100px;">
+                                        <option value="Viewer">Viewer</option>
+                                        <option value="User">User</option>
+                                        <option value="Manager">Manager</option>
+                                        <option value="Admin">Admin</option>
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <button class="btn btn-primary btn-sm" onclick="addDropdownOption('payment_status')">
                                         <i class="bi bi-plus"></i> Add
                                     </button>
                                 </div>
@@ -3715,6 +3733,15 @@
                                    onchange="updateDropdownOption(${opt.id}, 'sort_order', parseInt(this.value))">
                         </td>
                         <td>
+                            <select class="form-select form-select-sm" style="width: 100px"
+                                    onchange="updateDropdownOption(${opt.id}, 'min_role', this.value)">
+                                <option value="Viewer" ${opt.min_role === 'Viewer' ? 'selected' : ''}>Viewer</option>
+                                <option value="User" ${opt.min_role === 'User' ? 'selected' : ''}>User</option>
+                                <option value="Manager" ${opt.min_role === 'Manager' ? 'selected' : ''}>Manager</option>
+                                <option value="Admin" ${opt.min_role === 'Admin' ? 'selected' : ''}>Admin</option>
+                            </select>
+                        </td>
+                        <td>
                             <div class="form-check form-switch">
                                 <input class="form-check-input" type="checkbox" ${opt.is_active ? 'checked' : ''}
                                        onchange="updateDropdownOption(${opt.id}, 'is_active', this.checked)">
@@ -3756,6 +3783,15 @@
                         <td>
                             <input type="number" class="form-control form-control-sm" style="width: 70px" value="${opt.sort_order}"
                                    onchange="updateDropdownOption(${opt.id}, 'sort_order', parseInt(this.value))">
+                        </td>
+                        <td>
+                            <select class="form-select form-select-sm" style="width: 100px"
+                                    onchange="updateDropdownOption(${opt.id}, 'min_role', this.value)">
+                                <option value="Viewer" ${opt.min_role === 'Viewer' ? 'selected' : ''}>Viewer</option>
+                                <option value="User" ${opt.min_role === 'User' ? 'selected' : ''}>User</option>
+                                <option value="Manager" ${opt.min_role === 'Manager' ? 'selected' : ''}>Manager</option>
+                                <option value="Admin" ${opt.min_role === 'Admin' ? 'selected' : ''}>Admin</option>
+                            </select>
                         </td>
                         <td>
                             <div class="form-check form-switch">
@@ -3812,12 +3848,14 @@
             const colorInput = document.getElementById(`new${prefix}Color`);
             const opacityInput = document.getElementById(`new${prefix}Opacity`);
             const orderInput = document.getElementById(`new${prefix}Order`);
+            const minRoleInput = document.getElementById(`new${prefix}MinRole`);
 
             const value = valueInput.value.trim();
             const label = labelInput.value.trim();
             const color = colorInput.value || '#0d6efd';
             const opacity = parseFloat(opacityInput.value) || 0.7;
             const sortOrder = parseInt(orderInput.value) || 0;
+            const minRole = minRoleInput ? minRoleInput.value : 'Viewer';
 
             if (!value || !label) {
                 showToast('Please fill in both Value and Label', 'warning');
@@ -3835,7 +3873,8 @@
                         color: color,
                         opacity: opacity,
                         sort_order: sortOrder,
-                        is_active: true
+                        is_active: true,
+                        min_role: minRole
                     })
                 });
 

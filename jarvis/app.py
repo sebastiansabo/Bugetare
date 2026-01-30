@@ -116,6 +116,10 @@ app.register_blueprint(statements_bp, url_prefix='/statements')
 from ai_agent import ai_agent_bp
 app.register_blueprint(ai_agent_bp)
 
+# Register Profile Module Blueprint
+from core.profile import profile_bp
+app.register_blueprint(profile_bp)
+
 # Cache-Control headers for API responses
 # NOTE: Browser caching disabled for all Settings-related endpoints to avoid stale data
 # after edits. Performance impact is minimal (<50ms per request for these simple queries).

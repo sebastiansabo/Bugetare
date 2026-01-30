@@ -947,8 +947,17 @@
         let invoiceStatusOptions = [];
         let paymentStatusOptions = [];
 
-        // Set CSS variables for status colors (used by theme.css for row coloring)
+        // Set CSS variables for status colors and inject dynamic CSS rules
         function setStatusColorCssVariables(options) {
+            // Remove any existing dynamic status styles
+            const existingStyle = document.getElementById('dynamic-status-styles');
+            if (existingStyle) existingStyle.remove();
+
+            // Create new style element for dynamic status colors
+            const styleEl = document.createElement('style');
+            styleEl.id = 'dynamic-status-styles';
+            let cssRules = '';
+
             options.forEach(opt => {
                 if (opt.color && opt.value) {
                     // Convert hex color to rgba with configurable opacity from settings
@@ -958,9 +967,18 @@
                     const b = parseInt(hex.substring(4, 6), 16);
                     const opacity = opt.opacity ?? 0.7; // Use configurable opacity, default to 0.7
                     const rgbaColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+
+                    // Set CSS variable (for backwards compatibility)
                     document.documentElement.style.setProperty(`--status-color-${opt.value}`, rgbaColor);
+
+                    // Add dynamic CSS rule for this status value
+                    cssRules += `tr[data-status="${opt.value}"] > td { background-color: ${rgbaColor} !important; }\n`;
+                    cssRules += `body.dark-theme tr[data-status="${opt.value}"] > td { background-color: ${rgbaColor} !important; }\n`;
                 }
             });
+
+            styleEl.textContent = cssRules;
+            document.head.appendChild(styleEl);
         }
 
         // Set CSS variables for payment status colors (used for dropdown coloring)

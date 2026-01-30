@@ -5980,5 +5980,415 @@ def check_permission_v2(role_id: int, module: str, entity: str, action: str) -> 
     return {'has_permission': False, 'scope': 'deny'}
 
 
+# ============== Profile Page Functions ==============
+
+def get_responsable_by_email(email: str) -> Optional[dict]:
+    """
+    Find a responsable record by email address.
+    Returns the responsable with their department/brand info.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT r.id, r.name, r.email, r.phone,
+               ds.company, ds.brand, ds.department, ds.subdepartment
+        FROM responsables r
+        LEFT JOIN department_structure ds ON r.org_unit_id = ds.id
+        WHERE LOWER(r.email) = LOWER(%s)
+        LIMIT 1
+    ''', (email,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row:
+        return {
+            'id': row['id'],
+            'name': row['name'],
+            'email': row['email'],
+            'phone': row['phone'],
+            'company': row['company'],
+            'brand': row['brand'],
+            'department': row['department'],
+            'subdepartment': row['subdepartment'],
+            'departments': row['department'],  # Alias for profile page
+        }
+    return None
+
+
+def get_user_invoices_by_responsible_name(
+    responsible_name: str,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get invoices where the user is listed as responsible in allocations.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Build query with proper joins
+    query = '''
+        SELECT DISTINCT
+            i.id, i.invoice_number, i.invoice_date, i.invoice_value,
+            i.currency, i.supplier, i.supplier_vat, i.dedicated_to,
+            i.status, i.payment_status, i.drive_link, i.notes,
+            i.created_at, i.updated_at
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+    '''
+    params = [responsible_name]
+
+    if status:
+        query += ' AND i.status = %s'
+        params.append(status)
+
+    if start_date:
+        query += ' AND i.invoice_date >= %s'
+        params.append(start_date)
+
+    if end_date:
+        query += ' AND i.invoice_date <= %s'
+        params.append(end_date)
+
+    if search:
+        query += ''' AND (
+            i.invoice_number ILIKE %s
+            OR i.supplier ILIKE %s
+            OR i.dedicated_to ILIKE %s
+        )'''
+        search_pattern = f'%{search}%'
+        params.extend([search_pattern, search_pattern, search_pattern])
+
+    query += ' ORDER BY i.invoice_date DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_invoices_count(
+    responsible_name: str,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    search: Optional[str] = None,
+) -> int:
+    """
+    Count invoices where the user is listed as responsible.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    query = '''
+        SELECT COUNT(DISTINCT i.id) as count
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+    '''
+    params = [responsible_name]
+
+    if status:
+        query += ' AND i.status = %s'
+        params.append(status)
+
+    if start_date:
+        query += ' AND i.invoice_date >= %s'
+        params.append(start_date)
+
+    if end_date:
+        query += ' AND i.invoice_date <= %s'
+        params.append(end_date)
+
+    if search:
+        query += ''' AND (
+            i.invoice_number ILIKE %s
+            OR i.supplier ILIKE %s
+            OR i.dedicated_to ILIKE %s
+        )'''
+        search_pattern = f'%{search}%'
+        params.extend([search_pattern, search_pattern, search_pattern])
+
+    cursor.execute(query, params)
+    row = cursor.fetchone()
+    release_db(conn)
+
+    return row['count'] if row else 0
+
+
+def get_user_invoices_summary(responsible_name: str) -> dict:
+    """
+    Get invoice summary stats for a responsible person.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Get status breakdown
+    cursor.execute('''
+        SELECT i.status, COUNT(DISTINCT i.id) as count
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+        GROUP BY i.status
+    ''', (responsible_name,))
+
+    by_status = {}
+    for row in cursor.fetchall():
+        by_status[row['status'] or 'unknown'] = row['count']
+
+    # Get total value
+    cursor.execute('''
+        SELECT COUNT(DISTINCT i.id) as total, COALESCE(SUM(DISTINCT i.invoice_value), 0) as total_value
+        FROM invoices i
+        INNER JOIN allocations a ON i.id = a.invoice_id
+        WHERE LOWER(a.responsible) = LOWER(%s)
+    ''', (responsible_name,))
+
+    totals = cursor.fetchone()
+    release_db(conn)
+
+    return {
+        'total': totals['total'] if totals else 0,
+        'total_value': float(totals['total_value']) if totals else 0,
+        'by_status': by_status,
+    }
+
+
+def get_user_event_bonuses(
+    responsable_id: int,
+    year: Optional[int] = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get HR event bonuses for a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Find employee by responsable_id (via email match or user_id)
+    cursor.execute('''
+        SELECT e.id as employee_id
+        FROM hr.employees e
+        INNER JOIN responsables r ON (
+            LOWER(r.email) = (SELECT LOWER(email) FROM users WHERE id = e.user_id)
+            OR LOWER(r.name) = LOWER(e.name)
+        )
+        WHERE r.id = %s
+        LIMIT 1
+    ''', (responsable_id,))
+
+    emp_row = cursor.fetchone()
+    if not emp_row:
+        release_db(conn)
+        return []
+
+    employee_id = emp_row['employee_id']
+
+    query = '''
+        SELECT
+            eb.id, eb.year, eb.month, eb.bonus_days, eb.hours_free,
+            eb.bonus_net, eb.details, eb.allocation_month,
+            eb.created_at, eb.updated_at,
+            e.name as event_name, e.start_date, e.end_date,
+            e.company, e.brand
+        FROM hr.event_bonuses eb
+        INNER JOIN hr.events e ON eb.event_id = e.id
+        WHERE eb.employee_id = %s
+    '''
+    params = [employee_id]
+
+    if year:
+        query += ' AND eb.year = %s'
+        params.append(year)
+
+    query += ' ORDER BY eb.year DESC, eb.month DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_event_bonuses_summary(responsable_id: int) -> dict:
+    """
+    Get summary of HR event bonuses for a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Find employee by responsable
+    cursor.execute('''
+        SELECT e.id as employee_id
+        FROM hr.employees e
+        INNER JOIN responsables r ON (
+            LOWER(r.email) = (SELECT LOWER(email) FROM users WHERE id = e.user_id)
+            OR LOWER(r.name) = LOWER(e.name)
+        )
+        WHERE r.id = %s
+        LIMIT 1
+    ''', (responsable_id,))
+
+    emp_row = cursor.fetchone()
+    if not emp_row:
+        release_db(conn)
+        return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
+
+    employee_id = emp_row['employee_id']
+
+    cursor.execute('''
+        SELECT
+            COUNT(*) as total_bonuses,
+            COALESCE(SUM(bonus_net), 0) as total_amount,
+            COUNT(DISTINCT event_id) as events_count
+        FROM hr.event_bonuses
+        WHERE employee_id = %s
+    ''', (employee_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row:
+        return {
+            'total_bonuses': row['total_bonuses'],
+            'total_amount': float(row['total_amount']),
+            'events_count': row['events_count'],
+        }
+    return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
+
+
+def get_user_notifications(
+    responsable_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get notifications sent to a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Get responsable email
+    cursor.execute('SELECT email FROM responsables WHERE id = %s', (responsable_id,))
+    resp_row = cursor.fetchone()
+
+    if not resp_row or not resp_row['email']:
+        release_db(conn)
+        return []
+
+    cursor.execute('''
+        SELECT id, event_type, invoice_id, recipient_email, status,
+               error_message, created_at
+        FROM notification_logs
+        WHERE LOWER(recipient_email) = LOWER(%s)
+        ORDER BY created_at DESC
+        LIMIT %s OFFSET %s
+    ''', (resp_row['email'], limit, offset))
+
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_notifications_summary(responsable_id: int) -> dict:
+    """
+    Get notification summary for a responsable.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Get responsable email
+    cursor.execute('SELECT email FROM responsables WHERE id = %s', (responsable_id,))
+    resp_row = cursor.fetchone()
+
+    if not resp_row or not resp_row['email']:
+        release_db(conn)
+        return {'total': 0, 'sent': 0, 'failed': 0}
+
+    cursor.execute('''
+        SELECT
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE status = 'sent') as sent,
+            COUNT(*) FILTER (WHERE status = 'failed') as failed
+        FROM notification_logs
+        WHERE LOWER(recipient_email) = LOWER(%s)
+    ''', (resp_row['email'],))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    if row:
+        return {
+            'total': row['total'],
+            'sent': row['sent'],
+            'failed': row['failed'],
+        }
+    return {'total': 0, 'sent': 0, 'failed': 0}
+
+
+def get_user_activity(
+    user_id: int,
+    event_type: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Get activity log for a user.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    query = '''
+        SELECT id, event_type, details, ip_address, user_agent, created_at
+        FROM user_events
+        WHERE user_id = %s
+    '''
+    params = [user_id]
+
+    if event_type:
+        query += ' AND event_type = %s'
+        params.append(event_type)
+
+    query += ' ORDER BY created_at DESC LIMIT %s OFFSET %s'
+    params.extend([limit, offset])
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    release_db(conn)
+
+    return [dict_from_row(dict(row)) for row in rows]
+
+
+def get_user_activity_count(user_id: int) -> int:
+    """
+    Count activity events for a user.
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT COUNT(*) as count
+        FROM user_events
+        WHERE user_id = %s
+    ''', (user_id,))
+
+    row = cursor.fetchone()
+    release_db(conn)
+
+    return row['count'] if row else 0
+
+
 # Initialize database on import
 init_db()
