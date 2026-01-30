@@ -156,6 +156,10 @@ app.register_blueprint(profile_bp)
 from core.connectors.efactura import efactura_bp
 app.register_blueprint(efactura_bp)
 
+# Register Accounting e-Factura Blueprint (unallocated invoices management)
+from accounting.efactura import accounting_efactura_bp
+app.register_blueprint(accounting_efactura_bp)
+
 # Cache-Control headers for API responses
 # NOTE: Browser caching disabled for all Settings-related endpoints to avoid stale data
 # after edits. Performance impact is minimal (<50ms per request for these simple queries).

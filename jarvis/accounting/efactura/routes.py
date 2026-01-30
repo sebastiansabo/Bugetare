@@ -6,12 +6,13 @@ Flask routes for e-Factura connector UI and API.
 
 from datetime import date, datetime
 from decimal import Decimal
+from functools import wraps
 from typing import Optional
 from flask import request, jsonify, render_template
+from flask_login import login_required, current_user
 
-from core.auth.routes import login_required, api_login_required
 from core.utils.logging_config import get_logger
-from . import efactura_bp
+from . import accounting_efactura_bp
 from .config import InvoiceDirection, ConnectorConfig
 from .repositories import (
     CompanyConnectionRepository,
@@ -20,6 +21,19 @@ from .repositories import (
 )
 
 logger = get_logger('jarvis.accounting.efactura.routes')
+
+
+def api_login_required(f):
+    """Decorator for API endpoints that returns JSON 401 instead of redirect."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return jsonify({
+                'success': False,
+                'error': 'Authentication required',
+            }), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 def json_serial(obj):
@@ -35,28 +49,28 @@ def json_serial(obj):
 # UI Routes
 # ============================================================
 
-@efactura_bp.route('/')
+@accounting_efactura_bp.route('/')
 @login_required
 def index():
     """e-Factura dashboard page."""
-    return render_template('accounting/efactura/index.html')
+    return render_template('accounting/bugetare/efactura.html')
 
 
-@efactura_bp.route('/connections')
+@accounting_efactura_bp.route('/connections')
 @login_required
 def connections_page():
     """Company connections management page."""
     return render_template('accounting/efactura/connections.html')
 
 
-@efactura_bp.route('/invoices')
+@accounting_efactura_bp.route('/invoices')
 @login_required
 def invoices_page():
     """Invoices list page."""
     return render_template('accounting/efactura/invoices.html')
 
 
-@efactura_bp.route('/sync-history')
+@accounting_efactura_bp.route('/sync-history')
 @login_required
 def sync_history_page():
     """Sync history page."""
@@ -67,7 +81,7 @@ def sync_history_page():
 # API: Company Connections
 # ============================================================
 
-@efactura_bp.route('/api/connections', methods=['GET'])
+@accounting_efactura_bp.route('/api/connections', methods=['GET'])
 @api_login_required
 def list_connections():
     """List all company connections."""
@@ -101,7 +115,7 @@ def list_connections():
         }), 500
 
 
-@efactura_bp.route('/api/connections/<cif>', methods=['GET'])
+@accounting_efactura_bp.route('/api/connections/<cif>', methods=['GET'])
 @api_login_required
 def get_connection(cif: str):
     """Get connection details by CIF."""
@@ -141,7 +155,7 @@ def get_connection(cif: str):
         }), 500
 
 
-@efactura_bp.route('/api/connections', methods=['POST'])
+@accounting_efactura_bp.route('/api/connections', methods=['POST'])
 @api_login_required
 def create_connection():
     """Create a new company connection."""
@@ -206,7 +220,7 @@ def create_connection():
         }), 500
 
 
-@efactura_bp.route('/api/connections/<cif>', methods=['DELETE'])
+@accounting_efactura_bp.route('/api/connections/<cif>', methods=['DELETE'])
 @api_login_required
 def delete_connection(cif: str):
     """Delete a company connection."""
@@ -237,7 +251,7 @@ def delete_connection(cif: str):
 # API: Invoices
 # ============================================================
 
-@efactura_bp.route('/api/invoices', methods=['GET'])
+@accounting_efactura_bp.route('/api/invoices', methods=['GET'])
 @api_login_required
 def list_invoices():
     """List invoices with filters."""
@@ -328,7 +342,7 @@ def list_invoices():
         }), 500
 
 
-@efactura_bp.route('/api/invoices/<int:invoice_id>', methods=['GET'])
+@accounting_efactura_bp.route('/api/invoices/<int:invoice_id>', methods=['GET'])
 @api_login_required
 def get_invoice(invoice_id: int):
     """Get invoice details with artifacts."""
@@ -391,7 +405,7 @@ def get_invoice(invoice_id: int):
         }), 500
 
 
-@efactura_bp.route('/api/invoices/<int:invoice_id>/download/<artifact_type>', methods=['GET'])
+@accounting_efactura_bp.route('/api/invoices/<int:invoice_id>/download/<artifact_type>', methods=['GET'])
 @api_login_required
 def download_artifact(invoice_id: int, artifact_type: str):
     """Download invoice artifact."""
@@ -436,7 +450,7 @@ def download_artifact(invoice_id: int, artifact_type: str):
         }), 500
 
 
-@efactura_bp.route('/api/invoices/summary', methods=['GET'])
+@accounting_efactura_bp.route('/api/invoices/summary', methods=['GET'])
 @api_login_required
 def get_invoice_summary():
     """Get invoice summary statistics."""
@@ -485,7 +499,7 @@ def get_invoice_summary():
 # API: Sync Operations
 # ============================================================
 
-@efactura_bp.route('/api/sync/trigger', methods=['POST'])
+@accounting_efactura_bp.route('/api/sync/trigger', methods=['POST'])
 @api_login_required
 def trigger_sync():
     """Manually trigger sync for a company."""
@@ -520,7 +534,7 @@ def trigger_sync():
         }), 500
 
 
-@efactura_bp.route('/api/sync/history', methods=['GET'])
+@accounting_efactura_bp.route('/api/sync/history', methods=['GET'])
 @api_login_required
 def get_sync_history():
     """Get sync run history."""
@@ -559,7 +573,7 @@ def get_sync_history():
         }), 500
 
 
-@efactura_bp.route('/api/sync/errors/<run_id>', methods=['GET'])
+@accounting_efactura_bp.route('/api/sync/errors/<run_id>', methods=['GET'])
 @api_login_required
 def get_sync_errors(run_id: str):
     """Get errors for a sync run."""
@@ -592,7 +606,7 @@ def get_sync_errors(run_id: str):
         }), 500
 
 
-@efactura_bp.route('/api/sync/stats', methods=['GET'])
+@accounting_efactura_bp.route('/api/sync/stats', methods=['GET'])
 @api_login_required
 def get_error_stats():
     """Get error statistics for monitoring."""
@@ -620,7 +634,7 @@ def get_error_stats():
 # API: Rate Limit Status
 # ============================================================
 
-@efactura_bp.route('/api/rate-limit', methods=['GET'])
+@accounting_efactura_bp.route('/api/rate-limit', methods=['GET'])
 @api_login_required
 def get_rate_limit():
     """Get current rate limit status."""
