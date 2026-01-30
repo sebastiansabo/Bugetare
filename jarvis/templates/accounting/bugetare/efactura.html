@@ -85,6 +85,22 @@
             border-color: #ef9a9a;
         }
         .sync-progress-container.error .sync-progress-info { color: #c62828; }
+        /* Sync progress hover for clickable report */
+        .sync-progress-container[data-sync-result] {
+            cursor: pointer;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .sync-progress-container[data-sync-result]:hover {
+            transform: scale(1.02);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .sync-progress-container[data-sync-result]::after {
+            content: '\F479'; /* bi-info-circle */
+            font-family: 'bootstrap-icons';
+            margin-left: 8px;
+            opacity: 0.6;
+            font-size: 0.9em;
+        }
         /* Sortable Table Headers */
         .sortable {
             cursor: pointer;
@@ -2459,8 +2475,42 @@
         function hideSyncProgress(delay = 0) {
             setTimeout(() => {
                 document.getElementById('syncProgressContainer').style.display = 'none';
+                // Clear tooltip when hiding
+                const container = document.getElementById('syncProgressContainer');
+                container.removeAttribute('data-sync-result');
             }, delay);
         }
+
+        // Store sync result for hover tooltip
+        let lastSyncResult = null;
+
+        function storeSyncResultForTooltip(html, status, detail) {
+            lastSyncResult = { html, status, detail, timestamp: Date.now() };
+            const container = document.getElementById('syncProgressContainer');
+            container.setAttribute('data-sync-result', 'true');
+            container.style.cursor = 'pointer';
+            container.title = 'Click or hover to view sync report';
+
+            // Auto-clear after 4 minutes
+            setTimeout(() => {
+                lastSyncResult = null;
+                container.removeAttribute('data-sync-result');
+                container.style.cursor = '';
+                container.title = '';
+            }, 240000);
+        }
+
+        // Show sync result tooltip on click
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('syncProgressContainer');
+            if (container) {
+                container.addEventListener('click', function() {
+                    if (lastSyncResult) {
+                        JarvisDialog.alert(lastSyncResult.html, { type: 'info', title: 'Sync Report', html: true });
+                    }
+                });
+            }
+        });
 
         // Sync Modal Functions
         let syncCompaniesCache = [];
@@ -2605,22 +2655,24 @@
                     );
                 }
 
-                const hasErrors = allErrors.length > 0;
-                showSyncProgress(
-                    hasErrors ? 'Completed with errors' : 'Sync Complete!',
-                    `${totalImported} imported, ${totalSkipped} skipped` + (hasErrors ? `, ${allErrors.length} errors` : ''),
-                    100,
-                    hasErrors ? 'error' : 'completed'
-                );
+                const hasExceptions = allErrors.length > 0;
+                const statusText = hasExceptions ? 'Completed with exceptions' : 'Sync Complete!';
+                const detailText = `${totalImported} imported, ${totalSkipped} skipped` + (hasExceptions ? `, ${allErrors.length} exceptions` : '');
 
-                if (totalImported > 0 || hasErrors) {
-                    const msg = formatSyncResult(totalImported, totalSkipped, hasErrors ? allErrors : null);
-                    await JarvisDialog.alert(msg, { type: hasErrors ? 'warning' : 'success', html: true });
+                showSyncProgress(statusText, detailText, 100, hasExceptions ? 'error' : 'completed');
+
+                // Store sync result for tooltip (available for 4 minutes)
+                const syncResultHtml = formatSyncResult(totalImported, totalSkipped, hasExceptions ? allErrors : null);
+                storeSyncResultForTooltip(syncResultHtml, statusText, detailText);
+
+                if (totalImported > 0 || hasExceptions) {
+                    await JarvisDialog.alert(syncResultHtml, { type: hasExceptions ? 'warning' : 'success', html: true });
                 }
 
                 loadUnallocatedInvoices(1, true);  // Force reload after sync
                 loadBadgeCounts();
-                hideSyncProgress(3000);
+                // Don't hide - let it stay visible with hover tooltip
+                hideSyncProgress(240000); // Hide after 4 minutes
 
                 // Check for duplicates after sync
                 checkForDuplicates();
