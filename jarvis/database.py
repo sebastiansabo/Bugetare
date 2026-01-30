@@ -1948,7 +1948,7 @@ def init_db():
 
     # Migration: Add kod_konto column if it doesn't exist
     cursor.execute('''
-        DO $
+        DO $$
         BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
@@ -1956,12 +1956,12 @@ def init_db():
             ) THEN
                 ALTER TABLE efactura_supplier_mappings ADD COLUMN kod_konto VARCHAR(50);
             END IF;
-        END $;
+        END $$;
     ''')
 
     # Migration: Add type_id column if it doesn't exist (legacy, will be replaced by junction table)
     cursor.execute('''
-        DO $
+        DO $$
         BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
@@ -1969,12 +1969,12 @@ def init_db():
             ) THEN
                 ALTER TABLE efactura_supplier_mappings ADD COLUMN type_id INTEGER REFERENCES efactura_partner_types(id);
             END IF;
-        END $;
+        END $$;
     ''')
 
     # Migration: Add department, subdepartment, and brand columns to supplier mappings
     cursor.execute('''
-        DO $
+        DO $$
         BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
@@ -1994,7 +1994,7 @@ def init_db():
             ) THEN
                 ALTER TABLE efactura_supplier_mappings ADD COLUMN brand VARCHAR(255);
             END IF;
-        END $;
+        END $$;
     ''')
 
     # Commit to ensure supplier_mappings table exists before creating junction table FK
