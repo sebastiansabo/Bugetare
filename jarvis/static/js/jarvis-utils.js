@@ -194,4 +194,18 @@
     window.showLoading = showLoading;
     window.hideLoading = hideLoading;
 
+    /**
+     * Global Bootstrap modal focus fix
+     * Prevents aria-hidden warning by blurring focused elements before modal hides
+     */
+    document.addEventListener('hide.bs.modal', function(event) {
+        const modal = event.target;
+        if (modal) {
+            const focusedEl = modal.querySelector(':focus');
+            if (focusedEl) {
+                focusedEl.blur();
+            }
+        }
+    });
+
 })();
