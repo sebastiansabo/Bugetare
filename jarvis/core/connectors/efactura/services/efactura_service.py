@@ -1883,6 +1883,19 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
             alloc_values = []
             alloc_params = []
 
+            # Pre-fetch user IDs for responsible names to enable FK-based queries
+            responsible_names = set()
+            for inv in invoices_to_create:
+                if inv.get('responsible'):
+                    responsible_names.add(inv['responsible'].lower())
+
+            responsible_user_ids = {}
+            if responsible_names:
+                placeholders = ','.join(['%s'] * len(responsible_names))
+                cursor.execute(f'SELECT id, LOWER(name) as name_lower FROM users WHERE LOWER(name) IN ({placeholders})', list(responsible_names))
+                for row in cursor.fetchall():
+                    responsible_user_ids[row['name_lower']] = row['id']
+
             for inv, (_, jarvis_id) in zip(invoices_to_create, mappings):
                 company_name = inv.get('company_name')
                 department = inv.get('department')
@@ -1895,8 +1908,9 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                     subdepartment = inv.get('subdepartment')
                     brand = inv.get('brand')  # From supplier mapping
                     responsible = inv.get('responsible')  # From department_structure
+                    responsible_user_id = responsible_user_ids.get(responsible.lower()) if responsible else None
 
-                    alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s)")
+                    alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s)")
                     alloc_params.extend([
                         jarvis_id,        # invoice_id
                         company_name,     # company
@@ -1906,6 +1920,7 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                         100.0,            # allocation_percent (100% to single dept)
                         allocation_value, # allocation_value (net if available)
                         responsible,      # responsible (manager from department_structure)
+                        responsible_user_id,  # responsible_user_id (FK for fast queries)
                     ])
 
             # Bulk insert allocations if any
@@ -1913,7 +1928,7 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                 cursor.execute(f'''
                     INSERT INTO allocations (
                         invoice_id, company, brand, department, subdepartment,
-                        allocation_percent, allocation_value, responsible
+                        allocation_percent, allocation_value, responsible, responsible_user_id
                     ) VALUES {', '.join(alloc_values)}
                 ''', alloc_params)
 

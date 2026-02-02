@@ -1334,6 +1334,7 @@ def init_db():
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_brand ON allocations(brand)')
     # Composite index for invoice+company lookups (optimizes filtered allocation queries)
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_invoice_company ON allocations(invoice_id, company)')
+    # NOTE: idx_allocations_responsible_user_id is created after the column migration below
 
     # Partial index for non-deleted invoices ordered by date (most common query pattern)
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_invoices_active_date ON invoices(invoice_date DESC) WHERE deleted_at IS NULL')
@@ -1504,6 +1505,35 @@ def init_db():
     except psycopg2.errors.DuplicateColumn:
         conn.rollback()
     except Exception:
+        conn.rollback()
+
+    # Add responsible_user_id column to allocations for faster FK-based queries
+    try:
+        cursor.execute('ALTER TABLE allocations ADD COLUMN responsible_user_id INTEGER REFERENCES users(id)')
+        conn.commit()
+    except psycopg2.errors.DuplicateColumn:
+        conn.rollback()
+    except Exception:
+        conn.rollback()
+
+    # Create index on responsible_user_id for fast profile queries
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_allocations_responsible_user_id ON allocations(responsible_user_id)')
+    conn.commit()
+
+    # Migrate existing responsible names to responsible_user_id
+    try:
+        cursor.execute('''
+            UPDATE allocations a
+            SET responsible_user_id = u.id
+            FROM users u
+            WHERE a.responsible_user_id IS NULL
+              AND a.responsible IS NOT NULL
+              AND LOWER(a.responsible) = LOWER(u.name)
+        ''')
+        conn.commit()
+        print(f"Migrated {cursor.rowcount} allocations to use responsible_user_id")
+    except Exception as e:
+        print(f"Warning: Could not migrate responsible names to user IDs: {e}")
         conn.rollback()
 
     # Create reinvoice_destinations table for multi-destination reinvoicing
@@ -2159,6 +2189,7 @@ def save_invoice(
 
             # Look up the responsible (manager) from department_structure if not provided
             responsible = dist.get('responsible', '')
+            responsible_user_id = dist.get('responsible_user_id')
             if not responsible and dist['company'] and dist['department']:
                 # Build query with optional brand and subdepartment filters
                 conditions = ['ds.company = %s', 'ds.department = %s']
@@ -2174,7 +2205,7 @@ def save_invoice(
                     conditions.append('ds.subdepartment = %s')
                     params.append(subdept)
 
-                # Use manager_ids joined with users to get manager names
+                # Use manager_ids joined with users to get manager names and user ID
                 cursor.execute(f'''
                     SELECT COALESCE(
                         (SELECT string_agg(u.name, ', ')
@@ -2182,7 +2213,8 @@ def save_invoice(
                          JOIN users u ON u.id = mid),
                         ds.manager,
                         ''
-                    ) AS manager_name
+                    ) AS manager_name,
+                    (SELECT mid FROM unnest(ds.manager_ids) AS mid LIMIT 1) AS manager_user_id
                     FROM department_structure ds
                     WHERE {' AND '.join(conditions)}
                     LIMIT 1
@@ -2190,10 +2222,11 @@ def save_invoice(
                 row = cursor.fetchone()
                 if row and row['manager_name']:
                     responsible = row['manager_name']
+                    responsible_user_id = row.get('manager_user_id')
 
             cursor.execute('''
-                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment, allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked, comment)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO allocations (invoice_id, company, brand, department, subdepartment, allocation_percent, allocation_value, responsible, responsible_user_id, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked, comment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 invoice_id,
@@ -2204,6 +2237,7 @@ def save_invoice(
                 dist['allocation'] * 100,
                 allocation_value,
                 responsible,
+                responsible_user_id,
                 dist.get('reinvoice_to'),
                 dist.get('reinvoice_brand'),
                 dist.get('reinvoice_department'),
@@ -3447,13 +3481,21 @@ def add_allocation(
     cursor = get_cursor(conn)
 
     try:
+        # Look up responsible_user_id from responsible name
+        responsible_user_id = None
+        if responsible:
+            cursor.execute('SELECT id FROM users WHERE LOWER(name) = LOWER(%s) LIMIT 1', (responsible,))
+            user_row = cursor.fetchone()
+            if user_row:
+                responsible_user_id = user_row['id']
+
         cursor.execute('''
             INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
-                allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                allocation_percent, allocation_value, responsible, responsible_user_id, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         ''', (invoice_id, company, brand, department, subdepartment,
-              allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment))
+              allocation_percent, allocation_value, responsible, responsible_user_id, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment))
         allocation_id = cursor.fetchone()['id']
 
         conn.commit()
@@ -3493,10 +3535,19 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
             # Calculate value from percent if not provided (use base_value which is net_value when VAT subtraction enabled)
             allocation_value = alloc.get('allocation_value') or (base_value * allocation_percent / 100)
 
+            # Look up responsible_user_id from responsible name
+            responsible = alloc.get('responsible')
+            responsible_user_id = None
+            if responsible:
+                cursor.execute('SELECT id FROM users WHERE LOWER(name) = LOWER(%s) LIMIT 1', (responsible,))
+                user_row = cursor.fetchone()
+                if user_row:
+                    responsible_user_id = user_row['id']
+
             cursor.execute('''
                 INSERT INTO allocations (invoice_id, company, brand, department, subdepartment,
-                    allocation_percent, allocation_value, responsible, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked, comment)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    allocation_percent, allocation_value, responsible, responsible_user_id, reinvoice_to, reinvoice_brand, reinvoice_department, reinvoice_subdepartment, locked, comment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 invoice_id,
@@ -3506,7 +3557,8 @@ def update_invoice_allocations(invoice_id: int, allocations: list[dict]) -> bool
                 alloc.get('subdepartment'),
                 allocation_percent,
                 allocation_value,
-                alloc.get('responsible'),
+                responsible,
+                responsible_user_id,
                 alloc.get('reinvoice_to'),
                 alloc.get('reinvoice_brand'),
                 alloc.get('reinvoice_department'),
@@ -6440,25 +6492,35 @@ def get_user_invoices_by_responsible_name(
 ) -> list[dict]:
     """
     Get invoices where the user (by email) is listed as responsible in allocations.
-    Matches user email -> user name -> allocation.responsible
+    Uses indexed responsible_user_id FK for fast queries.
+    Falls back to text matching if user_id not found (for unmigrated data).
     """
     conn = get_db()
     cursor = get_cursor(conn)
 
-    # Match by user email: find user, then match their name to allocation.responsible
+    # First get user ID from email
+    cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
+    user_row = cursor.fetchone()
+
+    if not user_row:
+        release_db(conn)
+        return []
+
+    user_id = user_row['id']
+
+    # Use indexed FK query (fast) - also include fallback for unmigrated text-based responsible
     query = '''
         SELECT
             i.id, i.invoice_number, i.invoice_date, i.invoice_value,
             i.currency, i.supplier, i.status, i.drive_link, i.comment,
-            i.created_at, i.updated_at,
+            i.created_at, i.updated_at, i.payment_status,
             a.company, a.brand, a.department, a.subdepartment,
             a.allocation_percent, a.allocation_value
         FROM invoices i
         INNER JOIN allocations a ON i.id = a.invoice_id
-        INNER JOIN users u ON LOWER(a.responsible) = LOWER(u.name)
-        WHERE LOWER(u.email) = LOWER(%s)
+        WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
     '''
-    params = [user_email]
+    params = [user_id, user_id]
 
     if status:
         query += ' AND i.status = %s'
@@ -6499,18 +6561,29 @@ def get_user_invoices_count(
 ) -> int:
     """
     Count invoices where the user (by email) is listed as responsible.
+    Uses indexed responsible_user_id FK for fast queries.
     """
     conn = get_db()
     cursor = get_cursor(conn)
 
+    # First get user ID from email
+    cursor.execute('SELECT id, name FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
+    user_row = cursor.fetchone()
+
+    if not user_row:
+        release_db(conn)
+        return 0
+
+    user_id = user_row['id']
+
+    # Use indexed FK query with fallback for unmigrated data
     query = '''
         SELECT COUNT(DISTINCT i.id) as count
         FROM invoices i
         INNER JOIN allocations a ON i.id = a.invoice_id
-        INNER JOIN users u ON LOWER(a.responsible) = LOWER(u.name)
-        WHERE LOWER(u.email) = LOWER(%s)
+        WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
     '''
-    params = [user_email]
+    params = [user_id, user_id]
 
     if status:
         query += ' AND i.status = %s'
@@ -6542,32 +6615,41 @@ def get_user_invoices_count(
 def get_user_invoices_summary(user_email: str) -> dict:
     """
     Get invoice summary stats for a user (by email).
+    Uses indexed responsible_user_id FK for fast queries.
     """
     conn = get_db()
     cursor = get_cursor(conn)
 
-    # Get status breakdown - match by email through users table
+    # First get user ID from email
+    cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
+    user_row = cursor.fetchone()
+
+    if not user_row:
+        release_db(conn)
+        return {'total': 0, 'total_value': 0, 'by_status': {}}
+
+    user_id = user_row['id']
+
+    # Get status breakdown - use indexed FK with fallback
     cursor.execute('''
         SELECT i.status, COUNT(DISTINCT i.id) as count
         FROM invoices i
         INNER JOIN allocations a ON i.id = a.invoice_id
-        INNER JOIN users u ON LOWER(a.responsible) = LOWER(u.name)
-        WHERE LOWER(u.email) = LOWER(%s)
+        WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
         GROUP BY i.status
-    ''', (user_email,))
+    ''', (user_id, user_id))
 
     by_status = {}
     for row in cursor.fetchall():
         by_status[row['status'] or 'unknown'] = row['count']
 
-    # Get total value
+    # Get total value - use indexed FK with fallback
     cursor.execute('''
         SELECT COUNT(DISTINCT i.id) as total, COALESCE(SUM(DISTINCT i.invoice_value), 0) as total_value
         FROM invoices i
         INNER JOIN allocations a ON i.id = a.invoice_id
-        INNER JOIN users u ON LOWER(a.responsible) = LOWER(u.name)
-        WHERE LOWER(u.email) = LOWER(%s)
-    ''', (user_email,))
+        WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
+    ''', (user_id, user_id))
 
     totals = cursor.fetchone()
     release_db(conn)
