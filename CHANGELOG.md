@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-02-02
+### Shared Invoice Edit Module Enhancement
+- **invoice-edit.js**: Updated shared module to match full accounting.html functionality
+  - **Smart Split Allocation**: Auto-redistribute percentages when adding/removing allocations
+    - 1 allocation: 100%
+    - 2 allocations: 50-50
+    - 3+ allocations: 40% first, rest split equally
+  - **Lock Allocations**: Lock button prevents allocation from being affected by redistribution
+  - **Multi-line Reinvoice**: Support for multiple reinvoice destinations per allocation
+  - **Allocation Comments**: Add comments to individual allocations
+  - **Subdepartment Support**: Dropdown populated based on selected department
+  - **VAT-aware Calculations**: Uses net value when VAT subtracted
+
+- **Profile Page**: Edit Invoice modal now identical to accounting page
+  - Uses same shared `invoice-edit.js` module
+  - Full allocation management with smart split
+  - Reinvoice destinations with multiple lines
+
 ## 2026-01-30
 ### Sync Modal with Period and Company Selection
 - **Sync Modal**: Replaced dropdown with modal dialog for sync options
