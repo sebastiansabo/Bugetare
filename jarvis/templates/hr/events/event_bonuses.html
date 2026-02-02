@@ -120,7 +120,12 @@
             <div class="tab-pane fade show active" id="bonuses-pane" role="tabpanel">
                 <div class="card">
                     <div class="card-header d-flex justify-content-between align-items-center">
-                        <span><i class="bi bi-gift"></i> Bonuses <span id="bonusResultCount" class="badge bg-secondary ms-2">{{ bonuses|length }}</span></span>
+                        <span>
+                            <i class="bi bi-gift"></i> Bonuses <span id="bonusResultCount" class="badge bg-secondary ms-2">{{ bonuses|length }}</span>
+                            <button id="btnDeleteSelected" class="btn btn-outline-danger btn-sm ms-2 d-none">
+                                <i class="bi bi-trash"></i> Delete Selected (<span id="selectedCount">0</span>)
+                            </button>
+                        </span>
                         <div class="d-flex gap-2 align-items-center">
                             <!-- Search -->
                             <div class="input-group input-group-sm" style="width: 220px;">
@@ -157,6 +162,7 @@
                         <table class="table table-striped table-hover mb-0" id="bonusesTableMain">
                             <thead class="table-light">
                                 <tr>
+                                    <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="selectAllBonuses" title="Select All"></th>
                                     <th class="sortable" data-sort="year" data-order="desc">Year <i class="bi bi-arrow-down sort-icon"></i></th>
                                     <th class="sortable" data-sort="month">Month <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
                                     <th class="sortable" data-sort="employee">Employee <i class="bi bi-arrow-down-up sort-icon text-muted"></i></th>
@@ -187,6 +193,7 @@
                             data-hours="{{ bonus.hours_free or 0 }}"
                             data-bonus="{{ bonus.bonus_net or 0 }}"
                             data-created="{{ bonus.created_at or '' }}">
+                            <td><input type="checkbox" class="form-check-input bonus-checkbox" data-id="{{ bonus.id }}"></td>
                             <td><strong>{{ bonus.year }}</strong></td>
                             <td><span class="month-badge">{{ months.get(bonus.month, bonus.month) }}</span></td>
                             <td><strong>{{ bonus.employee_name }}</strong></td>
@@ -218,7 +225,7 @@
                         </tr>
                         {% else %}
                         <tr>
-                            <td colspan="{{ 13 if is_hr_manager else 12 }}" class="text-center text-muted py-4">
+                            <td colspan="{{ 14 if is_hr_manager else 13 }}" class="text-center text-muted py-4">
                                 <i class="bi bi-inbox fs-1 d-block mb-2"></i>
                                 No event bonuses found. Click "Add Bonus" to create one.
                             </td>
@@ -481,7 +488,7 @@
                                 <select id="bonusEmployee" class="form-select" required>
                                     <option value="">Select Employee</option>
                                     {% for emp in employees %}
-                                    <option value="{{ emp.id }}">{{ emp.name }} ({{ emp.company or 'N/A' }})</option>
+                                    <option value="{{ emp.id }}">{{ emp.name }}{% if emp.departments %} ({{ emp.departments }}){% endif %}</option>
                                     {% endfor %}
                                 </select>
                             </div>
@@ -996,6 +1003,88 @@
                     await JarvisDialog.alert('Error deleting bonus', { type: 'error' });
                 }
             });
+        });
+
+        // ============== Select All / Bulk Delete ==============
+        const selectAllCheckbox = document.getElementById('selectAllBonuses');
+        const deleteSelectedBtn = document.getElementById('btnDeleteSelected');
+        const selectedCountSpan = document.getElementById('selectedCount');
+
+        function updateSelectionUI() {
+            const checkboxes = document.querySelectorAll('.bonus-checkbox:not(:disabled)');
+            const visibleCheckboxes = Array.from(checkboxes).filter(cb => {
+                const row = cb.closest('tr');
+                return row && row.style.display !== 'none';
+            });
+            const checkedBoxes = visibleCheckboxes.filter(cb => cb.checked);
+            const count = checkedBoxes.length;
+
+            selectedCountSpan.textContent = count;
+
+            if (count > 0) {
+                deleteSelectedBtn.classList.remove('d-none');
+            } else {
+                deleteSelectedBtn.classList.add('d-none');
+            }
+
+            // Update select all checkbox state
+            if (visibleCheckboxes.length > 0 && checkedBoxes.length === visibleCheckboxes.length) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else if (checkedBoxes.length > 0) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
+        }
+
+        // Select all handler
+        selectAllCheckbox.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.bonus-checkbox');
+            checkboxes.forEach(cb => {
+                const row = cb.closest('tr');
+                if (row && row.style.display !== 'none') {
+                    cb.checked = this.checked;
+                }
+            });
+            updateSelectionUI();
+        });
+
+        // Individual checkbox handlers
+        document.querySelectorAll('.bonus-checkbox').forEach(cb => {
+            cb.addEventListener('change', updateSelectionUI);
+        });
+
+        // Bulk delete handler
+        deleteSelectedBtn.addEventListener('click', async function() {
+            const checkedBoxes = document.querySelectorAll('.bonus-checkbox:checked');
+            const ids = Array.from(checkedBoxes).map(cb => cb.dataset.id);
+
+            if (ids.length === 0) return;
+
+            const confirmed = await JarvisDialog.confirm(
+                `Delete ${ids.length} selected bonus record${ids.length > 1 ? 's' : ''}?`,
+                { danger: true }
+            );
+            if (!confirmed) return;
+
+            showLoading('Deleting bonuses...');
+
+            const resp = await fetch('/hr/events/api/event-bonuses/bulk-delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: ids })
+            });
+
+            if (resp.ok) {
+                const result = await resp.json();
+                window.location.reload();
+            } else {
+                hideLoading();
+                await JarvisDialog.alert('Error deleting bonuses', { type: 'error' });
+            }
         });
 
         // Bulk Entry

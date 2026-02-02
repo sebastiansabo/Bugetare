@@ -9,7 +9,7 @@ from .database import (
     update_hr_employee, delete_hr_employee, search_hr_employees,
     get_all_hr_events, get_hr_event, save_hr_event, update_hr_event, delete_hr_event,
     get_all_event_bonuses, get_event_bonus, save_event_bonus,
-    save_event_bonuses_bulk, update_event_bonus, delete_event_bonus,
+    save_event_bonuses_bulk, update_event_bonus, delete_event_bonus, delete_event_bonuses_bulk,
     get_event_bonuses_summary, get_bonuses_by_month, get_bonuses_by_employee, get_bonuses_by_event,
     get_all_bonus_types, get_bonus_type, save_bonus_type, update_bonus_type, delete_bonus_type,
     # Company CRUD
@@ -187,6 +187,27 @@ def api_delete_event_bonus(bonus_id):
     """API: Delete an event bonus."""
     delete_event_bonus(bonus_id)
     return jsonify({'success': True})
+
+
+@events_bp.route('/api/event-bonuses/bulk-delete', methods=['POST'])
+@login_required
+@hr_required
+def api_bulk_delete_event_bonuses():
+    """API: Delete multiple event bonuses."""
+    data = request.get_json()
+    bonus_ids = data.get('ids', [])
+
+    if not bonus_ids:
+        return jsonify({'success': False, 'error': 'No IDs provided'}), 400
+
+    # Validate all IDs are integers
+    try:
+        bonus_ids = [int(id) for id in bonus_ids]
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'error': 'Invalid ID format'}), 400
+
+    deleted_count = delete_event_bonuses_bulk(bonus_ids)
+    return jsonify({'success': True, 'deleted': deleted_count})
 
 
 # ============== Events Routes ==============

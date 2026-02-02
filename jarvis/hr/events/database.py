@@ -303,6 +303,29 @@ def delete_event_bonus(bonus_id):
     release_db(conn)
 
 
+def delete_event_bonuses_bulk(bonus_ids):
+    """Delete multiple event bonus records.
+
+    Args:
+        bonus_ids: List of bonus IDs to delete
+
+    Returns:
+        Number of deleted records
+    """
+    if not bonus_ids:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+    # Use parameterized query with tuple expansion
+    placeholders = ','.join(['%s'] * len(bonus_ids))
+    cursor.execute(f'DELETE FROM hr.event_bonuses WHERE id IN ({placeholders})', tuple(bonus_ids))
+    deleted_count = cursor.rowcount
+    conn.commit()
+    release_db(conn)
+    return deleted_count
+
+
 # ============== Summary/Stats ==============
 
 def get_event_bonuses_summary(year=None):

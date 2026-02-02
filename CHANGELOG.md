@@ -1,6 +1,22 @@
 # Changelog
 
 ## 2026-02-02
+### HR Module Improvements
+- **Employee Dropdown Display**: Shows department instead of "N/A" in employee dropdowns
+  - `add_bonus.html` and `event_bonuses.html` updated
+  - Displays: "Employee Name (Department)" format
+
+- **Bulk Delete for Bonuses**: Select and delete multiple bonus records at once
+  - Select All checkbox in table header
+  - Individual checkboxes per row
+  - "Delete Selected" button appears when items selected
+  - API endpoint: `POST /hr/events/api/event-bonuses/bulk-delete`
+
+### Profile Page Fix
+- **First Load Issue**: Fixed invoices not loading on first visit
+  - Problem: When saved tab was `#invoices`, `tab.show()` didn't fire event
+  - Solution: Explicitly call `loadInvoicesTab()` when saved tab is invoices
+
 ### Profile Page Performance Optimization
 - **responsible_user_id FK**: Added indexed foreign key to allocations table
   - Replaces slow text-based JOIN (`LOWER(a.responsible) = LOWER(u.name)`)
