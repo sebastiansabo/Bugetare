@@ -2145,7 +2145,8 @@ def api_update_user(user_id):
             email=data.get('email'),
             phone=data.get('phone'),
             role_id=data.get('role_id'),
-            is_active=data.get('is_active')
+            is_active=data.get('is_active'),
+            notify_on_allocation=data.get('notify_on_allocation')
         )
         if updated:
             # Update password if provided

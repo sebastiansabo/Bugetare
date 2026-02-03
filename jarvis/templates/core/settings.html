@@ -1552,9 +1552,14 @@
                                 <option value="">Select a role...</option>
                             </select>
                         </div>
-                        <div class="form-check form-switch">
+                        <div class="form-check form-switch mb-2">
                             <input class="form-check-input" type="checkbox" id="userActive" checked>
                             <label class="form-check-label" for="userActive">Active</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="userNotifyOnAllocation" checked>
+                            <label class="form-check-label" for="userNotifyOnAllocation">Notify on Allocation</label>
+                            <small class="d-block text-muted">Receive email notifications when allocated to invoices</small>
                         </div>
                     </form>
                 </div>
@@ -2217,6 +2222,7 @@
             document.getElementById('userPassword').value = '';
             document.getElementById('userRole').value = '';
             document.getElementById('userActive').checked = true;
+            document.getElementById('userNotifyOnAllocation').checked = true;
             // Show password as required for new users
             document.getElementById('passwordRequired').style.display = 'inline';
             document.getElementById('passwordHelp').textContent = 'Required for new users';
@@ -2235,6 +2241,7 @@
             document.getElementById('userPassword').value = '';
             document.getElementById('userRole').value = user.role_id || '';
             document.getElementById('userActive').checked = user.is_active;
+            document.getElementById('userNotifyOnAllocation').checked = user.notify_on_allocation !== false;
             // Password is optional when editing
             document.getElementById('passwordRequired').style.display = 'none';
             document.getElementById('passwordHelp').textContent = 'Leave blank to keep current password';
@@ -2250,7 +2257,8 @@
                 email: document.getElementById('userEmail').value.trim(),
                 phone: document.getElementById('userPhone').value.trim() || null,
                 role_id: roleId ? parseInt(roleId) : null,
-                is_active: document.getElementById('userActive').checked
+                is_active: document.getElementById('userActive').checked,
+                notify_on_allocation: document.getElementById('userNotifyOnAllocation').checked
             };
 
             if (!userData.name || !userData.email) {
