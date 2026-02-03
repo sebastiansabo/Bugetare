@@ -2525,6 +2525,53 @@ def api_test_email():
         return jsonify({'success': False, 'error': error_message}), 500
 
 
+@app.route('/api/notification-settings/test-allocation', methods=['POST'])
+def api_test_allocation_notification():
+    """Test allocation notification with sample data - bypasses e-Factura flow."""
+    if not NOTIFICATIONS_ENABLED:
+        return jsonify({'success': False, 'error': 'Notifications module not available'}), 500
+
+    data = request.get_json() or {}
+
+    # Use provided data or defaults for testing
+    invoice_data = {
+        'id': data.get('invoice_id', 999),
+        'invoice_number': data.get('invoice_number', 'TEST-001'),
+        'supplier': data.get('supplier', 'Test Supplier'),
+        'invoice_date': data.get('invoice_date', '2026-01-01'),
+        'invoice_value': data.get('invoice_value', 1000.0),
+        'currency': data.get('currency', 'RON'),
+    }
+
+    allocation_data = {
+        'company': data.get('company', 'Autoworld PREMIUM S.R.L.'),
+        'department': data.get('department', 'Sales'),
+        'subdepartment': data.get('subdepartment', ''),
+        'brand': data.get('brand', ''),
+        'allocation_percent': 100.0,
+        'allocation_value': data.get('invoice_value', 1000.0),
+    }
+
+    try:
+        results = notify_invoice_allocations(invoice_data, [allocation_data])
+
+        return jsonify({
+            'success': True,
+            'message': f'Test notification triggered',
+            'invoice_data': invoice_data,
+            'allocation_data': allocation_data,
+            'results': results,
+            'notifications_sent': sum(1 for r in results if r.get('success')),
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'invoice_data': invoice_data,
+            'allocation_data': allocation_data,
+        }), 500
+
+
 # ============== Default Column Configuration API ==============
 
 @app.route('/api/default-columns', methods=['GET'])
