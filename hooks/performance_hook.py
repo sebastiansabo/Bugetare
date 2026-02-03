@@ -211,11 +211,13 @@ class PerformanceHook(BaseHook):
 
         # Small/lookup tables where unbounded SELECT is acceptable
         # (typically <100 rows, used for configuration/reference data)
+        # Note: 'hr' is included as schema name for hr.bonus_types lookup table
         SMALL_TABLES = [
             'companies', 'company', 'connections', 'settings', 'config',
             'roles', 'permissions', 'users', 'departments', 'brands',
             'vat_rates', 'partner_types', 'mappings', 'templates',
-            'structure', 'categories', 'types', 'status', 'lookup'
+            'structure', 'categories', 'types', 'status', 'lookup',
+            'hr', 'bonus_types', 'events'
         ]
 
         for filepath in files:
