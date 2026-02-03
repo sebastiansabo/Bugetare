@@ -428,16 +428,24 @@ def notify_allocation(invoice_data: dict, allocation: dict) -> list[dict]:
     Returns:
         List of notification results with responsable info and send status
     """
-    if not is_smtp_configured():
+    logger.info(f"[NOTIFY] Starting notify_allocation for invoice {invoice_data.get('invoice_number')}")
+    logger.info(f"[NOTIFY] Allocation data: company='{allocation.get('company')}', dept='{allocation.get('department')}'")
+
+    smtp_configured = is_smtp_configured()
+    logger.info(f"[NOTIFY] SMTP configured: {smtp_configured}")
+    if not smtp_configured:
         logger.warning("SMTP not configured, skipping notifications")
         return []
 
-    if not is_notifications_enabled():
+    notifications_enabled = is_notifications_enabled()
+    logger.info(f"[NOTIFY] Notifications enabled: {notifications_enabled}")
+    if not notifications_enabled:
         logger.info("Allocation notifications are disabled globally")
         return []
 
     results = []
     responsables = find_responsables_for_allocation(allocation)
+    logger.info(f"[NOTIFY] Found {len(responsables)} responsables to notify")
 
     invoice_id = invoice_data.get('id')
     invoice_value = float(invoice_data.get('invoice_value', 0) or 0)
