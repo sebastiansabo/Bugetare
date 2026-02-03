@@ -5,7 +5,7 @@ import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
-import logging
+from core.utils.logging_config import get_logger
 
 from database import (
     get_notification_settings,
@@ -16,7 +16,7 @@ from database import (
     get_department_cc_email,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger('jarvis.notification')
 
 
 def get_smtp_config() -> dict:
