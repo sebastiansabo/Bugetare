@@ -38,6 +38,9 @@ def log_event(event_type, description=None, entity_type=None, entity_id=None, de
 def login():
     """Login page and form handler."""
     if current_user.is_authenticated:
+        # Redirect users without main app access to their profile
+        if not current_user.can_access_main_apps():
+            return redirect(url_for('profile.profile_page'))
         return redirect(url_for('index'))
 
     if request.method == 'POST':
@@ -57,6 +60,9 @@ def login():
             log_event('login', f'User {email} logged in')
 
             next_page = request.args.get('next')
+            # Redirect users without main app access to their profile
+            if not user.can_access_main_apps():
+                return redirect(url_for('profile.profile_page'))
             return redirect(next_page or url_for('index'))
         else:
             log_event('login_failed', f'Failed login attempt for {email}')

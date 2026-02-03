@@ -547,6 +547,9 @@ def api_online_users():
 @login_required
 def index():
     """Show applications landing page."""
+    # Redirect users without main app access to their profile
+    if not current_user.can_access_main_apps():
+        return redirect(url_for('profile.profile_page'))
     return render_template('core/apps.html')
 
 
