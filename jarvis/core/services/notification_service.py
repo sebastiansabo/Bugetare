@@ -166,7 +166,8 @@ def create_allocation_email_html(
     invoice_number = invoice_data.get('invoice_number', 'N/A')
     supplier = invoice_data.get('supplier', 'N/A')
     invoice_date = invoice_data.get('invoice_date', 'N/A')
-    invoice_value = invoice_data.get('invoice_value', 0)
+    # Use net_value if available (VAT subtracted), otherwise fall back to invoice_value
+    net_value = invoice_data.get('net_value') or invoice_data.get('invoice_value', 0)
     currency = invoice_data.get('currency', 'RON')
 
     company = allocation.get('company', 'N/A')
@@ -260,8 +261,8 @@ def create_allocation_email_html(
                 <td style="padding: 10px; border: 1px solid #ddd;">{invoice_date}</td>
             </tr>
             <tr>
-                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Valoare totala</td>
-                <td style="padding: 10px; border: 1px solid #ddd;">{format_currency(invoice_value, currency)}</td>
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Val. Neta Totala</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{format_currency(net_value, currency)}</td>
             </tr>
         </table>
 
@@ -281,7 +282,7 @@ def create_allocation_email_html(
                 <td style="padding: 10px; border: 1px solid #ddd;">{allocation_percent}%</td>
             </tr>
             <tr>
-                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Valoare alocata</td>
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Val. Neta Alocata</td>
                 <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold; color: #4CAF50;">
                     {format_currency(allocation_value, currency)}
                 </td>
@@ -308,7 +309,8 @@ def create_allocation_email_text(
     invoice_number = invoice_data.get('invoice_number', 'N/A')
     supplier = invoice_data.get('supplier', 'N/A')
     invoice_date = invoice_data.get('invoice_date', 'N/A')
-    invoice_value = invoice_data.get('invoice_value', 0)
+    # Use net_value if available (VAT subtracted), otherwise fall back to invoice_value
+    net_value = invoice_data.get('net_value') or invoice_data.get('invoice_value', 0)
     currency = invoice_data.get('currency', 'RON')
 
     company = allocation.get('company', 'N/A')
@@ -356,13 +358,13 @@ Detalii factura:
 - Numar factura: {invoice_number}
 - Furnizor: {supplier}
 - Data factura: {invoice_date}
-- Valoare totala: {format_currency(invoice_value, currency)}
+- Val. Neta Totala: {format_currency(net_value, currency)}
 
 Alocare:
 - Companie: {company}{brand_line}
 - Departament: {department}{subdepartment_line}
 - Procent alocare: {allocation_percent}%
-- Valoare alocata: {format_currency(allocation_value, currency)}{reinvoice_section}
+- Val. Neta Alocata: {format_currency(allocation_value, currency)}{reinvoice_section}
 
 ---
 Aceasta este o notificare automata din sistemul Bugetare.

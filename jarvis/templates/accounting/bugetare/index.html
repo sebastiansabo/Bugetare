@@ -2011,6 +2011,8 @@
                     const valueInput = row.querySelector('.allocation-value-input');
                     percentInput.value = percentages[idx].toFixed(2);
                     valueInput.value = ((effectiveValue * percentages[idx]) / 100).toFixed(2);
+                    // Update reinvoice line values when allocation changes
+                    updateReinvoiceLineValues(row);
                 });
             }
             updateTotalAllocation();
@@ -2083,7 +2085,7 @@
                     const pInput = row.querySelector('.allocation-input');
                     const vInput = row.querySelector('.allocation-value-input');
                     pInput.value = perOther.toFixed(2);
-                    vInput.value = ((invoiceValue * perOther) / 100).toFixed(2);
+                    vInput.value = ((effectiveValue * perOther) / 100).toFixed(2);
                     // Update reinvoice line values for this row too
                     updateReinvoiceLineValues(row);
                 });
