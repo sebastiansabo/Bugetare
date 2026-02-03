@@ -486,6 +486,11 @@ Trigram indexes (pg_trgm) for faster ILIKE text searches:
 
 These GIN indexes use the `pg_trgm` extension and significantly speed up search queries with ILIKE patterns.
 
+### Unique Constraints
+| Table | Constraint | Description |
+|-------|------------|-------------|
+| efactura_supplier_mappings | idx_efactura_supplier_mappings_partner_name_unique | Case-insensitive unique on `LOWER(partner_name)` WHERE `is_active = TRUE` - prevents duplicate supplier mappings |
+
 ### XML Parser (`xml_parser.py`)
 Parses UBL 2.1 e-Factura XML documents:
 - Extracts seller/buyer info (name, CIF, address)
