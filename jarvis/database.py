@@ -964,10 +964,10 @@ def init_db():
 
             -- HR Module
             ('hr', 'HR', 'bi-people-fill', 'module', 'HR Module', 'access', 'Access', 'Access HR module', FALSE, 1),
-            ('hr', 'HR', 'bi-people-fill', 'employees', 'Employees', 'view', 'View', 'View employee list', TRUE, 2),
-            ('hr', 'HR', 'bi-people-fill', 'employees', 'Employees', 'add', 'Add', 'Create new employees', FALSE, 3),
-            ('hr', 'HR', 'bi-people-fill', 'employees', 'Employees', 'edit', 'Edit', 'Modify employee data', TRUE, 4),
-            ('hr', 'HR', 'bi-people-fill', 'employees', 'Employees', 'delete', 'Delete', 'Remove employees', FALSE, 5),
+            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'view', 'View', 'View user list in HR', TRUE, 2),
+            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'add', 'Add', 'Create new users in HR', FALSE, 3),
+            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'edit', 'Edit', 'Modify user data in HR', TRUE, 4),
+            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'delete', 'Delete', 'Remove users from HR', FALSE, 5),
             ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'view', 'View', 'View events list', TRUE, 6),
             ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'add', 'Add', 'Create new events', FALSE, 7),
             ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'edit', 'Edit', 'Modify events', TRUE, 8),
@@ -6449,7 +6449,7 @@ def _sync_v2_permissions_to_booleans(cursor, role_id: int):
         'can_access_accounting': perms.get('accounting.dashboard.access', False),
         'can_access_templates': perms.get('invoices.templates.edit', False),
         'can_access_connectors': perms.get('accounting.connectors.access', False),
-        'can_access_hr': perms.get('hr.employees.view', False) or perms.get('hr.bonuses.view', False),
+        'can_access_hr': perms.get('hr.users.view', False) or perms.get('hr.bonuses.view', False),
         'is_hr_manager': perms.get('hr.bonuses.view_amounts', False),
     }
 
