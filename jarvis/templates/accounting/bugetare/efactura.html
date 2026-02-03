@@ -3163,6 +3163,31 @@
 
         // Single invoice actions
         async function sendSingleToInvoices(invoiceId) {
+            // Find invoice in cache to check if type/department are set
+            const inv = invoicesCache.find(i => i.id === invoiceId);
+            if (!inv) {
+                await JarvisDialog.alert('Invoice not found', { type: 'error' });
+                return;
+            }
+
+            // Check if type and department are set (either override or mapping default)
+            const hasType = inv.type_override || (inv.type_names && inv.type_names.length > 0) || inv.type_ids;
+            const hasDepartment = inv.department_override || inv.mapping_department || inv.department;
+
+            if (!hasType || !hasDepartment) {
+                // Open edit modal if missing required fields
+                const missingFields = [];
+                if (!hasType) missingFields.push('Type');
+                if (!hasDepartment) missingFields.push('Department');
+
+                await JarvisDialog.alert(
+                    `Please set ${missingFields.join(' and ')} before sending to Invoices.`,
+                    { type: 'warning', title: 'Missing Information' }
+                );
+                editInvoiceOverrides(invoiceId);
+                return;
+            }
+
             const confirmed = await JarvisDialog.confirm('Send this invoice to the Invoices module for allocation?', { title: 'Confirm' });
             if (!confirmed) return;
 
@@ -3327,6 +3352,40 @@
         async function sendSelectedToInvoices() {
             const ids = Array.from(selectedInvoices);
             if (ids.length === 0) return;
+
+            // Check all selected invoices for missing type/department
+            const incompleteInvoices = [];
+            for (const id of ids) {
+                const inv = invoicesCache.find(i => i.id === id);
+                if (inv) {
+                    const hasType = inv.type_override || (inv.type_names && inv.type_names.length > 0) || inv.type_ids;
+                    const hasDepartment = inv.department_override || inv.mapping_department || inv.department;
+                    if (!hasType || !hasDepartment) {
+                        incompleteInvoices.push({
+                            id: inv.id,
+                            number: inv.invoice_number,
+                            missingType: !hasType,
+                            missingDept: !hasDepartment
+                        });
+                    }
+                }
+            }
+
+            if (incompleteInvoices.length > 0) {
+                const missingList = incompleteInvoices.slice(0, 5).map(i => {
+                    const missing = [];
+                    if (i.missingType) missing.push('Type');
+                    if (i.missingDept) missing.push('Dept');
+                    return `• ${i.number}: missing ${missing.join(', ')}`;
+                }).join('\n');
+                const moreText = incompleteInvoices.length > 5 ? `\n...and ${incompleteInvoices.length - 5} more` : '';
+
+                await JarvisDialog.alert(
+                    `${incompleteInvoices.length} invoice(s) are missing Type or Department:\n\n${missingList}${moreText}\n\nPlease set Type and Department for all invoices before sending.`,
+                    { type: 'warning', title: 'Missing Information' }
+                );
+                return;
+            }
 
             const confirmed = await JarvisDialog.confirm(`Send ${ids.length} invoice(s) to the Invoices module?`, { title: 'Confirm' });
             if (!confirmed) return;
