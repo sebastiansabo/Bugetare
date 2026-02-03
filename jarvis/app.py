@@ -560,7 +560,8 @@ def index():
 def apps_page():
     """Show applications landing page (requires main app access)."""
     if not current_user.can_access_main_apps():
-        return render_template('core/profile.html', access_denied=True, access_denied_message='You do not have access to the Applications page.')
+        flash('You do not have access to the Applications page.', 'warning')
+        return redirect(url_for('profile.profile_page'))
     return render_template('core/apps.html')
 
 
@@ -569,7 +570,8 @@ def apps_page():
 def add_invoice():
     """Invoice distribution form page."""
     if not current_user.can_add_invoices:
-        return render_template('core/profile.html', access_denied=True, access_denied_message='You do not have permission to add invoices.')
+        flash('You do not have permission to add invoices.', 'warning')
+        return redirect(url_for('profile.profile_page'))
     return render_template('accounting/bugetare/index.html')
 
 
