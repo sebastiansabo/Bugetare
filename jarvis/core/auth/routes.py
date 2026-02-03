@@ -38,7 +38,9 @@ def log_event(event_type, description=None, entity_type=None, entity_id=None, de
 def login():
     """Login page and form handler."""
     if current_user.is_authenticated:
-        # Default landing page is profile for all users
+        # Redirect based on user permissions
+        if current_user.can_access_main_apps():
+            return redirect(url_for('apps_page'))
         return redirect(url_for('profile.profile_page'))
 
     if request.method == 'POST':
@@ -57,9 +59,13 @@ def login():
             auth_service.update_last_login(user.id)
             log_event('login', f'User {email} logged in')
 
-            # Default landing page is profile for all users
+            # Redirect based on user permissions
             next_page = request.args.get('next')
-            return redirect(next_page or url_for('profile.profile_page'))
+            if next_page:
+                return redirect(next_page)
+            if user.can_access_main_apps():
+                return redirect(url_for('apps_page'))
+            return redirect(url_for('profile.profile_page'))
         else:
             log_event('login_failed', f'Failed login attempt for {email}')
             flash('Invalid email or password.', 'error')

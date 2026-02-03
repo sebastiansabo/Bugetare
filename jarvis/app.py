@@ -546,7 +546,12 @@ def api_online_users():
 @app.route('/')
 @login_required
 def index():
-    """Redirect to profile page (default landing page for all users)."""
+    """Redirect based on user permissions.
+
+    Users with main app access go to /apps, others go to profile.
+    """
+    if current_user.can_access_main_apps():
+        return redirect(url_for('apps_page'))
     return redirect(url_for('profile.profile_page'))
 
 
@@ -2008,11 +2013,38 @@ def api_activate_theme(theme_id):
 # ============== MODULE MENU ENDPOINTS ==============
 
 @app.route('/api/module-menu', methods=['GET'])
+@login_required
 def api_get_module_menu():
-    """Get module menu items (public endpoint for navigation)."""
+    """Get module menu items filtered by user permissions."""
     from database import get_module_menu_items
     items = get_module_menu_items(include_hidden=False)
-    return jsonify({'items': items})
+
+    # Filter modules based on user permissions
+    # Map module_key to permission check
+    permission_map = {
+        'accounting': lambda u: u.can_access_accounting or u.can_view_invoices or u.can_add_invoices,
+        'hr': lambda u: u.can_access_hr,
+        'settings': lambda u: u.can_access_settings,
+    }
+
+    def user_can_access_module(module_key):
+        """Check if current user can access the module."""
+        check = permission_map.get(module_key)
+        if check:
+            return check(current_user)
+        # For modules not in the map (e.g., coming_soon), show them
+        return True
+
+    # Filter active modules by permission, keep coming_soon modules
+    filtered_items = []
+    for item in items:
+        if item.get('status') == 'coming_soon':
+            # Always show coming soon modules
+            filtered_items.append(item)
+        elif user_can_access_module(item.get('module_key', '')):
+            filtered_items.append(item)
+
+    return jsonify({'items': filtered_items})
 
 
 @app.route('/api/module-menu/all', methods=['GET'])
