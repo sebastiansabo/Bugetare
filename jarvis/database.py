@@ -922,12 +922,6 @@ def init_db():
             ('system', 'System', 'bi-gear-fill', 'structure', 'Company Structure', 'view', 'View', 'View company structure', FALSE, 11),
             ('system', 'System', 'bi-gear-fill', 'structure', 'Company Structure', 'edit', 'Edit', 'Modify company structure', FALSE, 12),
 
-            -- Profile Module (user's own data access)
-            ('profile', 'Profile', 'bi-person-circle', 'invoices', 'My Invoices', 'view', 'View', 'View own invoices in profile', FALSE, 1),
-            ('profile', 'Profile', 'bi-person-circle', 'hr_events', 'My HR Events', 'view', 'View', 'View own HR events in profile', FALSE, 2),
-            ('profile', 'Profile', 'bi-person-circle', 'notifications', 'My Notifications', 'view', 'View', 'View own notifications', FALSE, 3),
-            ('profile', 'Profile', 'bi-person-circle', 'activity', 'My Activity', 'view', 'View', 'View own activity log', FALSE, 4),
-
             -- Invoices Module
             ('invoices', 'Invoices', 'bi-receipt', 'records', 'Invoice Records', 'view', 'View', 'View invoices', TRUE, 1),
             ('invoices', 'Invoices', 'bi-receipt', 'records', 'Invoice Records', 'add', 'Add', 'Create new invoices', TRUE, 2),
@@ -983,11 +977,7 @@ def init_db():
             ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'add', 'Add', 'Create new bonuses', FALSE, 12),
             ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'edit', 'Edit', 'Modify bonuses', TRUE, 13),
             ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'delete', 'Delete', 'Delete bonuses', FALSE, 14),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'export', 'Export', 'Export bonus data', FALSE, 15),
-            ('hr', 'HR', 'bi-people-fill', 'structure', 'Department Structure', 'view', 'View', 'View department structure', FALSE, 16),
-            ('hr', 'HR', 'bi-people-fill', 'structure', 'Department Structure', 'edit', 'Edit', 'Manage department structure', FALSE, 17),
-            ('hr', 'HR', 'bi-people-fill', 'payroll', 'Payroll', 'view', 'View', 'View payroll data', TRUE, 18),
-            ('hr', 'HR', 'bi-people-fill', 'payroll', 'Payroll', 'edit', 'Edit', 'Modify payroll', FALSE, 19)
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'export', 'Export', 'Export bonus data', FALSE, 15)
         ''')
 
         # Set default permissions for existing roles

@@ -1,6 +1,6 @@
 """HR Module Routes."""
 from functools import wraps
-from flask import render_template, request, jsonify, redirect, url_for, flash
+from flask import render_template, request, jsonify, redirect, url_for, flash, g
 from flask_login import login_required, current_user
 
 from . import events_bp
@@ -19,6 +19,8 @@ from .database import (
     delete_event_bonuses_by_employee, delete_event_bonuses_by_event,
     get_event_bonuses_summary, get_bonuses_by_month, get_bonuses_by_employee, get_bonuses_by_event,
     get_all_bonus_types, get_bonus_type, save_bonus_type, update_bonus_type, delete_bonus_type,
+    # Scope access helpers
+    can_access_bonus, can_access_employee,
     # Company CRUD
     get_all_companies_with_brands, create_company, update_company, delete_company,
     # Company Brands CRUD
@@ -41,7 +43,12 @@ from models import get_companies, get_brands_for_company, get_departments_for_co
 
 
 def hr_required(f):
-    """Decorator to require HR access permission (view only)."""
+    """Decorator to require HR access permission (view only).
+
+    Sets on Flask g object:
+        g.permission_scope: Default to 'all' for view access, or check permissions_v2
+        g.user_context: Dict with user_id, company, department, org_unit_id
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -49,6 +56,26 @@ def hr_required(f):
         if not getattr(current_user, 'can_access_hr', False):
             flash('HR access required.', 'error')
             return redirect(url_for('index'))
+
+        # Set user context for scope filtering
+        g.user_context = {
+            'user_id': current_user.id,
+            'company': getattr(current_user, 'company', None),
+            'department': getattr(current_user, 'department', None),
+            'org_unit_id': getattr(current_user, 'org_unit_id', None)
+        }
+
+        # Check view permission scope using permissions_v2
+        role_id = getattr(current_user, 'role_id', None)
+        if role_id:
+            # Check the most relevant view permission for the endpoint
+            # Default to checking bonuses.view as it's most common
+            perm = check_permission_v2(role_id, 'hr', 'bonuses', 'view')
+            g.permission_scope = perm.get('scope', 'all') if perm['has_permission'] else 'all'
+        else:
+            # Fallback: HR managers get 'all' scope, others get 'all' too (view only)
+            g.permission_scope = 'all'
+
         return f(*args, **kwargs)
     return decorated
 
@@ -85,6 +112,10 @@ def hr_permission_required(entity: str, action: str):
         @hr_permission_required('events', 'edit')
         def api_update_event():
             ...
+
+    Sets on Flask g object:
+        g.permission_scope: The scope level ('deny', 'own', 'department', 'all')
+        g.user_context: Dict with user_id, company, department, org_unit_id
     """
     def decorator(f):
         @wraps(f)
@@ -99,15 +130,27 @@ def hr_permission_required(entity: str, action: str):
                 flash('HR access required.', 'error')
                 return redirect(url_for('index'))
 
+            # Set user context for scope filtering
+            g.user_context = {
+                'user_id': current_user.id,
+                'company': getattr(current_user, 'company', None),
+                'department': getattr(current_user, 'department', None),
+                'org_unit_id': getattr(current_user, 'org_unit_id', None)
+            }
+
             # Check specific permission using permissions_v2
             role_id = getattr(current_user, 'role_id', None)
             if role_id:
                 perm = check_permission_v2(role_id, 'hr', entity, action)
                 if perm['has_permission']:
+                    # Store scope for use in route handler
+                    g.permission_scope = perm.get('scope', 'all')
                     return f(*args, **kwargs)
 
             # Fallback to is_hr_manager for write operations
             if action in ('add', 'edit', 'delete') and getattr(current_user, 'is_hr_manager', False):
+                # HR managers get 'all' scope
+                g.permission_scope = 'all'
                 return f(*args, **kwargs)
 
             # Permission denied
@@ -134,19 +177,47 @@ MONTH_NAMES = {
 @login_required
 @hr_required
 def event_bonuses():
-    """Events main page."""
+    """Events main page with scope-based filtering."""
     year = request.args.get('year', type=int)
     month = request.args.get('month', type=int)
 
-    bonuses = get_all_event_bonuses(year=year, month=month)
+    # Get scope from decorator
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    bonuses = get_all_event_bonuses(year=year, month=month, scope=scope, user_context=user_context)
     events = get_all_hr_events()
-    employees = get_all_hr_employees()
+    employees = get_all_hr_employees(scope=scope, user_context=user_context)
     summary = get_event_bonuses_summary(year=year)
     employee_summary = get_bonuses_by_employee(year=year, month=month)
     event_summary = get_bonuses_by_event(year=year, month=month)
 
     # Get unique years from bonuses for filter
     years = sorted(set(b['year'] for b in bonuses), reverse=True) if bonuses else [2025]
+
+    # Build permissions for template
+    role_id = getattr(current_user, 'role_id', None)
+    is_hr_manager = getattr(current_user, 'is_hr_manager', False)
+
+    # Helper to check permission
+    def has_perm(entity, action):
+        if role_id:
+            perm = check_permission_v2(role_id, 'hr', entity, action)
+            if perm['has_permission']:
+                return True
+        # Fallback to is_hr_manager
+        if action in ('add', 'edit', 'delete', 'view_amounts', 'export') and is_hr_manager:
+            return True
+        return False
+
+    hr_permissions = {
+        'can_add_bonuses': has_perm('bonuses', 'add'),
+        'can_edit_bonuses': has_perm('bonuses', 'edit'),
+        'can_delete_bonuses': has_perm('bonuses', 'delete'),
+        'can_view_amounts': has_perm('bonuses', 'view_amounts') or is_hr_manager,
+        'can_export': has_perm('bonuses', 'export') or is_hr_manager,
+        'can_bulk_delete': has_perm('bonuses', 'delete'),
+    }
 
     return render_template('event_bonuses.html',
                            bonuses=bonuses,
@@ -159,21 +230,29 @@ def event_bonuses():
                            months=MONTH_NAMES,
                            selected_year=year,
                            selected_month=month,
-                           is_hr_manager=current_user.is_hr_manager)
+                           is_hr_manager=is_hr_manager,
+                           hr_permissions=hr_permissions)
 
 
 @events_bp.route('/api/event-bonuses', methods=['GET'])
 @login_required
 @hr_required
 def api_get_event_bonuses():
-    """API: Get event bonuses with filters."""
+    """API: Get event bonuses with filters and scope-based access control."""
     year = request.args.get('year', type=int)
     month = request.args.get('month', type=int)
     employee_id = request.args.get('employee_id', type=int)
     event_id = request.args.get('event_id', type=int)
 
-    bonuses = get_all_event_bonuses(year=year, month=month,
-                                    employee_id=employee_id, event_id=event_id)
+    # Get scope from decorator
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    bonuses = get_all_event_bonuses(
+        year=year, month=month,
+        employee_id=employee_id, event_id=event_id,
+        scope=scope, user_context=user_context
+    )
     return jsonify(bonuses)
 
 
@@ -232,7 +311,14 @@ def api_get_event_bonus(bonus_id):
 @login_required
 @hr_permission_required('bonuses', 'edit')
 def api_update_event_bonus(bonus_id):
-    """API: Update an event bonus."""
+    """API: Update an event bonus with scope validation."""
+    # Validate scope access
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    if not can_access_bonus(bonus_id, scope, user_context):
+        return jsonify({'success': False, 'error': 'Access denied: bonus outside your scope'}), 403
+
     data = request.get_json()
 
     update_event_bonus(
@@ -257,7 +343,14 @@ def api_update_event_bonus(bonus_id):
 @login_required
 @hr_permission_required('bonuses', 'delete')
 def api_delete_event_bonus(bonus_id):
-    """API: Delete an event bonus."""
+    """API: Delete an event bonus with scope validation."""
+    # Validate scope access
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    if not can_access_bonus(bonus_id, scope, user_context):
+        return jsonify({'success': False, 'error': 'Access denied: bonus outside your scope'}), 403
+
     delete_event_bonus(bonus_id)
     return jsonify({'success': True})
 
@@ -266,7 +359,7 @@ def api_delete_event_bonus(bonus_id):
 @login_required
 @hr_permission_required('bonuses', 'delete')
 def api_bulk_delete_event_bonuses():
-    """API: Delete multiple event bonuses."""
+    """API: Delete multiple event bonuses with scope validation."""
     data = request.get_json()
     bonus_ids = data.get('ids', [])
 
@@ -278,6 +371,18 @@ def api_bulk_delete_event_bonuses():
         bonus_ids = [int(id) for id in bonus_ids]
     except (ValueError, TypeError):
         return jsonify({'success': False, 'error': 'Invalid ID format'}), 400
+
+    # Validate scope access for each bonus
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    if scope != 'all':
+        for bonus_id in bonus_ids:
+            if not can_access_bonus(bonus_id, scope, user_context):
+                return jsonify({
+                    'success': False,
+                    'error': f'Access denied: bonus {bonus_id} outside your scope'
+                }), 403
 
     deleted_count = delete_event_bonuses_bulk(bonus_ids)
     return jsonify({'success': True, 'deleted': deleted_count})
@@ -338,11 +443,30 @@ def add_event():
     companies = get_companies()
     employees = get_all_hr_employees(active_only=True)
     bonus_types = get_all_bonus_types(active_only=True)
+
+    # Build hr_permissions for template
+    is_hr_manager = getattr(current_user, 'is_hr_manager', False)
+    role_id = getattr(current_user, 'role_id', None)
+
+    def has_perm(entity, action):
+        if role_id:
+            perm = check_permission_v2(role_id, 'hr', entity, action)
+            if perm['has_permission']:
+                return True
+        if action in ('add', 'edit', 'delete', 'view_amounts', 'export') and is_hr_manager:
+            return True
+        return False
+
+    hr_permissions = {
+        'can_view_amounts': has_perm('bonuses', 'view_amounts') or is_hr_manager,
+    }
+
     return render_template('add_event.html',
                            companies=companies,
                            employees=employees,
                            bonus_types=bonus_types,
-                           is_hr_manager=current_user.is_hr_manager)
+                           is_hr_manager=is_hr_manager,
+                           hr_permissions=hr_permissions)
 
 
 @events_bp.route('/bonuses/new')
@@ -354,6 +478,24 @@ def add_bonus():
     events = get_all_hr_events()
     employees = get_all_hr_employees()
     bonus_types = get_all_bonus_types(active_only=True)
+
+    # Build hr_permissions for template
+    is_hr_manager = getattr(current_user, 'is_hr_manager', False)
+    role_id = getattr(current_user, 'role_id', None)
+
+    def has_perm(entity, action):
+        if role_id:
+            perm = check_permission_v2(role_id, 'hr', entity, action)
+            if perm['has_permission']:
+                return True
+        if action in ('add', 'edit', 'delete', 'view_amounts', 'export') and is_hr_manager:
+            return True
+        return False
+
+    hr_permissions = {
+        'can_view_amounts': has_perm('bonuses', 'view_amounts') or is_hr_manager,
+    }
+
     return render_template('add_bonus.html',
                            events=events,
                            employees=employees,
@@ -361,7 +503,8 @@ def add_bonus():
                            months=MONTH_NAMES,
                            current_year=datetime.now().year,
                            current_month=datetime.now().month,
-                           is_hr_manager=current_user.is_hr_manager)
+                           is_hr_manager=is_hr_manager,
+                           hr_permissions=hr_permissions)
 
 
 @events_bp.route('/api/events', methods=['GET'])
@@ -461,9 +604,17 @@ def api_bulk_delete_events():
 @login_required
 @hr_required
 def api_get_employees():
-    """API: Get all employees."""
+    """API: Get all employees with scope-based access control."""
     active_only = request.args.get('active_only', 'true').lower() == 'true'
-    employees = get_all_hr_employees(active_only=active_only)
+
+    # Get scope from decorator
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    employees = get_all_hr_employees(
+        active_only=active_only,
+        scope=scope, user_context=user_context
+    )
     return jsonify(employees)
 
 
@@ -515,7 +666,14 @@ def api_get_employee(employee_id):
 @login_required
 @hr_permission_required('employees', 'edit')
 def api_update_employee(employee_id):
-    """API: Update an employee."""
+    """API: Update an employee with scope validation."""
+    # Validate scope access
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    if not can_access_employee(employee_id, scope, user_context):
+        return jsonify({'success': False, 'error': 'Access denied: employee outside your scope'}), 403
+
     data = request.get_json()
 
     update_hr_employee(
@@ -538,9 +696,80 @@ def api_update_employee(employee_id):
 @login_required
 @hr_permission_required('employees', 'delete')
 def api_delete_employee(employee_id):
-    """API: Soft delete an employee."""
+    """API: Soft delete an employee with scope validation."""
+    # Validate scope access
+    scope = getattr(g, 'permission_scope', 'all')
+    user_context = getattr(g, 'user_context', None)
+
+    if not can_access_employee(employee_id, scope, user_context):
+        return jsonify({'success': False, 'error': 'Access denied: employee outside your scope'}), 403
+
     delete_hr_employee(employee_id)
     return jsonify({'success': True})
+
+
+# ============== Permissions API ==============
+
+@events_bp.route('/api/permissions', methods=['GET'])
+@login_required
+def api_permissions():
+    """Return current user's HR permissions for frontend.
+
+    Returns a dict of permission names with their allowed status and scope.
+    This enables the frontend to show/hide UI elements based on granular permissions.
+    """
+    permissions = {}
+
+    # List of HR permissions to check
+    hr_perms = [
+        ('employees', 'view'), ('employees', 'add'), ('employees', 'edit'), ('employees', 'delete'),
+        ('events', 'view'), ('events', 'add'), ('events', 'edit'), ('events', 'delete'),
+        ('bonuses', 'view'), ('bonuses', 'add'), ('bonuses', 'edit'), ('bonuses', 'delete'),
+        ('bonuses', 'view_amounts'), ('bonuses', 'export'),
+        ('structure', 'view'), ('structure', 'edit'),
+    ]
+
+    role_id = getattr(current_user, 'role_id', None)
+    is_hr_manager = getattr(current_user, 'is_hr_manager', False)
+    can_access_hr = getattr(current_user, 'can_access_hr', False)
+
+    for entity, action in hr_perms:
+        perm_key = f'hr.{entity}.{action}'
+
+        # Default: denied
+        allowed = False
+        scope = 'deny'
+
+        if can_access_hr:
+            if role_id:
+                perm = check_permission_v2(role_id, 'hr', entity, action)
+                allowed = perm['has_permission']
+                scope = perm.get('scope', 'deny') if allowed else 'deny'
+
+            # Fallback to is_hr_manager for write operations
+            if not allowed and action in ('add', 'edit', 'delete', 'view_amounts', 'export') and is_hr_manager:
+                allowed = True
+                scope = 'all'
+
+            # View permissions default to allowed for HR users
+            if not allowed and action == 'view' and can_access_hr:
+                allowed = True
+                scope = 'all'
+
+        permissions[perm_key] = {
+            'allowed': allowed,
+            'scope': scope
+        }
+
+    return jsonify({
+        'permissions': permissions,
+        'user_context': {
+            'user_id': current_user.id,
+            'company': getattr(current_user, 'company', None),
+            'department': getattr(current_user, 'department', None),
+            'is_hr_manager': is_hr_manager
+        }
+    })
 
 
 # ============== Summary/Stats Routes ==============

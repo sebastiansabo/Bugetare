@@ -197,7 +197,7 @@
                                             <th style="width: 6%;">Hours</th>
                                             <th style="width: 18%;">Bonus Type</th>
                                             <th style="width: 8%;">Days</th>
-                                            {% if is_hr_manager %}
+                                            {% if hr_permissions.can_view_amounts %}
                                             <th style="width: 14%;" class="text-end">Bonus Net</th>
                                             {% endif %}
                                             <th style="width: 8%;"></th>
@@ -217,19 +217,19 @@
 
                             <!-- Summary -->
                             <div class="row mt-3 pt-3 border-top" id="summaryRow" style="display: none;">
-                                <div class="col-md-{{ '4' if is_hr_manager else '6' }}">
+                                <div class="col-md-{{ '4' if hr_permissions.can_view_amounts else '6' }}">
                                     <div class="d-flex justify-content-between">
                                         <span class="text-muted">Total Employees:</span>
                                         <strong id="summaryEmployees">0</strong>
                                     </div>
                                 </div>
-                                <div class="col-md-{{ '4' if is_hr_manager else '6' }}">
+                                <div class="col-md-{{ '4' if hr_permissions.can_view_amounts else '6' }}">
                                     <div class="d-flex justify-content-between">
                                         <span class="text-muted">Total Days:</span>
                                         <strong id="summaryDays">0</strong>
                                     </div>
                                 </div>
-                                {% if is_hr_manager %}
+                                {% if hr_permissions.can_view_amounts %}
                                 <div class="col-md-4">
                                     <div class="d-flex justify-content-between">
                                         <span class="text-muted">Total Bonus:</span>
@@ -274,8 +274,12 @@
         // Selected employees map: employeeId -> { employee data, bonus data }
         const selectedEmployees = new Map();
 
-        // HR Manager permission flag
-        const isHrManager = {{ 'true' if is_hr_manager else 'false' }};
+        // HR permissions for conditional display
+        const hrPermissions = {
+            canViewAmounts: {{ 'true' if hr_permissions.can_view_amounts else 'false' }}
+        };
+        // Legacy alias for backward compatibility
+        const isHrManager = hrPermissions.canViewAmounts;
 
         // Generate bonus type options HTML
         function getBonusTypeOptionsHtml(selectedId = '') {

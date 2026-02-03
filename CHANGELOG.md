@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-02-04
+### HR Module Scope-Based Permissions
+- **Granular Permission Enforcement**: HR module now enforces scope values ('deny', 'own', 'department', 'all')
+  - `hr_permission_required` decorator passes scope via Flask `g` object
+  - Repository methods filter data based on user's permission scope
+  - Route handlers pass scope to repositories for data filtering
+  - `/hr/events/api/permissions` endpoint provides frontend permission flags
+
+- **Template Permission Updates**: Replaced legacy `is_hr_manager` checks with granular permissions
+  - `event_bonuses.html`: Uses `hr_permissions.can_view_amounts`, `can_export`, `can_bulk_delete`
+  - `add_bonus.html`: Uses `hr_permissions.can_view_amounts` for bonus net field
+  - `add_event.html`: Uses `hr_permissions.can_view_amounts` for amount fields
+  - JavaScript `hrPermissions` object for client-side permission checks
+
+- **Bulk Operations Scope Verification**: Bulk delete validates each item against user's scope
+
+### Permission Cleanup
+- **Removed unused permissions** from database and seed data:
+  - Profile module (4 permissions) - uses `@login_required` only
+  - HR > Department Structure (2 permissions) - duplicate of System > Company Structure
+  - HR > Payroll (2 permissions) - not implemented
+
+- **Added missing HR permissions** to database:
+  - `hr.module.access` - Access HR module
+  - `hr.events.*` - View, Add, Edit, Delete events
+  - `hr.bonuses.add`, `hr.bonuses.delete` - Add/delete bonuses
+
 ## 2026-02-02
 ### HR Module Improvements
 - **Employee Dropdown Display**: Shows department instead of "N/A" in employee dropdowns
