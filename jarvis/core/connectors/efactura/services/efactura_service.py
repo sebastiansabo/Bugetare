@@ -2014,6 +2014,14 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
         except Exception as e:
             conn.rollback()
             logger.error(f"Failed to bulk create main invoices: {e}")
+            # Check for unique constraint violation (duplicate invoice)
+            error_str = str(e)
+            if 'invoices_invoice_number_key' in error_str or 'duplicate key' in error_str.lower():
+                # Extract invoice number from error message if possible
+                import re
+                match = re.search(r'\(([^)]+)\)', error_str)
+                invoice_num = match.group(1) if match else 'unknown'
+                raise ValueError(f"Factura {invoice_num} există deja în Contabilitate")
             raise
         finally:
             release_db(conn)
