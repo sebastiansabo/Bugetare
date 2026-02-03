@@ -1793,7 +1793,7 @@ def init_db():
             currency VARCHAR(3) NOT NULL DEFAULT 'RON',
             status VARCHAR(20) NOT NULL DEFAULT 'processed',
             company_id INTEGER REFERENCES companies(id),
-            jarvis_invoice_id INTEGER REFERENCES invoices(id),
+            jarvis_invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
             xml_content TEXT,
             ignored BOOLEAN NOT NULL DEFAULT FALSE,
             deleted_at TIMESTAMP,
