@@ -6693,8 +6693,7 @@ def get_user_event_bonuses(
 ) -> list[dict]:
     """
     Get HR event bonuses for a user.
-    Joins through hr.employees since employee_id references hr.employees.id,
-    and hr.employees.user_id references users.id.
+    employee_id in hr.event_bonuses now references users.id directly.
     """
     conn = get_db()
     cursor = get_cursor(conn)
@@ -6708,9 +6707,8 @@ def get_user_event_bonuses(
             e.name as event_name, e.start_date, e.end_date,
             e.company, e.brand
         FROM hr.event_bonuses eb
-        INNER JOIN hr.employees emp ON eb.employee_id = emp.id
         INNER JOIN hr.events e ON eb.event_id = e.id
-        WHERE emp.user_id = %s
+        WHERE eb.employee_id = %s
     '''
     params = [user_id]
 
@@ -6740,8 +6738,7 @@ def get_user_event_bonuses(
 def get_user_event_bonuses_summary(user_id: int) -> dict:
     """
     Get summary of HR event bonuses for a user.
-    Joins through hr.employees since employee_id references hr.employees.id,
-    and hr.employees.user_id references users.id.
+    employee_id in hr.event_bonuses now references users.id directly.
     """
     conn = get_db()
     cursor = get_cursor(conn)
@@ -6752,8 +6749,7 @@ def get_user_event_bonuses_summary(user_id: int) -> dict:
             COALESCE(SUM(eb.bonus_net), 0) as total_amount,
             COUNT(DISTINCT eb.event_id) as events_count
         FROM hr.event_bonuses eb
-        INNER JOIN hr.employees emp ON eb.employee_id = emp.id
-        WHERE emp.user_id = %s
+        WHERE eb.employee_id = %s
     ''', (user_id,))
 
     row = cursor.fetchone()
@@ -6776,8 +6772,7 @@ def get_user_event_bonuses_count(
 ) -> int:
     """
     Get count of HR event bonuses for a user with filters.
-    Joins through hr.employees since employee_id references hr.employees.id,
-    and hr.employees.user_id references users.id.
+    employee_id in hr.event_bonuses now references users.id directly.
     """
     conn = get_db()
     cursor = get_cursor(conn)
@@ -6785,9 +6780,8 @@ def get_user_event_bonuses_count(
     query = '''
         SELECT COUNT(*) as count
         FROM hr.event_bonuses eb
-        INNER JOIN hr.employees emp ON eb.employee_id = emp.id
         INNER JOIN hr.events e ON eb.event_id = e.id
-        WHERE emp.user_id = %s
+        WHERE eb.employee_id = %s
     '''
     params = [user_id]
 

@@ -18,10 +18,15 @@
 - **Bulk Delete for Users**: Same functionality in Settings → Users tab
   - API endpoint: `POST /api/users/bulk-delete`
 
-### Profile Page Fix
+### Profile Page Fixes
 - **First Load Issue**: Fixed invoices not loading on first visit
   - Problem: When saved tab was `#invoices`, `tab.show()` didn't fire event
   - Solution: Explicitly call `loadInvoicesTab()` when saved tab is invoices
+
+- **HR Events Not Showing**: Fixed profile HR Events tab not fetching bonuses
+  - Problem: Queries used outdated JOIN through `hr.employees` table
+  - Solution: `employee_id` now directly references `users.id`
+  - Updated: `get_user_event_bonuses()`, `get_user_event_bonuses_summary()`, `get_user_event_bonuses_count()`
 
 ### Profile Page Performance Optimization
 - **responsible_user_id FK**: Added indexed foreign key to allocations table
