@@ -376,10 +376,11 @@ def find_responsables_for_allocation(allocation: dict) -> list[dict]:
     # Get responsables for the main department, filtered by company
     company = allocation.get('company', '')
     department = allocation.get('department', '')
+    logger.info(f"Finding responsables for allocation: company='{company}', department='{department}'")
     if department:
         # Pass company to filter responsables by both company AND department
         responsables = get_responsables_by_department(department, company)
-        logger.debug(f"Found {len(responsables)} responsables for company '{company}', department '{department}'")
+        logger.info(f"Found {len(responsables)} responsables for company='{company}', dept='{department}'")
         for r in responsables:
             if r.get('is_active', True) and r.get('notify_on_allocation', True):
                 if r.get('id') not in seen_ids:

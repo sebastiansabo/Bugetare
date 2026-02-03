@@ -1984,6 +1984,11 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                         'allocation_value': inv.get('total_without_vat') or inv['total_amount'],
                     }
 
+                    logger.info(
+                        f"Sending notification for {inv['invoice_number']}: "
+                        f"company='{allocation_data['company']}', dept='{allocation_data['department']}'"
+                    )
+
                     try:
                         results = notify_invoice_allocations(invoice_data, [allocation_data])
                         sent_count = sum(1 for r in results if r.get('success'))
