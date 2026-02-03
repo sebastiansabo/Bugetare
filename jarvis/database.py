@@ -6661,6 +6661,7 @@ def get_user_invoices_by_responsible_name(
         FROM invoices i
         INNER JOIN allocations a ON i.id = a.invoice_id
         WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
+        AND i.deleted_at IS NULL
     '''
     params = [user_id, user_id]
 
@@ -6724,6 +6725,7 @@ def get_user_invoices_count(
         FROM invoices i
         INNER JOIN allocations a ON i.id = a.invoice_id
         WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
+        AND i.deleted_at IS NULL
     '''
     params = [user_id, user_id]
 
