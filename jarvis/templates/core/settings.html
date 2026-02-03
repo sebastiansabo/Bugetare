@@ -5894,7 +5894,9 @@
 
             document.getElementById('structureId').value = id;
             document.getElementById('structureManagerSearch').value = entry.manager || '';
-            document.getElementById('structureManagerId').value = '';
+            // Set manager_id from manager_ids array (take first element)
+            const managerId = (entry.manager_ids && entry.manager_ids.length > 0) ? entry.manager_ids[0] : '';
+            document.getElementById('structureManagerId').value = managerId;
             document.getElementById('structureModalTitle').textContent = 'Edit Structure Entry';
             populateStructureDropdowns(entry);
             new bootstrap.Modal(document.getElementById('structureModal')).show();
@@ -5907,11 +5909,15 @@
             const department_id = document.getElementById('structureDept').value;
             const subdepartment_id = document.getElementById('structureSubdept').value || null;
             const manager = document.getElementById('structureManagerSearch').value.trim();
+            const managerId = document.getElementById('structureManagerId').value;
 
             if (!company_id || !department_id) {
                 await JarvisDialog.alert('Company and Department are required', { type: 'warning' });
                 return;
             }
+
+            // Build manager_ids array from selected user
+            const manager_ids = managerId ? [parseInt(managerId)] : null;
 
             const url = id ? `/hr/events/api/structure/departments/${id}` : '/hr/events/api/structure/departments';
             const method = id ? 'PUT' : 'POST';
@@ -5919,7 +5925,7 @@
             try {
                 const resp = await fetch(url, {
                     method, headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ company_id, brand_id, department_id, subdepartment_id, manager })
+                    body: JSON.stringify({ company_id, brand_id, department_id, subdepartment_id, manager, manager_ids })
                 });
                 if (resp.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('structureModal')).hide();

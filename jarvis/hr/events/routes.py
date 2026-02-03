@@ -740,7 +740,8 @@ def api_create_department():
     dept_id = create_department_structure(
         data.get('company_id'),
         data.get('manager', ''),
-        company_name, brand_name, dept_name, subdept_name
+        company_name, brand_name, dept_name, subdept_name,
+        data.get('manager_ids')
     )
     clear_structure_cache()
     return jsonify({'success': True, 'id': dept_id})
@@ -764,7 +765,8 @@ def api_update_department(dept_id):
     update_department_structure(
         dept_id, data.get('company_id'),
         data.get('manager', ''),
-        company_name, brand_name, dept_name, subdept_name
+        company_name, brand_name, dept_name, subdept_name,
+        data.get('manager_ids')
     )
     clear_structure_cache()
     return jsonify({'success': True})
