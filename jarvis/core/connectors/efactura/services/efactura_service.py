@@ -1936,11 +1936,18 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
 
                 # Track created allocations for notifications
                 for inv, (_, jarvis_id) in zip(invoices_to_create, mappings):
-                    if inv.get('company_name') and inv.get('department'):
+                    has_company = bool(inv.get('company_name'))
+                    has_dept = bool(inv.get('department'))
+                    if has_company and has_dept:
                         allocations_created.append({
                             'invoice': inv,
                             'jarvis_id': jarvis_id,
                         })
+                    else:
+                        logger.debug(
+                            f"Invoice {inv['invoice_number']} skipped for notification: "
+                            f"company={inv.get('company_name')}, dept={inv.get('department')}"
+                        )
 
                 logger.info(
                     f"Created {len(alloc_values)} allocations for e-Factura invoices"
@@ -1949,6 +1956,10 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
             conn.commit()
 
             # Send notifications for created allocations (after commit)
+            logger.info(
+                f"Notification check: allocations_created={len(allocations_created)}, "
+                f"smtp_configured={is_smtp_configured()}"
+            )
             if allocations_created and is_smtp_configured():
                 notifications_sent = 0
                 for alloc_info in allocations_created:
@@ -1975,7 +1986,18 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
 
                     try:
                         results = notify_invoice_allocations(invoice_data, [allocation_data])
-                        notifications_sent += sum(1 for r in results if r.get('success'))
+                        sent_count = sum(1 for r in results if r.get('success'))
+                        notifications_sent += sent_count
+                        if results:
+                            logger.info(
+                                f"Notification results for {inv['invoice_number']}: "
+                                f"{sent_count}/{len(results)} sent successfully"
+                            )
+                        else:
+                            logger.info(
+                                f"No responsables found for invoice {inv['invoice_number']} "
+                                f"(dept: {inv.get('department')})"
+                            )
                     except Exception as e:
                         logger.warning(f"Failed to send notification for invoice {inv['invoice_number']}: {e}")
 

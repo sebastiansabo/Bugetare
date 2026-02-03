@@ -348,6 +348,56 @@ def delete_event_bonuses_bulk(bonus_ids):
     return deleted_count
 
 
+def delete_event_bonuses_by_employee(employee_ids):
+    """Delete all bonuses for the given employee (user) IDs.
+
+    Args:
+        employee_ids: List of user IDs whose bonuses to delete
+
+    Returns:
+        Number of deleted records
+    """
+    if not employee_ids:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+    placeholders = ','.join(['%s'] * len(employee_ids))
+    cursor.execute(f'DELETE FROM hr.event_bonuses WHERE user_id IN ({placeholders})', tuple(employee_ids))
+    deleted_count = cursor.rowcount
+    conn.commit()
+    release_db(conn)
+    return deleted_count
+
+
+def delete_event_bonuses_by_event(selections):
+    """Delete all bonuses for given event/year/month combinations.
+
+    Args:
+        selections: List of dicts with keys: event_id, year, month
+
+    Returns:
+        Number of deleted records
+    """
+    if not selections:
+        return 0
+
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    total_deleted = 0
+    for sel in selections:
+        cursor.execute(
+            'DELETE FROM hr.event_bonuses WHERE event_id = %s AND year = %s AND month = %s',
+            (sel['event_id'], sel['year'], sel['month'])
+        )
+        total_deleted += cursor.rowcount
+
+    conn.commit()
+    release_db(conn)
+    return total_deleted
+
+
 # ============== Summary/Stats ==============
 
 def get_event_bonuses_summary(year=None):

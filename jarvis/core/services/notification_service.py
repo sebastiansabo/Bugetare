@@ -377,11 +377,19 @@ def find_responsables_for_allocation(allocation: dict) -> list[dict]:
     department = allocation.get('department', '')
     if department:
         responsables = get_responsables_by_department(department)
+        logger.debug(f"Found {len(responsables)} responsables for department '{department}'")
         for r in responsables:
             if r.get('is_active', True) and r.get('notify_on_allocation', True):
                 if r.get('id') not in seen_ids:
                     all_responsables.append(r)
                     seen_ids.add(r.get('id'))
+                else:
+                    logger.debug(f"Skipped responsable {r.get('name')}: already seen")
+            else:
+                logger.debug(
+                    f"Skipped responsable {r.get('name')}: "
+                    f"is_active={r.get('is_active')}, notify={r.get('notify_on_allocation')}"
+                )
 
     # If reinvoice_to is set, also get responsables for the reinvoice department
     reinvoice_to = allocation.get('reinvoice_to', '')

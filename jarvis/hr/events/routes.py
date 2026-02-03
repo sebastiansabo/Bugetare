@@ -4,12 +4,19 @@ from flask import render_template, request, jsonify, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from . import events_bp
+
+# Import permission checking from main database
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from database import check_permission_v2
 from .database import (
     get_all_hr_employees, get_hr_employee, save_hr_employee,
     update_hr_employee, delete_hr_employee, search_hr_employees,
     get_all_hr_events, get_hr_event, save_hr_event, update_hr_event, delete_hr_event, delete_hr_events_bulk,
     get_all_event_bonuses, get_event_bonus, save_event_bonus,
     save_event_bonuses_bulk, update_event_bonus, delete_event_bonus, delete_event_bonuses_bulk,
+    delete_event_bonuses_by_employee, delete_event_bonuses_by_event,
     get_event_bonuses_summary, get_bonuses_by_month, get_bonuses_by_employee, get_bonuses_by_event,
     get_all_bonus_types, get_bonus_type, save_bonus_type, update_bonus_type, delete_bonus_type,
     # Company CRUD
@@ -34,7 +41,7 @@ from models import get_companies, get_brands_for_company, get_departments_for_co
 
 
 def hr_required(f):
-    """Decorator to require HR access permission."""
+    """Decorator to require HR access permission (view only)."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not current_user.is_authenticated:
@@ -44,6 +51,72 @@ def hr_required(f):
             return redirect(url_for('index'))
         return f(*args, **kwargs)
     return decorated
+
+
+def hr_manager_required(f):
+    """Decorator to require HR Manager permission for write operations.
+    Uses is_hr_manager flag as fallback if permissions_v2 not configured.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated:
+            return redirect(url_for('login'))
+        if not getattr(current_user, 'can_access_hr', False):
+            flash('HR access required.', 'error')
+            return redirect(url_for('index'))
+        if not getattr(current_user, 'is_hr_manager', False):
+            # For API calls, return JSON error
+            if request.path.startswith('/hr/events/api/'):
+                return jsonify({'success': False, 'error': 'HR Manager permission required'}), 403
+            flash('HR Manager permission required.', 'error')
+            return redirect(url_for('hr.events.event_bonuses'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def hr_permission_required(entity: str, action: str):
+    """Decorator to check specific HR permission using permissions_v2.
+
+    Args:
+        entity: Entity within HR module (events, bonuses, employees, structure)
+        action: Action to check (view, add, edit, delete)
+
+    Usage:
+        @hr_permission_required('events', 'edit')
+        def api_update_event():
+            ...
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            if not current_user.is_authenticated:
+                return redirect(url_for('login'))
+
+            # Check basic HR access first
+            if not getattr(current_user, 'can_access_hr', False):
+                if request.path.startswith('/hr/events/api/'):
+                    return jsonify({'success': False, 'error': 'HR access required'}), 403
+                flash('HR access required.', 'error')
+                return redirect(url_for('index'))
+
+            # Check specific permission using permissions_v2
+            role_id = getattr(current_user, 'role_id', None)
+            if role_id:
+                perm = check_permission_v2(role_id, 'hr', entity, action)
+                if perm['has_permission']:
+                    return f(*args, **kwargs)
+
+            # Fallback to is_hr_manager for write operations
+            if action in ('add', 'edit', 'delete') and getattr(current_user, 'is_hr_manager', False):
+                return f(*args, **kwargs)
+
+            # Permission denied
+            if request.path.startswith('/hr/events/api/'):
+                return jsonify({'success': False, 'error': f'Permission denied: hr.{entity}.{action}'}), 403
+            flash(f'Permission denied: HR {entity} {action}', 'error')
+            return redirect(url_for('hr.events.event_bonuses'))
+        return decorated
+    return decorator
 
 
 # Romanian month names for display
@@ -106,7 +179,7 @@ def api_get_event_bonuses():
 
 @events_bp.route('/api/event-bonuses', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'add')
 def api_create_event_bonus():
     """API: Create a new event bonus."""
     data = request.get_json()
@@ -131,7 +204,7 @@ def api_create_event_bonus():
 
 @events_bp.route('/api/event-bonuses/bulk', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'add')
 def api_create_event_bonuses_bulk():
     """API: Bulk create event bonuses."""
     data = request.get_json()
@@ -157,7 +230,7 @@ def api_get_event_bonus(bonus_id):
 
 @events_bp.route('/api/event-bonuses/<int:bonus_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'edit')
 def api_update_event_bonus(bonus_id):
     """API: Update an event bonus."""
     data = request.get_json()
@@ -182,7 +255,7 @@ def api_update_event_bonus(bonus_id):
 
 @events_bp.route('/api/event-bonuses/<int:bonus_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'delete')
 def api_delete_event_bonus(bonus_id):
     """API: Delete an event bonus."""
     delete_event_bonus(bonus_id)
@@ -191,7 +264,7 @@ def api_delete_event_bonus(bonus_id):
 
 @events_bp.route('/api/event-bonuses/bulk-delete', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'delete')
 def api_bulk_delete_event_bonuses():
     """API: Delete multiple event bonuses."""
     data = request.get_json()
@@ -207,6 +280,41 @@ def api_bulk_delete_event_bonuses():
         return jsonify({'success': False, 'error': 'Invalid ID format'}), 400
 
     deleted_count = delete_event_bonuses_bulk(bonus_ids)
+    return jsonify({'success': True, 'deleted': deleted_count})
+
+
+@events_bp.route('/api/event-bonuses/bulk-delete-by-employee', methods=['POST'])
+@login_required
+@hr_permission_required('bonuses', 'delete')
+def api_bulk_delete_event_bonuses_by_employee():
+    """API: Delete all bonuses for given employee IDs."""
+    data = request.get_json()
+    employee_ids = data.get('employee_ids', [])
+
+    if not employee_ids:
+        return jsonify({'success': False, 'error': 'No employee IDs provided'}), 400
+
+    try:
+        employee_ids = [int(id) for id in employee_ids]
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'error': 'Invalid ID format'}), 400
+
+    deleted_count = delete_event_bonuses_by_employee(employee_ids)
+    return jsonify({'success': True, 'deleted': deleted_count})
+
+
+@events_bp.route('/api/event-bonuses/bulk-delete-by-event', methods=['POST'])
+@login_required
+@hr_permission_required('bonuses', 'delete')
+def api_bulk_delete_event_bonuses_by_event():
+    """API: Delete all bonuses for given event/year/month combinations."""
+    data = request.get_json()
+    selections = data.get('selections', [])
+
+    if not selections:
+        return jsonify({'success': False, 'error': 'No selections provided'}), 400
+
+    deleted_count = delete_event_bonuses_by_event(selections)
     return jsonify({'success': True, 'deleted': deleted_count})
 
 
@@ -267,7 +375,7 @@ def api_get_events():
 
 @events_bp.route('/api/events', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('events', 'add')
 def api_create_event():
     """API: Create a new event."""
     data = request.get_json()
@@ -298,7 +406,7 @@ def api_get_event(event_id):
 
 @events_bp.route('/api/events/<int:event_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('events', 'edit')
 def api_update_event(event_id):
     """API: Update an event."""
     data = request.get_json()
@@ -318,7 +426,7 @@ def api_update_event(event_id):
 
 @events_bp.route('/api/events/<int:event_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('events', 'delete')
 def api_delete_event(event_id):
     """API: Delete an event."""
     delete_hr_event(event_id)
@@ -327,7 +435,7 @@ def api_delete_event(event_id):
 
 @events_bp.route('/api/events/bulk-delete', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('events', 'delete')
 def api_bulk_delete_events():
     """API: Delete multiple events."""
     data = request.get_json()
@@ -373,7 +481,7 @@ def api_search_employees():
 
 @events_bp.route('/api/employees', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('employees', 'add')
 def api_create_employee():
     """API: Create a new employee."""
     data = request.get_json()
@@ -405,7 +513,7 @@ def api_get_employee(employee_id):
 
 @events_bp.route('/api/employees/<int:employee_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('employees', 'edit')
 def api_update_employee(employee_id):
     """API: Update an employee."""
     data = request.get_json()
@@ -428,7 +536,7 @@ def api_update_employee(employee_id):
 
 @events_bp.route('/api/employees/<int:employee_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('employees', 'delete')
 def api_delete_employee(employee_id):
     """API: Soft delete an employee."""
     delete_hr_employee(employee_id)
@@ -517,7 +625,7 @@ def api_get_companies_full():
 
 @events_bp.route('/api/structure/companies', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_create_company():
     """API: Create a new company."""
     data = request.get_json()
@@ -527,7 +635,7 @@ def api_create_company():
 
 @events_bp.route('/api/structure/companies/<int:company_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_update_company(company_id):
     """API: Update a company."""
     data = request.get_json()
@@ -537,7 +645,7 @@ def api_update_company(company_id):
 
 @events_bp.route('/api/structure/companies/<int:company_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_delete_company(company_id):
     """API: Delete a company."""
     delete_company(company_id)
@@ -558,7 +666,7 @@ def api_get_company_brands():
 
 @events_bp.route('/api/structure/company-brands', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_create_company_brand():
     """API: Create a new company brand."""
     from models import clear_structure_cache
@@ -573,7 +681,7 @@ def api_create_company_brand():
 
 @events_bp.route('/api/structure/company-brands/<int:brand_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_update_company_brand(brand_id):
     """API: Update a company brand."""
     from models import clear_structure_cache
@@ -585,7 +693,7 @@ def api_update_company_brand(brand_id):
 
 @events_bp.route('/api/structure/company-brands/<int:brand_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_delete_company_brand(brand_id):
     """API: Delete a company brand."""
     from models import clear_structure_cache
@@ -616,7 +724,7 @@ def api_get_departments_full():
 
 @events_bp.route('/api/structure/departments', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_create_department():
     """API: Create a new department structure entry."""
     from models import clear_structure_cache
@@ -640,7 +748,7 @@ def api_create_department():
 
 @events_bp.route('/api/structure/departments/<int:dept_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_update_department(dept_id):
     """API: Update a department structure entry."""
     from models import clear_structure_cache
@@ -664,7 +772,7 @@ def api_update_department(dept_id):
 
 @events_bp.route('/api/structure/departments/<int:dept_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_delete_department(dept_id):
     """API: Delete a department."""
     delete_department_structure(dept_id)
@@ -686,7 +794,7 @@ def api_get_master_brands():
 
 @events_bp.route('/api/master/brands', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_create_master_brand():
     """API: Create a new brand in master table."""
     from models import clear_structure_cache
@@ -701,7 +809,7 @@ def api_create_master_brand():
 
 @events_bp.route('/api/master/brands/<int:brand_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_update_master_brand(brand_id):
     """API: Update a brand in master table."""
     from models import clear_structure_cache
@@ -713,7 +821,7 @@ def api_update_master_brand(brand_id):
 
 @events_bp.route('/api/master/brands/<int:brand_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_delete_master_brand(brand_id):
     """API: Delete a brand from master table."""
     from models import clear_structure_cache
@@ -735,7 +843,7 @@ def api_get_master_departments():
 
 @events_bp.route('/api/master/departments', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_create_master_department():
     """API: Create a new department in master table."""
     from models import clear_structure_cache
@@ -750,7 +858,7 @@ def api_create_master_department():
 
 @events_bp.route('/api/master/departments/<int:dept_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_update_master_department(dept_id):
     """API: Update a department in master table."""
     from models import clear_structure_cache
@@ -762,7 +870,7 @@ def api_update_master_department(dept_id):
 
 @events_bp.route('/api/master/departments/<int:dept_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_delete_master_department(dept_id):
     """API: Delete a department from master table."""
     from models import clear_structure_cache
@@ -784,7 +892,7 @@ def api_get_master_subdepartments():
 
 @events_bp.route('/api/master/subdepartments', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_create_master_subdepartment():
     """API: Create a new subdepartment in master table."""
     from models import clear_structure_cache
@@ -799,7 +907,7 @@ def api_create_master_subdepartment():
 
 @events_bp.route('/api/master/subdepartments/<int:subdept_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_update_master_subdepartment(subdept_id):
     """API: Update a subdepartment in master table."""
     from models import clear_structure_cache
@@ -811,7 +919,7 @@ def api_update_master_subdepartment(subdept_id):
 
 @events_bp.route('/api/master/subdepartments/<int:subdept_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('structure', 'edit')
 def api_delete_master_subdepartment(subdept_id):
     """API: Delete a subdepartment from master table."""
     from models import clear_structure_cache
@@ -834,7 +942,7 @@ def api_get_bonus_types():
 
 @events_bp.route('/api/bonus-types', methods=['POST'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'add')
 def api_create_bonus_type():
     """API: Create a new bonus type."""
     data = request.get_json()
@@ -862,7 +970,7 @@ def api_get_bonus_type(bonus_type_id):
 
 @events_bp.route('/api/bonus-types/<int:bonus_type_id>', methods=['PUT'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'edit')
 def api_update_bonus_type(bonus_type_id):
     """API: Update a bonus type."""
     data = request.get_json()
@@ -881,7 +989,7 @@ def api_update_bonus_type(bonus_type_id):
 
 @events_bp.route('/api/bonus-types/<int:bonus_type_id>', methods=['DELETE'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'delete')
 def api_delete_bonus_type(bonus_type_id):
     """API: Soft delete a bonus type."""
     delete_bonus_type(bonus_type_id)
@@ -892,7 +1000,7 @@ def api_delete_bonus_type(bonus_type_id):
 
 @events_bp.route('/api/export', methods=['GET'])
 @login_required
-@hr_required
+@hr_permission_required('bonuses', 'export')
 def api_export_bonuses():
     """API: Export event bonuses to Excel."""
     from flask import Response
