@@ -962,22 +962,18 @@ def init_db():
             ('statements', 'Bank Statements', 'bi-bank', 'mappings', 'Vendor Mappings', 'view', 'View', 'View vendor mappings', FALSE, 5),
             ('statements', 'Bank Statements', 'bi-bank', 'mappings', 'Vendor Mappings', 'edit', 'Edit', 'Manage vendor mappings', FALSE, 6),
 
-            -- HR Module
+            -- HR Module (user management is in System section)
             ('hr', 'HR', 'bi-people-fill', 'module', 'HR Module', 'access', 'Access', 'Access HR module', FALSE, 1),
-            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'view', 'View', 'View user list in HR', TRUE, 2),
-            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'add', 'Add', 'Create new users in HR', FALSE, 3),
-            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'edit', 'Edit', 'Modify user data in HR', TRUE, 4),
-            ('hr', 'HR', 'bi-people-fill', 'users', 'Users', 'delete', 'Delete', 'Remove users from HR', FALSE, 5),
-            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'view', 'View', 'View events list', TRUE, 6),
-            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'add', 'Add', 'Create new events', FALSE, 7),
-            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'edit', 'Edit', 'Modify events', TRUE, 8),
-            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'delete', 'Delete', 'Delete events', FALSE, 9),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'view', 'View', 'View bonuses', TRUE, 10),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'view_amounts', 'View Amounts', 'View bonus amounts (HR Manager)', FALSE, 11),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'add', 'Add', 'Create new bonuses', FALSE, 12),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'edit', 'Edit', 'Modify bonuses', TRUE, 13),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'delete', 'Delete', 'Delete bonuses', FALSE, 14),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'export', 'Export', 'Export bonus data', FALSE, 15)
+            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'view', 'View', 'View events list', TRUE, 2),
+            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'add', 'Add', 'Create new events', FALSE, 3),
+            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'edit', 'Edit', 'Modify events', TRUE, 4),
+            ('hr', 'HR', 'bi-people-fill', 'events', 'Events', 'delete', 'Delete', 'Delete events', FALSE, 5),
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'view', 'View', 'View bonuses', TRUE, 6),
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'view_amounts', 'View Amounts', 'View bonus amounts (HR Manager)', FALSE, 7),
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'add', 'Add', 'Create new bonuses', FALSE, 8),
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'edit', 'Edit', 'Modify bonuses', TRUE, 9),
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'delete', 'Delete', 'Delete bonuses', FALSE, 10),
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'export', 'Export', 'Export bonus data', FALSE, 11)
         ''')
 
         # Set default permissions for existing roles
@@ -6449,7 +6445,7 @@ def _sync_v2_permissions_to_booleans(cursor, role_id: int):
         'can_access_accounting': perms.get('accounting.dashboard.access', False),
         'can_access_templates': perms.get('invoices.templates.edit', False),
         'can_access_connectors': perms.get('accounting.connectors.access', False),
-        'can_access_hr': perms.get('hr.users.view', False) or perms.get('hr.bonuses.view', False),
+        'can_access_hr': perms.get('hr.module.access', False) or perms.get('hr.bonuses.view', False),
         'is_hr_manager': perms.get('hr.bonuses.view_amounts', False),
     }
 
