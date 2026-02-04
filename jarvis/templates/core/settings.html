@@ -1875,6 +1875,11 @@
                                 <div id="structureManagerDropdown" class="dropdown-menu w-100" style="max-height: 200px; overflow-y: auto; position: absolute; top: 100%; left: 0; z-index: 1050;"></div>
                             </div>
                         </div>
+                        <div class="mb-3">
+                            <label class="form-label">CC Email</label>
+                            <input type="email" class="form-control" id="structureCcEmail" placeholder="department-cc@example.com">
+                            <small class="text-muted">Optional. Will be CC'd on all allocation notifications for this department.</small>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer">
@@ -5866,6 +5871,7 @@
             document.getElementById('structureId').value = '';
             document.getElementById('structureManagerSearch').value = '';
             document.getElementById('structureManagerId').value = '';
+            document.getElementById('structureCcEmail').value = '';
             document.getElementById('structureModalTitle').textContent = 'Add Structure Entry';
             populateStructureDropdowns();
             new bootstrap.Modal(document.getElementById('structureModal')).show();
@@ -5973,6 +5979,7 @@
             // Set manager_id from manager_ids array (take first element)
             const managerId = (entry.manager_ids && entry.manager_ids.length > 0) ? entry.manager_ids[0] : '';
             document.getElementById('structureManagerId').value = managerId;
+            document.getElementById('structureCcEmail').value = entry.cc_email || '';
             document.getElementById('structureModalTitle').textContent = 'Edit Structure Entry';
             populateStructureDropdowns(entry);
             new bootstrap.Modal(document.getElementById('structureModal')).show();
@@ -5986,6 +5993,7 @@
             const subdepartment_id = document.getElementById('structureSubdept').value || null;
             const manager = document.getElementById('structureManagerSearch').value.trim();
             const managerId = document.getElementById('structureManagerId').value;
+            const cc_email = document.getElementById('structureCcEmail').value.trim() || null;
 
             if (!company_id || !department_id) {
                 await JarvisDialog.alert('Company and Department are required', { type: 'warning' });
@@ -6001,7 +6009,7 @@
             try {
                 const resp = await fetch(url, {
                     method, headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ company_id, brand_id, department_id, subdepartment_id, manager, manager_ids })
+                    body: JSON.stringify({ company_id, brand_id, department_id, subdepartment_id, manager, manager_ids, cc_email })
                 });
                 if (resp.ok) {
                     bootstrap.Modal.getInstance(document.getElementById('structureModal')).hide();
