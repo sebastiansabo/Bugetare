@@ -149,6 +149,9 @@
                         </select>
                     </div>
                     <div class="col-auto d-flex align-items-end">
+                        <div id="tagFilterContainer"></div>
+                    </div>
+                    <div class="col-auto d-flex align-items-end">
                         <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()" title="Clear All">
                             <i class="bi bi-x-circle"></i>
                         </button>
@@ -206,8 +209,6 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <span><i class="bi bi-table"></i> Invoice Data <span id="invoiceResultCount" class="badge bg-secondary ms-2"></span></span>
                             <div class="d-flex gap-2 align-items-center">
-                                <!-- Tags Filter -->
-                                <div id="tagFilterContainer"></div>
                                 <!-- Presets -->
                                 <div id="presetContainer"></div>
                                 <!-- Search -->
@@ -243,7 +244,7 @@
                                     <option value="">Change Status...</option>
                                     <!-- Populated dynamically from dropdown_options -->
                                 </select>
-                                <button class="btn btn-outline-info btn-sm" onclick="JarvisTags.openBulkTagDropdown('invoice', Array.from(selectedInvoices))">
+                                <button class="btn btn-outline-info btn-sm" onclick="JarvisTags.openBulkTagDropdown('invoice', Array.from(selectedInvoices), this)">
                                     <i class="bi bi-tags"></i> Tag
                                 </button>
                                 <button class="btn btn-outline-success btn-sm" onclick="exportSelectedToCSV()">
@@ -1098,11 +1099,12 @@
                         style="width: auto; min-width: 110px; padding: 2px 24px 2px 8px; font-size: 0.8em;">`;
             // Include current status even if not in allowed options (so user can see current value)
             const optionsToShow = [...invoiceStatusOptions];
-            if (!optionsToShow.find(o => o.value === currentStatus) && currentStatus) {
+            const statusLower = currentStatus.toLowerCase();
+            if (!optionsToShow.find(o => o.value.toLowerCase() === statusLower) && currentStatus) {
                 optionsToShow.unshift({ value: currentStatus, label: currentLabel + ' (current)' });
             }
             optionsToShow.forEach(opt => {
-                html += `<option value="${opt.value}" ${currentStatus === opt.value ? 'selected' : ''}>${opt.label}</option>`;
+                html += `<option value="${opt.value}" ${opt.value.toLowerCase() === statusLower ? 'selected' : ''}>${opt.label}</option>`;
             });
             html += '</select>';
             return html;
@@ -2247,7 +2249,7 @@
                 const resp = await fetch(`/api/entity-tags/bulk?entity_type=invoice&entity_ids=${ids.join(',')}`);
                 if (!resp.ok) return;
                 const data = await resp.json();
-                const tagsMap = data.tags || {};
+                const tagsMap = data || {};
                 invoices.forEach(inv => {
                     inv.tags = tagsMap[inv.id] || [];
                     // Also update allocation cache

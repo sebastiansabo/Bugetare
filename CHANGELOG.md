@@ -1,5 +1,51 @@
 # Changelog
 
+## 2026-02-04 (continued)
+
+### Platform-Wide Tagging System
+- **Database**: 3 new tables (`tag_groups`, `tags`, `entity_tags`) with seed data for Priority/Status/Category groups and default tags (High, Medium, Low, Review, Done, Urgent)
+- **API**: 13 REST endpoints for tag groups, tags, and entity tag CRUD (`/api/tag-groups`, `/api/tags`, `/api/entity-tags`)
+- **Frontend**: Reusable `JarvisTags` class (`jarvis-tags.js`) with filter dropdown, tag badges, tag picker modal, and bulk tagging
+- **Visibility**: Global tags (admin-managed, visible to all) + private tags (user-created, only visible to creator)
+- **Integration on all pages**: Accounting, e-Factura, Statements, HR Bonuses, HR Events — each with tag filter, Tags column, preset integration
+- **Settings UI**: Tag Management section in Settings with Tag Groups and Tags management tables
+- **CSS**: Tag badge styling with color-coded backgrounds, dark theme support
+
+### User Filter Presets
+- **Database**: `user_filter_presets` table with per-user, per-page saved filters (JSONB)
+- **Frontend**: Reusable `JarvisPresets` class (`jarvis-presets.js`) with save/load/delete/default preset functionality
+- **Integration**: All 5 data pages support saving and restoring filter state (including tag filters)
+- **"No Preset" refresh**: Selecting "No Preset" refreshes the page to reset all filters
+
+### Reinvoice Edit Modal Parity
+- **Value field**: Added RON/EUR value input to reinvoice lines in the edit modal (matching add-invoice)
+- **Lock button**: Added lock/unlock per reinvoice line to prevent redistribution
+- **Comment button**: Added per-line comment with chat icon indicator
+- **Bidirectional sync**: Value and percentage fields sync automatically
+- **Data collection**: `getEditReinvoiceDestinations()` now collects value, locked, and comment fields
+
+### Auto-Status on Allocation Edit
+- When allocations are edited, the invoice status is automatically set to the first active invoice_status from Settings → Dropdown Options (by sort order)
+- Status value is dynamically read from `dropdown_options` table — no hardcoded values
+- Status change is logged to the activity log with old/new status details
+
+### Allocation Tolerance
+- Increased allocation validation tolerance from 0.1% to 1% across all flows (add invoice, edit modal, server-side)
+- Reinvoice percentage validation also updated to 1% tolerance
+- Prevents false "Invalid Allocation" errors from floating-point rounding
+
+### Bug Fixes
+- **Tag CRUD**: Fixed `fetchone()[0]` → `fetchone()['id']` for RealDictCursor in `save_tag_group`, `save_tag`, `add_vat_rate`
+- **Tag cursor**: Fixed all 13 tag database functions using `conn.cursor()` → `get_cursor(conn)` (RealDictCursor)
+- **init_db seed**: Fixed `fetchone()[0]` → `fetchone()['cnt']` in tag seed data count checks
+- **Settings tag loading**: Fixed `data.groups` / `data.tags` → handle API returning arrays directly
+- **Bulk tag button**: Fixed missing `this` argument in `openBulkTagDropdown()` calls on all 5 pages
+- **Edit alloc selector**: Fixed `.edit-alloc-value` → `.alloc-value` CSS selector mismatch in reinvoice functions
+- **Tag badges not showing**: Fixed `data.tags || {}` → `data || {}` in `loadInvoiceTags()` on all 5 pages (API returns map directly, not wrapped)
+- **Tag filter placement**: Moved tag filter from card header into collapsible filter panel on Accounting, e-Factura, and Statements pages
+- **Status dropdown duplicate**: Fixed case-insensitive comparison in `getStatusDropdownHtml()` to prevent "Bugetata (current)" duplicate entries
+- **Auto-status hardcode**: Replaced hardcoded status value with dynamic lookup from `dropdown_options` table
+
 ## 2026-02-04
 
 ### HR View Amounts Permission Enforcement

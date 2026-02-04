@@ -419,10 +419,16 @@ class JarvisTags {
         menu.style.cssText = 'position:absolute; z-index:1060; min-width:200px; max-height:300px; overflow-y:auto;';
         menu.innerHTML = menuHtml;
 
-        // Position near button
-        const rect = buttonElement.getBoundingClientRect();
-        menu.style.top = (rect.bottom + window.scrollY) + 'px';
-        menu.style.left = rect.left + 'px';
+        // Position near button (fallback to top-left if no button element)
+        if (buttonElement) {
+            const rect = buttonElement.getBoundingClientRect();
+            menu.style.top = (rect.bottom + window.scrollY) + 'px';
+            menu.style.left = rect.left + 'px';
+        } else {
+            menu.style.top = '100px';
+            menu.style.left = '50%';
+            menu.style.transform = 'translateX(-50%)';
+        }
         document.body.appendChild(menu);
 
         // Click handler
@@ -433,6 +439,8 @@ class JarvisTags {
                 const result = await JarvisTags.bulkTag(entityType, entityIds, tagId, 'add');
                 if (result.success && typeof JarvisToast !== 'undefined') {
                     JarvisToast.success(`Tagged ${result.count} item(s)`);
+                    // Dispatch event so pages can reload tag badges
+                    document.dispatchEvent(new CustomEvent('jarvis-tags-changed', { detail: { entityType, entityIds, tagId, action: 'add' } }));
                 }
             });
         });

@@ -182,6 +182,9 @@
                         <input type="date" class="form-control form-control-sm" id="filterDateTo" onchange="onFilterChange()">
                     </div>
                     <div class="col-auto d-flex align-items-end">
+                        <div id="tagFilterContainer"></div>
+                    </div>
+                    <div class="col-auto d-flex align-items-end">
                         <button class="btn btn-outline-secondary btn-sm" onclick="clearFilters()" title="Clear All">
                             <i class="bi bi-x-circle"></i>
                         </button>
@@ -197,8 +200,6 @@
                     <div class="d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-table"></i> Transactions <span id="transactionResultCount" class="badge bg-secondary ms-2"></span></span>
                         <div class="d-flex gap-2 align-items-center">
-                            <!-- Tags Filter -->
-                            <div id="tagFilterContainer"></div>
                             <!-- Presets -->
                             <div id="presetContainer"></div>
                             <!-- Search -->
@@ -258,7 +259,7 @@
                             <button type="button" class="btn btn-sm btn-outline-info" onclick="autoMatchInvoices()" title="Auto-match">
                                 <i class="bi bi-magic"></i> Auto-Match
                             </button>
-                            <button type="button" class="btn btn-sm btn-outline-info" onclick="JarvisTags.openBulkTagDropdown('transaction', Array.from(selectedTransactionIds))">
+                            <button type="button" class="btn btn-sm btn-outline-info" onclick="JarvisTags.openBulkTagDropdown('transaction', Array.from(selectedTransactionIds), this)">
                                 <i class="bi bi-tags"></i> Tag
                             </button>
                             <div class="vr"></div>
@@ -1005,7 +1006,7 @@
                 const resp = await fetch(`/api/entity-tags/bulk?entity_type=transaction&entity_ids=${ids.join(',')}`);
                 if (!resp.ok) return;
                 const data = await resp.json();
-                const tagsMap = data.tags || {};
+                const tagsMap = data || {};
                 txns.forEach(t => { t.tags = tagsMap[t.id] || []; });
             } catch (err) {
                 console.error('Error loading transaction tags:', err);

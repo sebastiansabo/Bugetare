@@ -124,6 +124,9 @@ jarvis/                           # Main application folder
 │   ├── settings/                 # Platform settings
 │   │   ├── __init__.py
 │   │   └── routes.py             # Settings routes
+│   ├── profile/                  # User profile module
+│   │   ├── __init__.py           # Blueprint registration
+│   │   └── routes.py             # Profile API endpoints
 │   ├── connectors/               # External service connectors
 │   │   └── efactura/             # ANAF e-Factura connector
 │   │       ├── __init__.py       # Blueprint registration
@@ -160,7 +163,12 @@ jarvis/                           # Main application folder
 │
 ├── static/                       # Static assets
 │   ├── css/
+│   │   └── theme.css             # Main stylesheet (includes tag/dialog styles)
 │   ├── js/
+│   │   ├── jarvis-dialogs.js     # Custom dialog & toast system
+│   │   ├── jarvis-presets.js     # Reusable filter presets (JarvisPresets)
+│   │   ├── jarvis-tags.js        # Reusable tagging system (JarvisTags)
+│   │   └── invoice-edit.js       # Shared invoice edit modal
 │   └── img/
 │
 └── templates/                    # Jinja2 templates
@@ -168,6 +176,7 @@ jarvis/                           # Main application folder
     │   ├── login.html
     │   ├── forgot_password.html  # Password reset request
     │   ├── reset_password.html   # Set new password
+    │   ├── profile.html          # User profile page
     │   ├── settings.html
     │   ├── apps.html
     │   └── guide.html
@@ -195,6 +204,7 @@ jarvis/                           # Main application folder
 | `/forgot-password` | Core | Auth | Request password reset |
 | `/reset-password/<token>` | Core | Auth | Set new password |
 | `/settings` | Core | Settings | Platform settings |
+| `/profile` | Core | Profile | User profile (invoices, HR events, activity) |
 | `/add-invoice` | Accounting | Bugetare | Add invoice |
 | `/accounting` | Accounting | Bugetare | Dashboard |
 | `/templates` | Accounting | Bugetare | Templates |
@@ -300,6 +310,14 @@ The platform uses a normalized organizational hierarchy with foreign key referen
 - `vendor_mappings` - Regex patterns to match bank transactions to suppliers
 - `bank_statement_transactions` - Parsed transactions from bank statements
 - `efactura_invoices` - e-Factura invoices imported from ANAF (jarvis_invoice_id links to invoices table)
+- `tag_groups` - Optional tag groupings (e.g., "Priority", "Status", "Category")
+  - id, name, description, color, sort_order, is_active, created_at, updated_at
+- `tags` - Tag definitions (global or private per user)
+  - id, name, group_id (FK), color, icon, is_global, created_by (FK to users), sort_order, is_active, created_at, updated_at
+- `entity_tags` - Polymorphic junction table linking tags to any entity
+  - id, tag_id (FK), entity_type, entity_id, tagged_by (FK to users), created_at
+  - UNIQUE(tag_id, entity_type, entity_id)
+- `user_filter_presets` - Saved filter presets per user per page
 
 ### HR Schema (`hr.`)
 The HR module uses a separate PostgreSQL schema for data isolation:
@@ -326,6 +344,10 @@ The HR module uses a separate PostgreSQL schema for data isolation:
 | hr.employees | org_unit_id | department_structure.id |
 | hr.events | company_id | companies.id |
 | efactura_invoices | jarvis_invoice_id | invoices.id |
+| tags | group_id | tag_groups.id |
+| tags | created_by | users.id |
+| entity_tags | tag_id | tags.id |
+| entity_tags | tagged_by | users.id |
 
 ## Bank Statement Module
 
@@ -1105,6 +1127,111 @@ SMTP settings are stored in the `notification_settings` table:
 - `smtp_username`, `smtp_password`
 - `from_email`, `from_name`
 - `global_cc` - Optional CC address for all notifications
+
+## Tagging System
+
+### Overview
+Platform-wide tagging system that works across all JARVIS entities. Tags support optional groups/categories, shared (admin-managed global) + private (user-created) visibility, color coding, and full filter/preset integration on every page.
+
+### Entity Type Mapping
+
+| entity_type | Table | PK |
+|---|---|---|
+| `invoice` | `invoices` | `id` |
+| `efactura_invoice` | `efactura_invoices` | `id` |
+| `transaction` | `bank_statement_transactions` | `id` |
+| `employee` | `hr.employees` | `id` |
+| `event` | `hr.events` | `id` |
+| `event_bonus` | `hr.event_bonuses` | `id` |
+
+### Visibility Rules
+- **Global tags** (`is_global = TRUE`): Visible to all users, only admins can create/edit/delete
+- **Private tags** (`is_global = FALSE`): Only visible to the user who created them (`created_by`)
+- Query filter: `WHERE t.is_active = TRUE AND (t.is_global = TRUE OR t.created_by = %s)`
+
+### API Routes
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/tag-groups` | List tag groups |
+| POST | `/api/tag-groups` | Create tag group (admin) |
+| PUT | `/api/tag-groups/<id>` | Update tag group (admin) |
+| DELETE | `/api/tag-groups/<id>` | Soft-delete tag group (admin) |
+| GET | `/api/tags?group_id=` | List tags visible to current user |
+| POST | `/api/tags` | Create tag (global: admin, private: any) |
+| PUT | `/api/tags/<id>` | Update tag |
+| DELETE | `/api/tags/<id>` | Soft-delete tag |
+| GET | `/api/entity-tags?entity_type=X&entity_id=Y` | Tags for single entity |
+| GET | `/api/entity-tags/bulk?entity_type=X&entity_ids=1,2,3` | Bulk fetch tags |
+| POST | `/api/entity-tags` | Tag an entity `{tag_id, entity_type, entity_id}` |
+| DELETE | `/api/entity-tags` | Untag an entity |
+| POST | `/api/entity-tags/bulk` | Bulk tag/untag `{tag_id, entity_type, entity_ids, action}` |
+
+### Frontend Components
+
+**`jarvis/static/js/jarvis-tags.js`** — Reusable `JarvisTags` class:
+- **Filter dropdown**: Multi-select with grouped tags, checkboxes, search
+- **Tag badges**: `JarvisTags.renderTagBadges(tags, {editable, entityType, entityId})`
+- **Tag picker**: `JarvisTags.openTagPicker(entityType, entityId, currentTags)` modal
+- **Bulk tagging**: `JarvisTags.openBulkTagDropdown(entityType, entityIds, buttonElement)`
+- **Preset integration**: `getSelectedTags()` / `setSelectedTags(ids)` for preset save/restore
+
+### Per-Page Integration
+Each page gets: tag filter in filter panel, Tags column in table, preset integration, and server-side tag filter query param.
+
+| Page | Entity Type | Filter Area |
+|------|------------|-------------|
+| Accounting (`accounting.html`) | `invoice` | Filter collapse panel |
+| e-Factura (`efactura.html`) | `efactura_invoice` | Filter collapse panel |
+| Statements (`statements/index.html`) | `transaction` | Filter toolbar |
+| HR Bonuses (`event_bonuses.html`) | `event_bonus` | Filter toolbar |
+| HR Events (`events.html`) | `event` | Filter toolbar |
+
+### Settings UI
+Tags are managed in Settings → Tags tab (Tag Management section):
+- **Tag Groups**: Table with Name, Description, Color, Sort, Active, Actions
+- **Tags**: Table with Name, Group dropdown, Color, Icon, Global toggle, Status, Actions
+
+### Database Functions (`database.py`)
+~15 functions in the `# ============== TAGGING SYSTEM ==============` section:
+- `get_tag_groups()`, `save_tag_group()`, `update_tag_group()`, `delete_tag_group()`
+- `get_tags()`, `get_tag()`, `save_tag()`, `update_tag()`, `delete_tag()`
+- `get_entity_tags()`, `get_entities_tags_bulk()`, `add_entity_tag()`, `remove_entity_tag()`
+- `bulk_add_entity_tags()`, `bulk_remove_entity_tags()`
+
+### Auto-Status on Allocation Edit
+When allocations are edited (via any page including profile), the invoice status is automatically set to "Bugetata" with a logged status change event.
+
+## User Filter Presets
+
+### Overview
+Reusable saved filter presets per user per page. Uses `jarvis/static/js/jarvis-presets.js` (`JarvisPresets` class).
+
+### Database Table (`user_filter_presets`)
+- id, user_id (FK), page_key, name, filters (JSONB), is_default, created_at, updated_at
+
+### API Routes
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/api/presets?page_key=X` | List presets for current user/page |
+| POST | `/api/presets` | Create preset |
+| PUT | `/api/presets/<id>` | Update preset |
+| DELETE | `/api/presets/<id>` | Delete preset |
+| POST | `/api/presets/<id>/default` | Toggle default preset |
+
+### Frontend Usage
+```javascript
+const presets = new JarvisPresets({
+    pageKey: 'accounting',
+    containerId: 'presetsContainer',
+    onSave: () => ({ /* collect current filter state */ }),
+    onApply: (data) => { /* apply saved filter state */ },
+    onAfterApply: () => { /* reload data */ }
+});
+```
+- "No Preset" selection refreshes the page to reset all filters
+- Default preset auto-applies on page load
 
 ## Disabled Features
 

@@ -231,7 +231,6 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <span><i class="bi bi-table"></i> Unallocated Invoices</span>
                             <div class="d-flex gap-2 align-items-center">
-                                <div id="tagFilterContainer"></div>
                                 <div id="presetContainer"></div>
                                 <div class="input-group input-group-sm" style="width: 200px;">
                                     <input type="text" class="form-control" id="searchInput" placeholder="Search supplier or invoice #..." onkeypress="if(event.key==='Enter') loadUnallocatedInvoices()">
@@ -277,6 +276,9 @@
                                     <label class="form-label small mb-1">To Date</label>
                                     <input type="date" class="form-control form-control-sm" id="endDate">
                                 </div>
+                                <div class="col-auto d-flex align-items-end">
+                                    <div id="tagFilterContainer"></div>
+                                </div>
                                 <div class="col-md-2 d-flex align-items-end">
                                     <button class="btn btn-sm btn-primary" onclick="loadUnallocatedInvoices()">
                                         <i class="bi bi-search"></i> Apply
@@ -319,7 +321,7 @@
                                 <button class="btn btn-warning btn-sm" onclick="openBulkSetOverridesModal()">
                                     <i class="bi bi-pencil-square"></i> Set Type/Dept
                                 </button>
-                                <button class="btn btn-outline-info btn-sm" onclick="JarvisTags.openBulkTagDropdown('efactura_invoice', Array.from(selectedInvoices))">
+                                <button class="btn btn-outline-info btn-sm" onclick="JarvisTags.openBulkTagDropdown('efactura_invoice', Array.from(selectedInvoices), this)">
                                     <i class="bi bi-tags"></i> Tag
                                 </button>
                                 <button class="btn btn-outline-secondary btn-sm" onclick="bulkHideSelected()">
@@ -2198,7 +2200,7 @@
                 const resp = await fetch(`/api/entity-tags/bulk?entity_type=efactura_invoice&entity_ids=${ids.join(',')}`);
                 if (!resp.ok) return;
                 const data = await resp.json();
-                const tagsMap = data.tags || {};
+                const tagsMap = data || {};
                 invoices.forEach(inv => {
                     inv.tags = tagsMap[inv.id] || [];
                 });

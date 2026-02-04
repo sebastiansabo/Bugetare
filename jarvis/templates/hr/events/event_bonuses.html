@@ -125,7 +125,7 @@
                             <button id="btnDeleteSelected" class="btn btn-outline-danger btn-sm ms-2 d-none">
                                 <i class="bi bi-trash"></i> Delete Selected (<span id="selectedCount">0</span>)
                             </button>
-                            <button id="btnBulkTag" class="btn btn-outline-info btn-sm ms-1 d-none" onclick="JarvisTags.openBulkTagDropdown('event_bonus', getSelectedBonusIds())">
+                            <button id="btnBulkTag" class="btn btn-outline-info btn-sm ms-1 d-none" onclick="JarvisTags.openBulkTagDropdown('event_bonus', getSelectedBonusIds(), this)">
                                 <i class="bi bi-tags"></i> Tag
                             </button>
                         </span>
@@ -967,7 +967,7 @@
                 const resp = await fetch(`/api/entity-tags/bulk?entity_type=event_bonus&entity_ids=${ids.join(',')}`);
                 if (!resp.ok) return;
                 const data = await resp.json();
-                const tagsMap = data.tags || {};
+                const tagsMap = data || {};
                 rows.forEach(row => {
                     const id = row.dataset.id;
                     const tags = tagsMap[id] || [];

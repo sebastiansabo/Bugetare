@@ -1406,15 +1406,17 @@ def api_db_update_allocations(invoice_id):
     try:
         update_invoice_allocations(invoice_id, allocations)
 
-        # Auto-set status to "Bugetata" when allocations are edited
+        # Auto-set status to first invoice_status option when allocations are edited
         current_invoice = get_invoice_with_allocations(invoice_id)
         old_status = current_invoice.get('status') if current_invoice else None
-        if old_status != 'Bugetata':
-            update_invoice(invoice_id, status='Bugetata')
+        status_options = get_dropdown_options('invoice_status', active_only=True)
+        default_status = status_options[0]['value'] if status_options else None
+        if default_status and old_status != default_status:
+            update_invoice(invoice_id, status=default_status)
             log_event('status_changed',
-                      f'Invoice #{current_invoice.get("invoice_number", invoice_id)} status auto-changed to "Bugetata" after allocation edit',
+                      f'Invoice #{current_invoice.get("invoice_number", invoice_id)} status auto-changed to "{default_status}" after allocation edit',
                       entity_type='invoice', entity_id=invoice_id,
-                      details={'old_status': old_status, 'new_status': 'Bugetata'})
+                      details={'old_status': old_status, 'new_status': default_status})
 
         # Send email notifications to responsables only if explicitly requested
         notifications_sent = 0
