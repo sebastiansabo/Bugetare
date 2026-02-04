@@ -2999,3 +2999,40 @@ body.dark-theme .jarvis-dialog {
 body.dark-theme .jarvis-toast {
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
 }
+
+/* ============== Preset Toolbar ============== */
+.jarvis-presets-toolbar {
+    border: 1px solid var(--bs-border-color, #dee2e6);
+    border-radius: 0.375rem;
+    padding: 0.2rem 0.4rem;
+    background: var(--bs-body-bg, #fff);
+    flex-shrink: 0;
+}
+
+.jarvis-preset-select {
+    border: none !important;
+    background: transparent !important;
+    font-size: 0.8rem !important;
+    padding: 0.15rem 1.5rem 0.15rem 0.3rem !important;
+    height: auto !important;
+    cursor: pointer;
+}
+
+.jarvis-preset-select:focus {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+body.dark-theme .jarvis-presets-toolbar {
+    background: var(--bs-card-bg, #16213e);
+    border-color: var(--bs-border-color, #2d4a6e);
+}
+
+body.dark-theme .jarvis-preset-select {
+    color: var(--bs-body-color, #e0e0e0);
+}
+
+body.dark-theme .jarvis-preset-select option {
+    background: var(--bs-card-bg, #16213e);
+    color: var(--bs-body-color, #e0e0e0);
+}

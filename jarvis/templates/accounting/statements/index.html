@@ -197,6 +197,8 @@
                     <div class="d-flex justify-content-between align-items-center">
                         <span><i class="bi bi-table"></i> Transactions <span id="transactionResultCount" class="badge bg-secondary ms-2"></span></span>
                         <div class="d-flex gap-2 align-items-center">
+                            <!-- Presets -->
+                            <div id="presetContainer"></div>
                             <!-- Search -->
                             <div class="input-group input-group-sm" style="width: 220px;">
                                 <input type="text" class="form-control" id="searchInput" placeholder="Search description..." onkeyup="onSearchChange()" oninput="updateSearchIcon()">
@@ -455,6 +457,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
     <script src="{{ url_for('static', filename='js/jarvis-dialogs.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/jarvis-presets.js') }}"></script>
     <script>
         // State
         let transactions = [];
@@ -806,6 +809,74 @@
             initHideIgnoredToggle();
             loadFilterOptions();
             loadTransactions();
+
+            // Initialize preset manager
+            new JarvisPresets({
+                pageKey: 'statements',
+                containerId: 'presetContainer',
+                onSave: () => ({
+                    filters: {
+                        status: document.getElementById('filterStatus')?.value || '',
+                        company: document.getElementById('filterCompany')?.value || '',
+                        supplier: document.getElementById('filterSupplier')?.value || '',
+                        dateFrom: document.getElementById('filterDateFrom')?.value || '',
+                        dateTo: document.getElementById('filterDateTo')?.value || '',
+                        search: document.getElementById('searchInput')?.value || '',
+                        hideIgnored: hideIgnored
+                    },
+                    columns: columnConfig,
+                    sort: { column: sortColumn, direction: sortDirection },
+                    pageSize: pageSize
+                }),
+                onApply: (data) => {
+                    if (data.filters) {
+                        const f = data.filters;
+                        if (document.getElementById('filterStatus')) document.getElementById('filterStatus').value = f.status || '';
+                        if (document.getElementById('filterCompany')) document.getElementById('filterCompany').value = f.company || '';
+                        if (document.getElementById('filterSupplier')) document.getElementById('filterSupplier').value = f.supplier || '';
+                        if (document.getElementById('filterDateFrom')) document.getElementById('filterDateFrom').value = f.dateFrom || '';
+                        if (document.getElementById('filterDateTo')) document.getElementById('filterDateTo').value = f.dateTo || '';
+                        if (document.getElementById('searchInput')) document.getElementById('searchInput').value = f.search || '';
+                        if (typeof f.hideIgnored !== 'undefined') {
+                            hideIgnored = f.hideIgnored;
+                            localStorage.setItem('statementsHideIgnored', hideIgnored);
+                            initHideIgnoredToggle();
+                        }
+                    }
+                    if (data.columns) {
+                        columnConfig = data.columns;
+                        // Ensure all default columns exist
+                        DEFAULT_COLUMNS.forEach(defCol => {
+                            if (!columnConfig.find(c => c.id === defCol.id)) {
+                                columnConfig.push({ ...defCol });
+                            }
+                        });
+                        saveColumnConfig();
+                    }
+                    if (data.sort) {
+                        sortColumn = data.sort.column || 'date';
+                        sortDirection = data.sort.direction || 'desc';
+                        localStorage.setItem('statementsSortColumn', sortColumn);
+                        localStorage.setItem('statementsSortDir', sortDirection);
+                        // Sync sort dropdown
+                        const mapping = columnToSortOrder[sortColumn];
+                        if (mapping && mapping[sortDirection]) {
+                            const dd = document.getElementById('sortOrder');
+                            if (dd) dd.value = mapping[sortDirection];
+                        }
+                    }
+                    if (data.pageSize) {
+                        pageSize = data.pageSize;
+                        localStorage.setItem('statementsPageSize', pageSize);
+                        const ps = document.getElementById('pageSize');
+                        if (ps) ps.value = pageSize;
+                    }
+                },
+                onAfterApply: () => {
+                    currentPage = 1;
+                    loadTransactions();
+                }
+            });
         });
 
         function initHideIgnoredToggle() {
