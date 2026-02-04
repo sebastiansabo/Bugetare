@@ -271,7 +271,7 @@ The platform uses a normalized organizational hierarchy with foreign key referen
 ### Public Schema (Accounting)
 - `companies` - Company registry (id, company, vat, brands) - **Master table**
 - `department_structure` - Organizational hierarchy with company_id FK
-  - id, company_id (FK), company, brand, department, subdepartment, manager, marketing
+  - id, company_id (FK), company, brand, department, subdepartment, manager, marketing, cc_email
 - `invoices` - Invoice header records (includes subtract_vat, vat_rate_id, net_value)
 - `allocations` - Department allocation splits with org_unit_id FK
 - `responsables` - Employee records with org_unit_id FK
@@ -298,7 +298,9 @@ The HR module uses a separate PostgreSQL schema for data isolation:
   - id, name, start_date, end_date, company, brand, company_id (FK), description, created_by
 - `hr.event_bonuses` - Individual bonus records per employee/event
   - id, employee_id (FK), event_id (FK), year, month, participation_start, participation_end
-  - bonus_days, hours_free, bonus_net, details, allocation_month, created_by, created_at, updated_at
+  - bonus_days, hours_free, bonus_net, bonus_type_id (FK), details, allocation_month, created_by, created_at, updated_at
+- `hr.event_bonus_types` - Bonus type definitions (amount per day/period)
+  - id, name, amount, days_per_amount, is_active
 
 **Note**: HR schema auto-creates on app startup via `init_db()` in `jarvis/database.py`
 
@@ -993,6 +995,7 @@ The `department_structure` table maps companies to brands, departments, and mana
 - `brand`, `department`, `subdepartment` - Text values from master tables
 - `manager`, `marketing` - Manager/marketing contact names (display only)
 - `manager_ids`, `marketing_ids` - **Integer arrays for user IDs** (used for notifications)
+- `cc_email` - Optional email address CC'd on all allocation notifications for this department
 
 **Note**: `manager_ids` is the primary field for notification lookups. The `manager` field is kept for display purposes. When selecting a manager in the UI, both fields are populated automatically.
 
@@ -1070,6 +1073,13 @@ Notifications are sent to managers defined in `department_structure` for the com
 | `get_responsables_by_department(department, company)` | database.py | Looks up managers from department_structure |
 | `find_responsables_for_allocation(allocation)` | notification_service.py | Finds all users to notify for an allocation |
 | `notify_allocation(invoice_data, allocation)` | notification_service.py | Sends notification emails |
+| `get_department_cc_email(company, department)` | database.py | Looks up CC email from department_structure |
+
+### Department CC Email
+Each department structure entry can have an optional `cc_email`. When `notify_allocation()` runs:
+1. Looks up `cc_email` via `get_department_cc_email(company, department)`
+2. Passes it as `department_cc` parameter to `send_email()`
+3. `send_email()` combines global CC + department CC (with deduplication)
 
 ### Reinvoice Notifications
 When an allocation has a `reinvoice_to` target, additional notifications are sent:

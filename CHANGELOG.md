@@ -2,6 +2,17 @@
 
 ## 2026-02-04
 
+### HR View Amounts Permission Enforcement
+- **Bonus type dropdowns**: Amount values (RON) hidden in `add_bonus.html` and `add_event.html` when `view_amounts` permission is off
+- **API responses**: `bonus_net` stripped from event-bonuses API, `amount` stripped from bonus-types API for unauthorized users
+- **Server-side computation**: `_compute_bonus_net()` helper computes bonus from `bonus_type_id` + `bonus_days` when client cannot provide the value
+- **JS guards**: `canViewAmounts` flag prevents client-side calculation display; null guards on DOM elements
+
+### Department CC Email in Structure Mapping
+- **CC Email field** added to the Structure Mapping modal in Settings → Company Structure
+- Wired through HR API routes (`/hr/events/api/structure/departments`) and database functions
+- The `cc_email` column already existed in `department_structure` and was used by the notification module; this change exposes it in the UI
+
 ### Password Recovery (Self-Service)
 - **Forgot Password Flow**: Users can reset their password via email from the login page
   - "Forgot password?" link on login page → email input form → reset link sent via SMTP
