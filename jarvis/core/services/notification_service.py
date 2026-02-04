@@ -168,8 +168,7 @@ def create_allocation_email_html(
     invoice_number = invoice_data.get('invoice_number', 'N/A')
     supplier = invoice_data.get('supplier', 'N/A')
     invoice_date = invoice_data.get('invoice_date', 'N/A')
-    # Use net_value if available (VAT subtracted), otherwise fall back to invoice_value
-    net_value = invoice_data.get('net_value') or invoice_data.get('invoice_value', 0)
+    gross_value = invoice_data.get('invoice_value', 0)
     currency = invoice_data.get('currency', 'RON')
 
     company = allocation.get('company', 'N/A')
@@ -263,8 +262,8 @@ def create_allocation_email_html(
                 <td style="padding: 10px; border: 1px solid #ddd;">{invoice_date}</td>
             </tr>
             <tr>
-                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Val. Neta Totala</td>
-                <td style="padding: 10px; border: 1px solid #ddd;">{format_currency(net_value, currency)}</td>
+                <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">Val. Bruta Totala</td>
+                <td style="padding: 10px; border: 1px solid #ddd;">{format_currency(gross_value, currency)}</td>
             </tr>
         </table>
 
@@ -311,8 +310,7 @@ def create_allocation_email_text(
     invoice_number = invoice_data.get('invoice_number', 'N/A')
     supplier = invoice_data.get('supplier', 'N/A')
     invoice_date = invoice_data.get('invoice_date', 'N/A')
-    # Use net_value if available (VAT subtracted), otherwise fall back to invoice_value
-    net_value = invoice_data.get('net_value') or invoice_data.get('invoice_value', 0)
+    gross_value = invoice_data.get('invoice_value', 0)
     currency = invoice_data.get('currency', 'RON')
 
     company = allocation.get('company', 'N/A')
@@ -360,7 +358,7 @@ Detalii factura:
 - Numar factura: {invoice_number}
 - Furnizor: {supplier}
 - Data factura: {invoice_date}
-- Val. Neta Totala: {format_currency(net_value, currency)}
+- Val. Bruta Totala: {format_currency(gross_value, currency)}
 
 Alocare:
 - Companie: {company}{brand_line}
