@@ -9,6 +9,18 @@
 | `staging` | Development & testing | bugetare-staging app | Direct push OK |
 | `main` | Production | bugetare app | **REQUIRES DOUBLE CONFIRMATION** |
 
+### Backup Branches
+| Branch | Date | Source |
+|--------|------|--------|
+| `main-backup-2026-01-13` | 2026-01-13 | main |
+| `staging-backup-2026-01-13` | 2026-01-13 | staging |
+| `production-backup-2026-02-04` | 2026-02-04 | production |
+
+### Database Backups
+Located in `backups/` directory (not committed to git):
+- `backups/staging_20260204_102231/` - Full staging DB export (44 CSV files)
+- `backups/production_20260204_102231/` - Full production DB export (43 CSV files)
+
 ### Workflow:
 1. Work on `staging` branch
 2. Test on staging app (bugetare-staging)
