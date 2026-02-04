@@ -37,6 +37,7 @@ from database import (
     log_user_event, get_user_events, get_event_types,
     update_allocation_comment,
     get_vat_rates, add_vat_rate, update_vat_rate, delete_vat_rate,
+    get_user_presets, get_default_user_preset, save_user_preset, update_user_preset, delete_user_preset,
     get_dropdown_options, get_dropdown_option, add_dropdown_option, update_dropdown_option, delete_dropdown_option,
     refresh_connection_pool, ping_db, cleanup_expired_caches,
     get_all_permissions, get_permissions_flat, get_role_permissions, get_role_permissions_list, set_role_permissions
@@ -2460,6 +2461,74 @@ def api_delete_vat_rate(rate_id):
     if delete_vat_rate(rate_id):
         return jsonify({'success': True})
     return jsonify({'success': False, 'error': 'VAT rate not found'}), 404
+
+
+# ============== USER FILTER PRESETS ==============
+
+@app.route('/api/presets', methods=['GET'])
+@login_required
+def api_get_presets():
+    """Get all filter presets for the current user on a specific page."""
+    page_key = request.args.get('page')
+    if not page_key:
+        return jsonify({'error': 'page parameter is required'}), 400
+    presets = get_user_presets(current_user.id, page_key)
+    return jsonify(presets)
+
+
+@app.route('/api/presets', methods=['POST'])
+@login_required
+def api_create_preset():
+    """Create a new filter preset."""
+    data = request.get_json()
+    page_key = (data.get('page_key') or '').strip()
+    name = (data.get('name') or '').strip()
+    preset_data = data.get('preset_data', {})
+    is_default = data.get('is_default', False)
+
+    if not page_key or not name:
+        return jsonify({'success': False, 'error': 'page_key and name are required'}), 400
+    if len(name) > 100:
+        return jsonify({'success': False, 'error': 'Name must be 100 characters or less'}), 400
+
+    try:
+        preset_id = save_user_preset(current_user.id, page_key, name, preset_data, is_default)
+        return jsonify({'success': True, 'id': preset_id})
+    except Exception as e:
+        if 'idx_user_filter_presets_unique_name' in str(e):
+            return jsonify({'success': False, 'error': f'A preset named "{name}" already exists'}), 409
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/presets/<int:preset_id>', methods=['PUT'])
+@login_required
+def api_update_preset(preset_id):
+    """Update an existing preset (name, data, or default status)."""
+    data = request.get_json()
+    try:
+        updated = update_user_preset(
+            preset_id=preset_id,
+            user_id=current_user.id,
+            name=data.get('name'),
+            preset_data=data.get('preset_data'),
+            is_default=data.get('is_default')
+        )
+        if updated:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Preset not found'}), 404
+    except Exception as e:
+        if 'idx_user_filter_presets_unique_name' in str(e):
+            return jsonify({'success': False, 'error': 'A preset with that name already exists'}), 409
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/presets/<int:preset_id>', methods=['DELETE'])
+@login_required
+def api_delete_preset(preset_id):
+    """Delete a preset."""
+    if delete_user_preset(preset_id, current_user.id):
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Preset not found'}), 404
 
 
 # Dropdown Options API endpoints

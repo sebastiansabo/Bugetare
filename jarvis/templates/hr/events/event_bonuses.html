@@ -127,6 +127,8 @@
                             </button>
                         </span>
                         <div class="d-flex gap-2 align-items-center">
+                            <!-- Presets -->
+                            <div id="presetContainer"></div>
                             <!-- Search -->
                             <div class="input-group input-group-sm" style="width: 220px;">
                                 <input type="text" class="form-control" id="searchInput" placeholder="Search employee, event..." oninput="updateSearchIcon(); filterBonuses();">
@@ -865,6 +867,58 @@
 
             // Apply column config on load
             applyColumnConfig();
+
+            // Initialize preset manager
+            new JarvisPresets({
+                pageKey: 'hr_bonuses',
+                containerId: 'presetContainer',
+                onSave: () => ({
+                    filters: {
+                        year: document.getElementById('filterYear')?.value || '',
+                        month: document.getElementById('filterMonth')?.value || '',
+                        search: document.getElementById('searchInput')?.value || ''
+                    },
+                    columns: columnConfig
+                }),
+                onApply: (data) => {
+                    if (data.filters) {
+                        const f = data.filters;
+                        if (document.getElementById('searchInput')) document.getElementById('searchInput').value = f.search || '';
+                        if (document.getElementById('filterYear')) document.getElementById('filterYear').value = f.year || '';
+                        if (document.getElementById('filterMonth')) document.getElementById('filterMonth').value = f.month || '';
+                    }
+                    if (data.columns) {
+                        columnConfig = data.columns;
+                        DEFAULT_COLUMNS.forEach(defCol => {
+                            if (!columnConfig.find(c => c.id === defCol.id)) {
+                                columnConfig.push({ ...defCol });
+                            }
+                        });
+                        saveColumnConfig();
+                        applyColumnConfig();
+                    }
+                },
+                onAfterApply: (data) => {
+                    // Year/month filters require page redirect
+                    if (data && data.filters) {
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const currentYear = urlParams.get('year') || '';
+                        const currentMonth = urlParams.get('month') || '';
+                        const presetYear = data.filters.year || '';
+                        const presetMonth = data.filters.month || '';
+                        if (presetYear !== currentYear || presetMonth !== currentMonth) {
+                            let url = '{{ url_for("hr.events.event_bonuses") }}';
+                            const params = new URLSearchParams();
+                            if (presetYear) params.set('year', presetYear);
+                            if (presetMonth) params.set('month', presetMonth);
+                            if (params.toString()) url += '?' + params.toString();
+                            window.location.href = url;
+                            return;
+                        }
+                    }
+                    filterBonuses();
+                }
+            });
         });
 
         // Search functions
@@ -1838,5 +1892,6 @@
     <script src="/static/js/online-users.js"></script>
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/jarvis-dialogs.js"></script>
+    <script src="/static/js/jarvis-presets.js"></script>
 </body>
 </html>

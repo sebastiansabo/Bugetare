@@ -206,6 +206,8 @@
                         <div class="d-flex justify-content-between align-items-center">
                             <span><i class="bi bi-table"></i> Invoice Data <span id="invoiceResultCount" class="badge bg-secondary ms-2"></span></span>
                             <div class="d-flex gap-2 align-items-center">
+                                <!-- Presets -->
+                                <div id="presetContainer"></div>
                                 <!-- Search -->
                                 <div class="input-group input-group-sm" style="width: 250px;">
                                     <input type="text" class="form-control" id="searchInput" placeholder="Search supplier or invoice #..." oninput="updateSearchIcon()">
@@ -1298,6 +1300,72 @@
                 initOnlineUsersTracking();
                 await loadData();
                 setupEventListeners();
+                // Initialize filter presets (after filters/columns are loaded)
+                new JarvisPresets({
+                    pageKey: 'accounting',
+                    containerId: 'presetContainer',
+                    onSave: () => ({
+                        filters: {
+                            company: document.getElementById('companyFilter')?.value || '',
+                            department: document.getElementById('departmentFilter')?.value || '',
+                            subdepartment: document.getElementById('subdepartmentFilter')?.value || '',
+                            brand: document.getElementById('brandFilter')?.value || '',
+                            status: document.getElementById('statusFilter')?.value || '',
+                            payment: document.getElementById('paymentFilter')?.value || '',
+                            startDate: document.getElementById('startDate')?.value || '',
+                            endDate: document.getElementById('endDate')?.value || '',
+                            search: document.getElementById('searchInput')?.value || '',
+                            quickFilter: document.getElementById('quickFilter')?.value || '',
+                        },
+                        columns: columnConfig,
+                        sort: document.getElementById('sortOrder')?.value || 'newest',
+                        pageSize: pageSize,
+                        toggles: {
+                            companyCurrency: companyCurrency,
+                            departmentCurrency: departmentCurrency,
+                            brandCurrency: brandCurrency,
+                            supplierCurrency: supplierCurrency,
+                        }
+                    }),
+                    onApply: (data) => {
+                        if (data.filters) {
+                            const f = data.filters;
+                            if (f.company !== undefined) document.getElementById('companyFilter').value = f.company;
+                            if (f.department !== undefined) document.getElementById('departmentFilter').value = f.department;
+                            if (f.subdepartment !== undefined) document.getElementById('subdepartmentFilter').value = f.subdepartment;
+                            if (f.brand !== undefined) document.getElementById('brandFilter').value = f.brand;
+                            if (f.status !== undefined) document.getElementById('statusFilter').value = f.status;
+                            if (f.payment !== undefined) document.getElementById('paymentFilter').value = f.payment;
+                            if (f.startDate !== undefined) document.getElementById('startDate').value = f.startDate;
+                            if (f.endDate !== undefined) document.getElementById('endDate').value = f.endDate;
+                            if (f.search !== undefined) document.getElementById('searchInput').value = f.search;
+                            if (f.quickFilter !== undefined) document.getElementById('quickFilter').value = f.quickFilter;
+                        }
+                        if (data.columns && Array.isArray(data.columns)) {
+                            columnConfig = data.columns;
+                            saveColumnConfig();
+                        }
+                        if (data.sort) {
+                            document.getElementById('sortOrder').value = data.sort;
+                        }
+                        if (data.pageSize) {
+                            pageSize = data.pageSize;
+                            const pageSizeEl = document.getElementById('pageSize');
+                            if (pageSizeEl) pageSizeEl.value = pageSize.toString();
+                        }
+                        if (data.toggles) {
+                            companyCurrency = data.toggles.companyCurrency || 'RON';
+                            departmentCurrency = data.toggles.departmentCurrency || 'RON';
+                            brandCurrency = data.toggles.brandCurrency || 'RON';
+                            supplierCurrency = data.toggles.supplierCurrency || 'RON';
+                            initCurrencyToggles();
+                        }
+                    },
+                    onAfterApply: () => {
+                        currentPage = 1;
+                        applyFiltersOnly();
+                    }
+                });
             } finally {
                 hideLoading();
             }
@@ -4995,6 +5063,7 @@
 
     <script src="/static/js/jarvis-utils.js"></script>
     <script src="/static/js/jarvis-dialogs.js"></script>
+    <script src="/static/js/jarvis-presets.js"></script>
     <script src="/static/js/online-users.js"></script>
     {% include 'partials/_edit_profile_modal.html' %}
     <script src="/static/js/theme.js"></script>

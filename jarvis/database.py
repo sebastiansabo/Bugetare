@@ -1180,6 +1180,22 @@ def init_db():
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)')
 
+    # User filter presets - named filter/column/sort presets per user per page
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS user_filter_presets (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            page_key VARCHAR(50) NOT NULL,
+            name VARCHAR(100) NOT NULL,
+            is_default BOOLEAN DEFAULT FALSE,
+            preset_data JSONB NOT NULL DEFAULT '{}',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_filter_presets_user_page ON user_filter_presets(user_id, page_key)')
+    cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_user_filter_presets_unique_name ON user_filter_presets(user_id, page_key, LOWER(name))")
+
     # VAT rates table - configurable VAT percentages
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS vat_rates (
@@ -7196,6 +7212,133 @@ def get_efactura_oauth_status(company_cif: str) -> dict:
         'is_expired': is_expired,
         'cif': company_cif,
     }
+
+
+# ============== USER FILTER PRESETS ==============
+
+def get_user_presets(user_id, page_key):
+    """Get all filter presets for a user on a specific page."""
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+        cursor.execute('''
+            SELECT id, user_id, page_key, name, is_default, preset_data,
+                   created_at, updated_at
+            FROM user_filter_presets
+            WHERE user_id = %s AND page_key = %s
+            ORDER BY is_default DESC, name ASC
+        ''', (user_id, page_key))
+        return [dict_from_row(row) for row in cursor.fetchall()]
+    finally:
+        release_db(conn)
+
+
+def get_default_user_preset(user_id, page_key):
+    """Get the default preset for a user on a specific page."""
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+        cursor.execute('''
+            SELECT id, user_id, page_key, name, is_default, preset_data,
+                   created_at, updated_at
+            FROM user_filter_presets
+            WHERE user_id = %s AND page_key = %s AND is_default = TRUE
+            LIMIT 1
+        ''', (user_id, page_key))
+        row = cursor.fetchone()
+        return dict_from_row(row) if row else None
+    finally:
+        release_db(conn)
+
+
+def save_user_preset(user_id, page_key, name, preset_data, is_default=False):
+    """Create a new filter preset. Returns preset id."""
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+        # If setting as default, unset any existing default for this user+page
+        if is_default:
+            cursor.execute('''
+                UPDATE user_filter_presets SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = %s AND page_key = %s AND is_default = TRUE
+            ''', (user_id, page_key))
+
+        cursor.execute('''
+            INSERT INTO user_filter_presets (user_id, page_key, name, preset_data, is_default)
+            VALUES (%s, %s, %s, %s::jsonb, %s)
+            RETURNING id
+        ''', (user_id, page_key, name, json.dumps(preset_data), is_default))
+        preset_id = cursor.fetchone()['id']
+        conn.commit()
+        return preset_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def update_user_preset(preset_id, user_id, name=None, preset_data=None, is_default=None):
+    """Update an existing preset. Returns True if found and updated."""
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+        # Verify ownership
+        cursor.execute('SELECT page_key FROM user_filter_presets WHERE id = %s AND user_id = %s', (preset_id, user_id))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        page_key = row['page_key']
+
+        # If setting as default, unset existing defaults
+        if is_default:
+            cursor.execute('''
+                UPDATE user_filter_presets SET is_default = FALSE, updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = %s AND page_key = %s AND is_default = TRUE AND id != %s
+            ''', (user_id, page_key, preset_id))
+
+        # Build dynamic UPDATE
+        updates = ['updated_at = CURRENT_TIMESTAMP']
+        params = []
+        if name is not None:
+            updates.append('name = %s')
+            params.append(name)
+        if preset_data is not None:
+            updates.append('preset_data = %s::jsonb')
+            params.append(json.dumps(preset_data))
+        if is_default is not None:
+            updates.append('is_default = %s')
+            params.append(is_default)
+
+        params.extend([preset_id, user_id])
+        cursor.execute(f'''
+            UPDATE user_filter_presets SET {', '.join(updates)}
+            WHERE id = %s AND user_id = %s
+        ''', params)
+        conn.commit()
+        return True
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
+
+
+def delete_user_preset(preset_id, user_id):
+    """Delete a preset. Returns True if found and deleted."""
+    conn = get_db()
+    try:
+        cursor = get_cursor(conn)
+        cursor.execute('DELETE FROM user_filter_presets WHERE id = %s AND user_id = %s', (preset_id, user_id))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        return deleted
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_db(conn)
 
 
 # Initialize database on import
