@@ -2289,7 +2289,11 @@ def api_update_user(user_id):
             phone=data.get('phone'),
             role_id=data.get('role_id'),
             is_active=data.get('is_active'),
-            notify_on_allocation=data.get('notify_on_allocation')
+            notify_on_allocation=data.get('notify_on_allocation'),
+            company=data.get('company'),
+            brand=data.get('brand'),
+            department=data.get('department'),
+            subdepartment=data.get('subdepartment')
         )
         if updated:
             # Update password if provided
