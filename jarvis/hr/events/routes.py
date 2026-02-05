@@ -1,9 +1,11 @@
 """HR Module Routes."""
+from datetime import date
 from functools import wraps
 from flask import render_template, request, jsonify, redirect, url_for, flash, g
 from flask_login import login_required, current_user
 
 from . import events_bp
+from .utils import can_edit_bonus, get_lock_status
 
 # Import permission checking from main database
 import sys
@@ -231,7 +233,8 @@ def event_bonuses():
                            selected_year=year,
                            selected_month=month,
                            is_hr_manager=is_hr_manager,
-                           hr_permissions=hr_permissions)
+                           hr_permissions=hr_permissions,
+                           user_role=getattr(current_user, 'role_name', 'User'))
 
 
 @events_bp.route('/api/event-bonuses', methods=['GET'])
@@ -342,13 +345,28 @@ def api_get_event_bonus(bonus_id):
 @login_required
 @hr_permission_required('bonuses', 'edit')
 def api_update_event_bonus(bonus_id):
-    """API: Update an event bonus with scope validation."""
+    """API: Update an event bonus with scope validation and lock check."""
     # Validate scope access
     scope = getattr(g, 'permission_scope', 'all')
     user_context = getattr(g, 'user_context', None)
 
     if not can_access_bonus(bonus_id, scope, user_context):
         return jsonify({'success': False, 'error': 'Access denied: bonus outside your scope'}), 403
+
+    # Get existing bonus to check lock status
+    bonus = get_event_bonus(bonus_id)
+    if not bonus:
+        return jsonify({'success': False, 'error': 'Bonus not found'}), 404
+
+    # Check monthly lock (Admin bypasses)
+    user_role = getattr(current_user, 'role_name', 'User')
+    can_edit, reason = can_edit_bonus(bonus['year'], bonus['month'], user_role)
+    if not can_edit:
+        return jsonify({
+            'success': False,
+            'error': f'Cannot edit: {reason}',
+            'locked': True
+        }), 403
 
     data = request.get_json()
 
@@ -374,13 +392,28 @@ def api_update_event_bonus(bonus_id):
 @login_required
 @hr_permission_required('bonuses', 'delete')
 def api_delete_event_bonus(bonus_id):
-    """API: Delete an event bonus with scope validation."""
+    """API: Delete an event bonus with scope validation and lock check."""
     # Validate scope access
     scope = getattr(g, 'permission_scope', 'all')
     user_context = getattr(g, 'user_context', None)
 
     if not can_access_bonus(bonus_id, scope, user_context):
         return jsonify({'success': False, 'error': 'Access denied: bonus outside your scope'}), 403
+
+    # Get existing bonus to check lock status
+    bonus = get_event_bonus(bonus_id)
+    if not bonus:
+        return jsonify({'success': False, 'error': 'Bonus not found'}), 404
+
+    # Check monthly lock (Admin bypasses)
+    user_role = getattr(current_user, 'role_name', 'User')
+    can_edit, reason = can_edit_bonus(bonus['year'], bonus['month'], user_role)
+    if not can_edit:
+        return jsonify({
+            'success': False,
+            'error': f'Cannot delete: {reason}',
+            'locked': True
+        }), 403
 
     delete_event_bonus(bonus_id)
     return jsonify({'success': True})
@@ -390,7 +423,7 @@ def api_delete_event_bonus(bonus_id):
 @login_required
 @hr_permission_required('bonuses', 'delete')
 def api_bulk_delete_event_bonuses():
-    """API: Delete multiple event bonuses with scope validation."""
+    """API: Delete multiple event bonuses with scope validation and lock check."""
     data = request.get_json()
     bonus_ids = data.get('ids', [])
 
@@ -415,6 +448,20 @@ def api_bulk_delete_event_bonuses():
                     'error': f'Access denied: bonus {bonus_id} outside your scope'
                 }), 403
 
+    # Check monthly lock for all bonuses (Admin bypasses)
+    user_role = getattr(current_user, 'role_name', 'User')
+    if user_role != 'Admin':
+        for bonus_id in bonus_ids:
+            bonus = get_event_bonus(bonus_id)
+            if bonus:
+                can_edit, reason = can_edit_bonus(bonus['year'], bonus['month'], user_role)
+                if not can_edit:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Cannot delete bonus #{bonus_id}: {reason}',
+                        'locked': True
+                    }), 403
+
     deleted_count = delete_event_bonuses_bulk(bonus_ids)
     return jsonify({'success': True, 'deleted': deleted_count})
 
@@ -423,7 +470,7 @@ def api_bulk_delete_event_bonuses():
 @login_required
 @hr_permission_required('bonuses', 'delete')
 def api_bulk_delete_event_bonuses_by_employee():
-    """API: Delete all bonuses for given employee IDs."""
+    """API: Delete all bonuses for given employee IDs with lock check."""
     data = request.get_json()
     employee_ids = data.get('employee_ids', [])
 
@@ -435,6 +482,20 @@ def api_bulk_delete_event_bonuses_by_employee():
     except (ValueError, TypeError):
         return jsonify({'success': False, 'error': 'Invalid ID format'}), 400
 
+    # Check monthly lock - get affected bonuses and verify none are locked (Admin bypasses)
+    user_role = getattr(current_user, 'role_name', 'User')
+    if user_role != 'Admin':
+        # Get bonuses that would be affected
+        affected_bonuses = get_bonuses_by_employee(employee_ids)
+        for bonus in affected_bonuses:
+            can_edit, reason = can_edit_bonus(bonus['year'], bonus['month'], user_role)
+            if not can_edit:
+                return jsonify({
+                    'success': False,
+                    'error': f'Cannot delete: some bonuses are locked ({reason})',
+                    'locked': True
+                }), 403
+
     deleted_count = delete_event_bonuses_by_employee(employee_ids)
     return jsonify({'success': True, 'deleted': deleted_count})
 
@@ -443,15 +504,89 @@ def api_bulk_delete_event_bonuses_by_employee():
 @login_required
 @hr_permission_required('bonuses', 'delete')
 def api_bulk_delete_event_bonuses_by_event():
-    """API: Delete all bonuses for given event/year/month combinations."""
+    """API: Delete all bonuses for given event/year/month combinations with lock check."""
     data = request.get_json()
     selections = data.get('selections', [])
 
     if not selections:
         return jsonify({'success': False, 'error': 'No selections provided'}), 400
 
+    # Check monthly lock for each selection (Admin bypasses)
+    user_role = getattr(current_user, 'role_name', 'User')
+    if user_role != 'Admin':
+        for sel in selections:
+            year = sel.get('year')
+            month = sel.get('month')
+            if year and month:
+                can_edit, reason = can_edit_bonus(year, month, user_role)
+                if not can_edit:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Cannot delete bonuses for {month}/{year}: {reason}',
+                        'locked': True
+                    }), 403
+
     deleted_count = delete_event_bonuses_by_event(selections)
     return jsonify({'success': True, 'deleted': deleted_count})
+
+
+@events_bp.route('/api/lock-status', methods=['GET'])
+@login_required
+@hr_required
+def api_get_lock_status():
+    """API: Get lock status for a specific month/year."""
+    today = date.today()
+    year = request.args.get('year', type=int) or today.year
+    month = request.args.get('month', type=int) or today.month
+
+    status = get_lock_status(year, month)
+    status['can_override'] = getattr(current_user, 'role_name', 'User') == 'Admin'
+    return jsonify(status)
+
+
+@events_bp.route('/api/hr-settings', methods=['GET'])
+@login_required
+@hr_required
+def api_get_hr_settings():
+    """API: Get HR module settings."""
+    from database import get_notification_settings
+    from .utils import DEFAULT_LOCK_DAY
+
+    settings = get_notification_settings()
+    lock_day = settings.get('hr_bonus_lock_day')
+
+    return jsonify({
+        'success': True,
+        'settings': {
+            'hr_bonus_lock_day': int(lock_day) if lock_day else DEFAULT_LOCK_DAY
+        }
+    })
+
+
+@events_bp.route('/api/hr-settings', methods=['PUT'])
+@login_required
+@hr_required
+def api_update_hr_settings():
+    """API: Update HR module settings. Admin only."""
+    # Only admin can change settings
+    if getattr(current_user, 'role_name', 'User') != 'Admin':
+        return jsonify({'success': False, 'error': 'Admin access required'}), 403
+
+    from database import save_notification_setting
+
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+    # Update lock day if provided
+    if 'hr_bonus_lock_day' in data:
+        lock_day = data['hr_bonus_lock_day']
+        # Validate: must be between 1 and 28
+        if not isinstance(lock_day, int) or lock_day < 1 or lock_day > 28:
+            return jsonify({'success': False, 'error': 'Lock day must be between 1 and 28'}), 400
+        save_notification_setting('hr_bonus_lock_day', str(lock_day))
+
+    return jsonify({'success': True})
 
 
 # ============== Events Routes ==============

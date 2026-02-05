@@ -1352,6 +1352,33 @@
                                 <h6 class="mb-0"><i class="bi bi-calendar-event"></i> Events Module</h6>
                             </div>
                             <div class="card-body">
+                                <!-- Lock Deadline Setting -->
+                                <div class="mb-4 pb-4 border-bottom">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <div>
+                                            <strong><i class="bi bi-lock-fill"></i> Bonus Lock Deadline</strong>
+                                            <p class="text-muted small mb-0">
+                                                Bonuses become locked on this day of the following month.
+                                                For example, if set to 5, January bonuses lock on February 5th.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div class="row align-items-end mt-3">
+                                        <div class="col-auto">
+                                            <label class="form-label small text-muted mb-1">Day of Month</label>
+                                            <div class="input-group" style="width: 140px;">
+                                                <input type="number" id="hrBonusLockDay" class="form-control" min="1" max="28" value="5">
+                                                <button class="btn btn-outline-primary" type="button" onclick="saveHrLockDay()" title="Save">
+                                                    <i class="bi bi-check-lg"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="col">
+                                            <small class="text-muted">Valid range: 1-28 (to work for all months)</small>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <!-- Bonus Types -->
                                 <div class="d-flex justify-content-between align-items-center mb-3">
                                     <div>
@@ -4988,6 +5015,48 @@
             }
         }
 
+        async function loadHrSettings() {
+            try {
+                const resp = await fetch('/hr/events/api/hr-settings');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.success && data.settings) {
+                        document.getElementById('hrBonusLockDay').value = data.settings.hr_bonus_lock_day || 5;
+                    }
+                }
+            } catch (err) {
+                console.error('Error loading HR settings:', err);
+            }
+        }
+
+        async function saveHrLockDay() {
+            const input = document.getElementById('hrBonusLockDay');
+            const lockDay = parseInt(input.value);
+
+            if (isNaN(lockDay) || lockDay < 1 || lockDay > 28) {
+                await JarvisDialog.alert('Lock day must be between 1 and 28', { type: 'error' });
+                return;
+            }
+
+            try {
+                const resp = await fetch('/hr/events/api/hr-settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hr_bonus_lock_day: lockDay })
+                });
+
+                const data = await resp.json();
+                if (data.success) {
+                    JarvisToast.success('Lock deadline saved');
+                } else {
+                    await JarvisDialog.alert(data.error || 'Failed to save', { type: 'error' });
+                }
+            } catch (err) {
+                console.error('Error saving HR settings:', err);
+                await JarvisDialog.alert('Error saving settings', { type: 'error' });
+            }
+        }
+
         function renderBonusTypesTable() {
             const tbody = document.getElementById('bonusTypesTableBody');
             const noMessage = document.getElementById('noBonusTypesMessage');
@@ -5145,9 +5214,10 @@
             loadHrDepartments();
         });
 
-        // Load bonus types when HR tab is shown
+        // Load bonus types and HR settings when HR tab is shown
         document.getElementById('hr-tab').addEventListener('shown.bs.tab', function() {
             loadBonusTypes();
+            loadHrSettings();
         });
 
         // ============== Company Structure Functions (Core APIs) ==============

@@ -35,6 +35,13 @@
         </div>
     </div>
 
+    <!-- Deadline Warning Banner -->
+    <div id="deadlineBanner" class="alert alert-warning alert-dismissible mx-4 mt-2 mb-0 d-none" role="alert">
+        <i class="bi bi-clock-history me-2"></i>
+        <span id="deadlineBannerText"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+
     <div class="container-fluid px-4 mt-3">
         <!-- Nav + Summary Stats (same line) -->
         <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mb-2">
@@ -709,6 +716,158 @@
         // Legacy alias for backward compatibility
         const isHrManager = hrPermissions.canViewAmounts;
 
+        // ============== Monthly Lock System ==============
+        const userRole = '{{ user_role }}';
+        const isAdmin = userRole === 'Admin';
+        const LOCK_DAY = 5;  // Bonuses lock on the 5th of following month
+
+        /**
+         * Check if a bonus month is locked (past edit deadline).
+         * @param {number} year - Bonus year
+         * @param {number} month - Bonus month (1-12)
+         * @returns {boolean} True if locked
+         */
+        function isMonthLocked(year, month) {
+            const today = new Date();
+            let deadlineYear = year;
+            let deadlineMonth = month;
+
+            // Deadline is 5th of following month
+            if (month === 12) {
+                deadlineYear++;
+                deadlineMonth = 1;
+            } else {
+                deadlineMonth++;
+            }
+
+            // Create deadline date (end of day on the 5th)
+            const deadline = new Date(deadlineYear, deadlineMonth - 1, LOCK_DAY, 23, 59, 59);
+            return today > deadline;
+        }
+
+        /**
+         * Get comprehensive lock status for a month.
+         * @param {number} year - Bonus year
+         * @param {number} month - Bonus month (1-12)
+         * @returns {object} Lock status with canEdit, daysRemaining, message
+         */
+        function getLockStatus(year, month) {
+            // Admin can always edit
+            if (isAdmin) {
+                return { locked: false, canEdit: true, daysRemaining: null, message: 'Admin override' };
+            }
+
+            const today = new Date();
+            let deadlineYear = year;
+            let deadlineMonth = month;
+
+            if (month === 12) {
+                deadlineYear++;
+                deadlineMonth = 1;
+            } else {
+                deadlineMonth++;
+            }
+
+            const deadline = new Date(deadlineYear, deadlineMonth - 1, LOCK_DAY, 23, 59, 59);
+            const daysRemaining = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
+            const locked = today > deadline;
+
+            let message;
+            if (locked) {
+                const deadlineStr = `${String(LOCK_DAY).padStart(2, '0')}.${String(deadlineMonth).padStart(2, '0')}.${deadlineYear}`;
+                message = `Blocat din ${deadlineStr}`;
+            } else if (daysRemaining === 0) {
+                message = 'Ultima zi pentru editare!';
+            } else if (daysRemaining === 1) {
+                message = '1 zi rămasă';
+            } else {
+                message = `${daysRemaining} zile rămase`;
+            }
+
+            return {
+                locked,
+                canEdit: !locked,
+                daysRemaining,
+                deadline: new Date(deadlineYear, deadlineMonth - 1, LOCK_DAY),
+                message
+            };
+        }
+
+        /**
+         * Update the deadline warning banner based on selected filter month.
+         */
+        function updateDeadlineBanner() {
+            const yearSelect = document.getElementById('filterYear');
+            const monthSelect = document.getElementById('filterMonth');
+            const banner = document.getElementById('deadlineBanner');
+            const bannerText = document.getElementById('deadlineBannerText');
+
+            if (!yearSelect || !monthSelect || !banner) return;
+
+            const year = parseInt(yearSelect.value);
+            const month = parseInt(monthSelect.value);
+
+            // Hide banner for admin or if no filter selected
+            if (isAdmin || !year || !month) {
+                banner.classList.add('d-none');
+                return;
+            }
+
+            const status = getLockStatus(year, month);
+            const monthName = MONTHS[month] || month;
+
+            if (status.locked) {
+                banner.classList.remove('d-none', 'alert-warning');
+                banner.classList.add('alert-danger');
+                bannerText.innerHTML = `<strong>${monthName} ${year}</strong> - Bonusurile sunt blocate. ${status.message}`;
+            } else if (status.daysRemaining <= 3) {
+                banner.classList.remove('d-none', 'alert-danger');
+                banner.classList.add('alert-warning');
+                bannerText.innerHTML = `<strong>Atenție:</strong> ${status.message} pentru editarea bonusurilor din ${monthName} ${year}`;
+            } else {
+                banner.classList.add('d-none');
+            }
+        }
+
+        /**
+         * Update row lock status - disable buttons for locked rows.
+         */
+        function updateRowLockStatus() {
+            if (isAdmin) return;  // Admin sees all as editable
+
+            document.querySelectorAll('#bonusesTable .bonus-row').forEach(row => {
+                const year = parseInt(row.dataset.year);
+                const month = parseInt(row.dataset.month);
+
+                if (!year || !month) return;
+
+                const status = getLockStatus(year, month);
+
+                if (!status.canEdit) {
+                    const editBtn = row.querySelector('.btn-edit');
+                    const deleteBtn = row.querySelector('.btn-delete');
+                    const checkbox = row.querySelector('input[type="checkbox"]');
+
+                    if (editBtn) {
+                        editBtn.classList.add('disabled');
+                        editBtn.setAttribute('disabled', 'disabled');
+                        editBtn.title = status.message;
+                    }
+                    if (deleteBtn) {
+                        deleteBtn.classList.add('disabled');
+                        deleteBtn.setAttribute('disabled', 'disabled');
+                        deleteBtn.title = status.message;
+                    }
+                    if (checkbox) {
+                        checkbox.disabled = true;
+                        checkbox.title = status.message;
+                    }
+                    row.classList.add('locked-row');
+                }
+            });
+        }
+        // ============== End Lock System ==============
+
         // Total bonuses count for badge
         const totalBonusesCount = {{ bonuses|length }};
 
@@ -918,6 +1077,10 @@
             // Apply column config on load
             applyColumnConfig();
 
+            // Initialize monthly lock system
+            updateDeadlineBanner();
+            updateRowLockStatus();
+
             // Initialize tags
             const jarvisTags = new JarvisTags({
                 entityType: 'event_bonus',
@@ -1115,6 +1278,21 @@
 
         document.querySelectorAll('.btn-edit').forEach(btn => {
             btn.addEventListener('click', async () => {
+                // Check lock status before opening edit modal
+                const row = btn.closest('.bonus-row');
+                if (row) {
+                    const year = parseInt(row.dataset.year);
+                    const month = parseInt(row.dataset.month);
+                    const status = getLockStatus(year, month);
+                    if (!status.canEdit) {
+                        await JarvisDialog.alert(
+                            `Nu se poate edita: ${status.message}\n\nContactați un administrator.`,
+                            { type: 'warning', title: 'Blocat' }
+                        );
+                        return;
+                    }
+                }
+
                 editingBonusId = btn.dataset.id;
                 document.getElementById('bonusModalTitle').textContent = 'Edit Event Bonus';
 
@@ -1172,13 +1350,33 @@
                 bonusModal.hide();
                 window.location.reload();
             } else {
-                await JarvisDialog.alert('Error saving bonus', { type: 'error' });
+                const result = await resp.json().catch(() => ({}));
+                if (result.locked) {
+                    await JarvisDialog.alert(`Nu se poate salva: ${result.error}`, { type: 'warning', title: 'Blocat' });
+                } else {
+                    await JarvisDialog.alert(result.error || 'Error saving bonus', { type: 'error' });
+                }
             }
         });
 
         // Delete handler
         document.querySelectorAll('.btn-delete').forEach(btn => {
             btn.addEventListener('click', async () => {
+                // Check lock status before deleting
+                const row = btn.closest('.bonus-row');
+                if (row) {
+                    const year = parseInt(row.dataset.year);
+                    const month = parseInt(row.dataset.month);
+                    const status = getLockStatus(year, month);
+                    if (!status.canEdit) {
+                        await JarvisDialog.alert(
+                            `Nu se poate șterge: ${status.message}\n\nContactați un administrator.`,
+                            { type: 'warning', title: 'Blocat' }
+                        );
+                        return;
+                    }
+                }
+
                 const confirmed = await JarvisDialog.confirm('Delete this bonus record?', { danger: true });
                 if (!confirmed) return;
 
@@ -1190,7 +1388,12 @@
                 if (resp.ok) {
                     window.location.reload();
                 } else {
-                    await JarvisDialog.alert('Error deleting bonus', { type: 'error' });
+                    const result = await resp.json().catch(() => ({}));
+                    if (result.locked) {
+                        await JarvisDialog.alert(`Nu se poate șterge: ${result.error}`, { type: 'warning', title: 'Blocat' });
+                    } else {
+                        await JarvisDialog.alert(result.error || 'Error deleting bonus', { type: 'error' });
+                    }
                 }
             });
         });

@@ -2013,6 +2013,23 @@ body.dark-theme .month-badge {
     background: rgba(156, 39, 176, 0.3);
     color: #ce93d8;
 }
+/* Locked Rows - Monthly Lock System */
+.locked-row {
+    opacity: 0.7;
+    background: rgba(108, 117, 125, 0.05) !important;
+}
+.locked-row td:first-child::before {
+    content: '\F623'; /* bi-lock-fill */
+    font-family: 'bootstrap-icons';
+    margin-right: 4px;
+    color: #6c757d;
+}
+body.dark-theme .locked-row {
+    background: rgba(108, 117, 125, 0.15) !important;
+}
+body.dark-theme .locked-row td:first-child::before {
+    color: #adb5bd;
+}
 /* Sortable Table Headers (Unified) */
 .sortable {
     cursor: pointer;
