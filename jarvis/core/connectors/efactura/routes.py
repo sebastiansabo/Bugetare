@@ -608,6 +608,62 @@ def download_anaf_message(message_id: str):
         }), 500
 
 
+@efactura_bp.route('/api/anaf/debug/<message_id>', methods=['GET'])
+@api_login_required
+def debug_anaf_message(message_id: str):
+    """
+    Debug endpoint to analyze ANAF message content.
+
+    Downloads the ZIP, extracts all files, and returns their content for analysis.
+    """
+    import zipfile
+    import io
+
+    try:
+        cif = request.args.get('cif')
+
+        if not cif:
+            return jsonify({
+                'success': False,
+                'error': "Missing required parameter: cif",
+            }), 400
+
+        zip_data = efactura_service.download_anaf_message(cif, message_id)
+
+        files_info = []
+        with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zf:
+            for filename in zf.namelist():
+                file_content = zf.read(filename)
+                try:
+                    content_str = file_content.decode('utf-8')
+                    # Truncate large files for display
+                    if len(content_str) > 5000:
+                        content_str = content_str[:5000] + '\n... [TRUNCATED]'
+                except UnicodeDecodeError:
+                    content_str = f"[Binary file, {len(file_content)} bytes]"
+
+                files_info.append({
+                    'filename': filename,
+                    'size': len(file_content),
+                    'content': content_str,
+                })
+
+        return jsonify({
+            'success': True,
+            'message_id': message_id,
+            'cif': cif,
+            'files_count': len(files_info),
+            'files': files_info,
+        })
+
+    except Exception as e:
+        logger.error(f"Error debugging ANAF message: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
 @efactura_bp.route('/api/anaf/status', methods=['GET'])
 @api_login_required
 def anaf_status():
