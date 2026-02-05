@@ -5439,7 +5439,15 @@
         // Track brands for the current company being edited
         let currentCompanyBrands = []; // [{id: null/number, brand: string, isNew: bool, isDeleted: bool}]
 
-        function openAddHrCompanyModal() {
+        async function openAddHrCompanyModal() {
+            // Ensure master brands are loaded for the dropdown
+            if (!masterBrandsData || masterBrandsData.length === 0) {
+                try {
+                    const resp = await fetch('/hr/events/api/master/brands', { cache: 'no-store' });
+                    if (resp.ok) masterBrandsData = await resp.json();
+                } catch (e) { console.error('Failed to load brands:', e); }
+            }
+
             document.getElementById('hrCompanyModalTitle').textContent = 'Add Company';
             document.getElementById('hrCompanyForm').reset();
             document.getElementById('hrCompanyId').value = '';
@@ -5448,7 +5456,15 @@
             renderCompanyBrands();
         }
 
-        function editHrCompany(companyName) {
+        async function editHrCompany(companyName) {
+            // Ensure master brands are loaded for the dropdown
+            if (!masterBrandsData || masterBrandsData.length === 0) {
+                try {
+                    const resp = await fetch('/hr/events/api/master/brands', { cache: 'no-store' });
+                    if (resp.ok) masterBrandsData = await resp.json();
+                } catch (e) { console.error('Failed to load brands:', e); }
+            }
+
             const company = hrCompaniesData.find(c => c.company === companyName);
             if (!company) return;
 
@@ -5480,18 +5496,35 @@
                 return;
             }
 
+            // Build options from master brands table
+            const brandOptions = masterBrandsData
+                .filter(b => b.is_active !== false)
+                .map(b => `<option value="${escapeHtml(b.name)}">${escapeHtml(b.name)}</option>`)
+                .join('');
+
             container.innerHTML = activeBrands.map((b, idx) => {
                 const realIdx = currentCompanyBrands.indexOf(b);
                 return `
                     <div class="d-flex align-items-center gap-2 mb-1" data-idx="${realIdx}">
-                        <input type="text" class="form-control form-control-sm" value="${b.brand}"
-                               onchange="updateCompanyBrand(${realIdx}, this.value)" placeholder="Brand name">
+                        <select class="form-select form-select-sm" onchange="updateCompanyBrand(${realIdx}, this.value)">
+                            <option value="">-- Select Brand --</option>
+                            ${brandOptions}
+                        </select>
                         <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCompanyBrand(${realIdx})" title="Remove">
                             <i class="bi bi-x"></i>
                         </button>
                     </div>
                 `;
             }).join('');
+
+            // Set selected values
+            activeBrands.forEach((b, idx) => {
+                const realIdx = currentCompanyBrands.indexOf(b);
+                const select = container.querySelector(`[data-idx="${realIdx}"] select`);
+                if (select && b.brand) {
+                    select.value = b.brand;
+                }
+            });
         }
 
         function addCompanyBrandRow() {
