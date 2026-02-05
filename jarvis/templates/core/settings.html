@@ -2494,7 +2494,7 @@
             // Load data if not already loaded
             if (hrCompaniesData.length === 0) {
                 try {
-                    const resp = await fetch('/api/companies-full');
+                    const resp = await fetch('/hr/events/api/structure/companies-full');
                     if (resp.ok) hrCompaniesData = await resp.json();
                 } catch (e) { console.error('Failed to load companies:', e); }
             }
