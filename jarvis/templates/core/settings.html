@@ -1643,6 +1643,37 @@
                             <label class="form-check-label" for="userNotifyOnAllocation">Notify on Allocation</label>
                             <small class="d-block text-muted">Receive email notifications when allocated to invoices</small>
                         </div>
+                        <!-- Organization Assignment -->
+                        <hr class="my-3">
+                        <h6 class="text-muted mb-3"><i class="bi bi-building"></i> Organization Assignment</h6>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Company</label>
+                                <select class="form-select form-select-sm" id="userCompany" onchange="onUserCompanyChange()">
+                                    <option value="">-- None --</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Brand</label>
+                                <select class="form-select form-select-sm" id="userBrand" disabled>
+                                    <option value="">-- Select Company --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Department</label>
+                                <select class="form-select form-select-sm" id="userDepartment" onchange="onUserDepartmentChange()" disabled>
+                                    <option value="">-- Select Company --</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Subdepartment</label>
+                                <select class="form-select form-select-sm" id="userSubdepartment" disabled>
+                                    <option value="">-- Select Department --</option>
+                                </select>
+                            </div>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer">
@@ -2417,6 +2448,8 @@
             // Show password as required for new users
             document.getElementById('passwordRequired').style.display = 'inline';
             document.getElementById('passwordHelp').textContent = 'Required for new users';
+            // Reset org fields
+            resetUserOrgFields();
             userModal.show();
         }
 
@@ -2436,7 +2469,105 @@
             // Password is optional when editing
             document.getElementById('passwordRequired').style.display = 'none';
             document.getElementById('passwordHelp').textContent = 'Leave blank to keep current password';
+
+            // Populate org fields
+            populateUserCompanyDropdown();
+            document.getElementById('userCompany').value = user.company || '';
+            if (user.company) {
+                onUserCompanyChange();
+                document.getElementById('userBrand').value = user.brand || '';
+                document.getElementById('userDepartment').value = user.departments || user.department || '';
+                if (user.departments || user.department) {
+                    onUserDepartmentChange();
+                    document.getElementById('userSubdepartment').value = user.subdepartment || '';
+                }
+            }
+
             userModal.show();
+        }
+
+        // Populate user company dropdown from companies data
+        function populateUserCompanyDropdown() {
+            const select = document.getElementById('userCompany');
+            select.innerHTML = '<option value="">-- None --</option>';
+            // Use hrCompaniesData which is already loaded
+            hrCompaniesData.forEach(c => {
+                select.innerHTML += `<option value="${escapeHtml(c.company)}">${escapeHtml(c.company)}</option>`;
+            });
+        }
+
+        // User company change - populate brand and department dropdowns
+        function onUserCompanyChange() {
+            const company = document.getElementById('userCompany').value;
+            const brandSelect = document.getElementById('userBrand');
+            const deptSelect = document.getElementById('userDepartment');
+            const subdeptSelect = document.getElementById('userSubdepartment');
+
+            // Reset dependent dropdowns
+            brandSelect.innerHTML = '<option value="">-- None --</option>';
+            deptSelect.innerHTML = '<option value="">-- None --</option>';
+            subdeptSelect.innerHTML = '<option value="">-- None --</option>';
+
+            if (!company) {
+                brandSelect.disabled = true;
+                deptSelect.disabled = true;
+                subdeptSelect.disabled = true;
+                return;
+            }
+
+            // Get unique brands for this company from structureData
+            const brands = [...new Set(structureData
+                .filter(s => s.company === company && s.brand)
+                .map(s => s.brand))].sort();
+            brands.forEach(b => {
+                brandSelect.innerHTML += `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`;
+            });
+            brandSelect.disabled = brands.length === 0;
+
+            // Get unique departments for this company from structureData
+            const depts = [...new Set(structureData
+                .filter(s => s.company === company && s.department)
+                .map(s => s.department))].sort();
+            depts.forEach(d => {
+                deptSelect.innerHTML += `<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`;
+            });
+            deptSelect.disabled = depts.length === 0;
+            subdeptSelect.disabled = true;
+        }
+
+        // User department change - populate subdepartment dropdown
+        function onUserDepartmentChange() {
+            const company = document.getElementById('userCompany').value;
+            const dept = document.getElementById('userDepartment').value;
+            const subdeptSelect = document.getElementById('userSubdepartment');
+
+            subdeptSelect.innerHTML = '<option value="">-- None --</option>';
+
+            if (!dept) {
+                subdeptSelect.disabled = true;
+                return;
+            }
+
+            // Get unique subdepartments for this company + department from structureData
+            const subdepts = [...new Set(structureData
+                .filter(s => s.company === company && s.department === dept && s.subdepartment)
+                .map(s => s.subdepartment))].sort();
+            subdepts.forEach(sd => {
+                subdeptSelect.innerHTML += `<option value="${escapeHtml(sd)}">${escapeHtml(sd)}</option>`;
+            });
+            subdeptSelect.disabled = subdepts.length === 0;
+        }
+
+        // Reset user org fields for add modal
+        function resetUserOrgFields() {
+            populateUserCompanyDropdown();
+            document.getElementById('userCompany').value = '';
+            document.getElementById('userBrand').innerHTML = '<option value="">-- Select Company --</option>';
+            document.getElementById('userBrand').disabled = true;
+            document.getElementById('userDepartment').innerHTML = '<option value="">-- Select Company --</option>';
+            document.getElementById('userDepartment').disabled = true;
+            document.getElementById('userSubdepartment').innerHTML = '<option value="">-- Select Department --</option>';
+            document.getElementById('userSubdepartment').disabled = true;
         }
 
         async function saveUser() {
@@ -2449,7 +2580,11 @@
                 phone: document.getElementById('userPhone').value.trim() || null,
                 role_id: roleId ? parseInt(roleId) : null,
                 is_active: document.getElementById('userActive').checked,
-                notify_on_allocation: document.getElementById('userNotifyOnAllocation').checked
+                notify_on_allocation: document.getElementById('userNotifyOnAllocation').checked,
+                company: document.getElementById('userCompany').value || null,
+                brand: document.getElementById('userBrand').value || null,
+                department: document.getElementById('userDepartment').value || null,
+                subdepartment: document.getElementById('userSubdepartment').value || null
             };
 
             if (!userData.name || !userData.email) {

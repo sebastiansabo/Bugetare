@@ -1200,7 +1200,7 @@ Tags are managed in Settings → Tags tab (Tag Management section):
 - `bulk_add_entity_tags()`, `bulk_remove_entity_tags()`
 
 ### Auto-Status on Allocation Edit
-When allocations are edited (via any page including profile), the invoice status is automatically set to "Bugetata" with a logged status change event.
+When allocations are edited (via any page including profile), the invoice status is automatically set to the first active `invoice_status` from Settings → Dropdown Options (by sort order). The status value is dynamically read from the database — no hardcoded values. Status change is logged to the activity log.
 
 ## User Filter Presets
 
