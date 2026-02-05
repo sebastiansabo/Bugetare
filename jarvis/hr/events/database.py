@@ -776,30 +776,79 @@ def get_all_company_brands(company_id=None):
     return [dict_from_row(r) for r in rows]
 
 
-def create_company_brand(company_id, brand):
-    """Create a new company brand."""
+def get_brand_id_by_name(brand_name):
+    """Look up brand ID by name from master brands table."""
     conn = get_db()
     cursor = get_cursor(conn)
+    cursor.execute("SELECT id FROM brands WHERE name = %s AND is_active = TRUE", (brand_name,))
+    row = cursor.fetchone()
+    release_db(conn)
+    return row['id'] if row else None
+
+
+def create_company_brand(company_id, brand):
+    """Create a new company brand.
+
+    Args:
+        company_id: The company ID
+        brand: Either a brand ID (int) or brand name (str)
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    # Handle both brand_id (int) and brand name (str)
+    if isinstance(brand, str):
+        brand_id = get_brand_id_by_name(brand)
+        if not brand_id:
+            release_db(conn)
+            raise ValueError(f"Brand '{brand}' not found in master brands table")
+    else:
+        brand_id = brand
+
     cursor.execute("""
-        INSERT INTO company_brands (company_id, brand)
+        INSERT INTO company_brands (company_id, brand_id)
         VALUES (%s, %s)
         RETURNING id
-    """, (company_id, brand))
-    brand_id = cursor.fetchone()['id']
+    """, (company_id, brand_id))
+    cb_id = cursor.fetchone()['id']
     conn.commit()
     release_db(conn)
-    return brand_id
+    return cb_id
 
 
-def update_company_brand(brand_id, company_id, brand, is_active=True):
-    """Update a company brand."""
+def update_company_brand(cb_id, company_id, brand, is_active=True):
+    """Update a company brand.
+
+    Args:
+        cb_id: The company_brands row ID
+        company_id: The company ID (or None to keep existing)
+        brand: Either a brand ID (int) or brand name (str)
+        is_active: Whether the brand is active
+    """
     conn = get_db()
     cursor = get_cursor(conn)
-    cursor.execute("""
-        UPDATE company_brands
-        SET company_id = %s, brand = %s, is_active = %s
-        WHERE id = %s
-    """, (company_id, brand, is_active, brand_id))
+
+    # Handle both brand_id (int) and brand name (str)
+    if isinstance(brand, str):
+        brand_id = get_brand_id_by_name(brand)
+        if not brand_id:
+            release_db(conn)
+            raise ValueError(f"Brand '{brand}' not found in master brands table")
+    else:
+        brand_id = brand
+
+    if company_id is not None:
+        cursor.execute("""
+            UPDATE company_brands
+            SET company_id = %s, brand_id = %s, is_active = %s
+            WHERE id = %s
+        """, (company_id, brand_id, is_active, cb_id))
+    else:
+        cursor.execute("""
+            UPDATE company_brands
+            SET brand_id = %s, is_active = %s
+            WHERE id = %s
+        """, (brand_id, is_active, cb_id))
     conn.commit()
     release_db(conn)
 
