@@ -19,8 +19,13 @@
 - **Bonuses**: `hr.event_bonuses.user_id` references `users.id` directly
 - **Documentation**: Updated CLAUDE.md to reflect migration
 
+### Users Table Improvements (Settings)
+- **Search**: Added search input to filter users by name, email, phone, company, brand, department, role
+- **Column Configuration**: Added Columns button with dropdown to show/hide columns (persisted to localStorage)
+- **Org Columns**: Added Company, Brand, Department, Subdepartment columns (hidden by default, enable via Columns button)
+
 ### Bug Fixes
-- **Company dropdown empty**: Fixed API URL from `/api/companies-full` to `/hr/events/api/structure/companies-full`
+- **Company dropdown empty**: Fixed to use non-HR-protected endpoints (`/api/companies`, `/api/brands/<company>`, etc.)
 
 ## 2026-02-04 (continued)
 
