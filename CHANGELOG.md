@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-02-05
+
+### User Organization Assignment
+- **Edit User Modal**: Added Organization Assignment section with cascading dropdowns for Company, Brand, Department, Subdepartment
+- **Async Data Loading**: Dropdowns fetch data on demand from `/hr/events/api/structure/companies-full` and `/hr/events/api/structure/departments-full`
+- **Cascade Logic**: Company selection populates Brand and Department options; Department selection populates Subdepartment options
+- **Database**: Uses existing `users` table columns (company, brand, department, subdepartment)
+
+### HR Bonuses Brand Column
+- **New Column**: Added Brand column to Bonuses List table (sortable, configurable via Columns button)
+- **Column Config**: Bumped `COLUMN_CONFIG_VERSION` to 3 to reset saved column configurations
+- **Data Source**: Department, Company, and Brand values come from `users` table (set via Settings → Users → Edit User)
+
+### hr.employees Migration Complete
+- **Deprecated**: `hr.employees` table no longer exists — all employee data is in `users` table
+- **HR Functions**: `get_all_hr_employees()`, `save_hr_employee()`, etc. now query/update `users` table
+- **Bonuses**: `hr.event_bonuses.user_id` references `users.id` directly
+- **Documentation**: Updated CLAUDE.md to reflect migration
+
+### Bug Fixes
+- **Company dropdown empty**: Fixed API URL from `/api/companies-full` to `/hr/events/api/structure/companies-full`
+
 ## 2026-02-04 (continued)
 
 ### Platform-Wide Tagging System
