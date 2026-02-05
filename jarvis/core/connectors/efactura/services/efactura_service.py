@@ -2150,10 +2150,16 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
             zip_data = client.download_message(message_id)
 
             # Step 2: Extract XML from ZIP
+            # Note: ZIPs may contain multiple XMLs:
+            # - semnatura_*.xml = digital signature (skip)
+            # - *.xml = actual invoice (we want this)
             xml_content = None
             with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zf:
                 for filename in zf.namelist():
-                    if filename.endswith('.xml') and not filename.endswith('.p7s'):
+                    # Skip signature files and .p7s files
+                    if filename.startswith('semnatura') or filename.endswith('.p7s'):
+                        continue
+                    if filename.endswith('.xml'):
                         xml_content = zf.read(filename).decode('utf-8')
                         break
 
