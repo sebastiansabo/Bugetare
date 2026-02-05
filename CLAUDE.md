@@ -285,8 +285,8 @@ The platform uses a normalized organizational hierarchy with foreign key referen
            ┌────────────────┼────────────────┐
            ▼                ▼                ▼
     ┌────────────┐   ┌─────────────┐  ┌──────────────┐
-    │allocations │   │responsables │  │hr.employees  │
-    │(260 rows)  │   │(125 rows)   │  │(113 rows)    │
+    │allocations │   │responsables │  │users (HR)    │
+    │(260 rows)  │   │(125 rows)   │  │(org fields)  │
     └────────────┘   └─────────────┘  └──────────────┘
 ```
 
@@ -299,7 +299,7 @@ The platform uses a normalized organizational hierarchy with foreign key referen
 - `responsables` - Employee records with org_unit_id FK
 - `reinvoice_destinations` - Reinvoicing targets with org_unit_id FK
 - `invoice_templates` - AI parsing templates per supplier
-- `users` - Application users with bcrypt passwords and role permissions
+- `users` - Application users with bcrypt passwords, role permissions, and HR org assignment (company, brand, department, subdepartment)
 - `user_events` - Activity log for user actions (login, invoice operations)
 - `password_reset_tokens` - Time-limited tokens for self-service password reset (1-hour expiry, single-use)
 - `vat_rates` - VAT rate definitions (id, name, rate)
@@ -320,19 +320,17 @@ The platform uses a normalized organizational hierarchy with foreign key referen
 - `user_filter_presets` - Saved filter presets per user per page
 
 ### HR Schema (`hr.`)
-The HR module uses a separate PostgreSQL schema for data isolation:
+The HR module uses a separate PostgreSQL schema for events and bonuses. Employee data is stored in the `users` table (public schema).
 
-- `hr.employees` - Employee records with org_unit_id FK to department_structure
-  - id, name, department, brand, company, org_unit_id (FK), user_id (FK to users), is_active
 - `hr.events` - Event definitions with company_id FK to companies
   - id, name, start_date, end_date, company, brand, company_id (FK), description, created_by
-- `hr.event_bonuses` - Individual bonus records per employee/event
-  - id, employee_id (FK), event_id (FK), year, month, participation_start, participation_end
+- `hr.event_bonuses` - Individual bonus records per user/event
+  - id, user_id (FK to users), event_id (FK), year, month, participation_start, participation_end
   - bonus_days, hours_free, bonus_net, bonus_type_id (FK), details, allocation_month, created_by, created_at, updated_at
 - `hr.event_bonus_types` - Bonus type definitions (amount per day/period)
   - id, name, amount, days_per_amount, is_active
 
-**Note**: HR schema auto-creates on app startup via `init_db()` in `jarvis/database.py`
+**Note**: HR schema auto-creates on app startup via `init_db()` in `jarvis/database.py`. The `hr.employees` table has been migrated to `users` table - employee org fields (company, brand, department, subdepartment) are now on users.
 
 ### Foreign Key Relationships
 | Table | Column | References |
@@ -341,8 +339,8 @@ The HR module uses a separate PostgreSQL schema for data isolation:
 | allocations | org_unit_id | department_structure.id |
 | responsables | org_unit_id | department_structure.id |
 | reinvoice_destinations | org_unit_id | department_structure.id |
-| hr.employees | org_unit_id | department_structure.id |
 | hr.events | company_id | companies.id |
+| hr.event_bonuses | user_id | users.id |
 | efactura_invoices | jarvis_invoice_id | invoices.id |
 | tags | group_id | tag_groups.id |
 | tags | created_by | users.id |
@@ -1013,7 +1011,7 @@ The Settings → Company Structure page uses master lookup tables for vocabulary
 | Departments | `departments` table | Full CRUD |
 | Subdepartments | `subdepartments` table | Full CRUD |
 | Structure Mapping | `department_structure` | Full CRUD |
-| Employees | `hr.employees` | Full CRUD |
+| Employees | `users` table | Full CRUD (org fields) |
 
 ### Master Lookup Tables
 These tables define the vocabulary of available options:
@@ -1140,7 +1138,7 @@ Platform-wide tagging system that works across all JARVIS entities. Tags support
 | `invoice` | `invoices` | `id` |
 | `efactura_invoice` | `efactura_invoices` | `id` |
 | `transaction` | `bank_statement_transactions` | `id` |
-| `employee` | `hr.employees` | `id` |
+| `employee` | `users` | `id` |
 | `event` | `hr.events` | `id` |
 | `event_bonus` | `hr.event_bonuses` | `id` |
 
