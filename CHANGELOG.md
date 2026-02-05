@@ -24,6 +24,13 @@
 - **Column Configuration**: Added Columns button with dropdown to show/hide columns (persisted to localStorage)
 - **Org Columns**: Added Company, Brand, Department, Subdepartment columns (hidden by default, enable via Columns button)
 
+### e-Factura Import Bug Fixes
+- **CRITICAL: Signature XML extraction bug**: Fixed bug where ANAF ZIP files containing `semnatura_*.xml` (digital signature) before the actual invoice XML would cause imports to fail. The code now skips signature files and correctly extracts the invoice XML.
+- **PDF export same bug**: Applied same fix to PDF export function which had identical issue.
+- **Error logging**: Import errors are now persisted to `efactura_sync_errors` table. Previously errors were shown in UI response but not saved to database for debugging.
+- **Sync run tracking**: Each import operation now creates a `efactura_sync_runs` record with statistics (messages_checked, invoices_created, invoices_skipped, errors_count).
+- **Debug endpoint**: Added `/efactura/api/anaf/debug/<message_id>` endpoint to analyze ANAF message ZIP contents for troubleshooting.
+
 ### Bug Fixes
 - **Company dropdown empty**: Fixed to use non-HR-protected endpoints (`/api/companies`, `/api/brands/<company>`, etc.)
 - **User org fields not saving**: Added missing company, brand, department, subdepartment parameters to `/api/users/<id>` PUT endpoint

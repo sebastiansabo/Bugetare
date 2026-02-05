@@ -566,6 +566,30 @@ The Unallocated Invoices page (`/accounting/efactura`):
 6. **Send to Module**: Create record in main `invoices` table
 7. **Mark Allocated**: Set `jarvis_invoice_id` to link records
 
+### ANAF Message ZIP Structure
+ANAF downloads are ZIP archives containing multiple files:
+
+| File Pattern | Content | Action |
+|--------------|---------|--------|
+| `semnatura_*.xml` | Digital signature (Ministry of Finance seal) | **Skip** |
+| `*.p7s` | PKCS#7 signature file | **Skip** |
+| `*.xml` (other) | **Actual UBL 2.1 invoice** | **Parse** |
+
+**Important**: The extraction code MUST skip `semnatura_*.xml` files before selecting the invoice XML:
+```python
+for filename in zf.namelist():
+    if filename.startswith('semnatura') or filename.endswith('.p7s'):
+        continue
+    if filename.endswith('.xml'):
+        xml_content = zf.read(filename).decode('utf-8')
+        break
+```
+
+**Locations with ZIP extraction:**
+- `efactura_service.py:import_from_anaf()` - Main import function
+- `efactura_service.py:export_anaf_pdf()` - PDF export function
+- `invoice_service.py:process_message()` - Message processing
+
 ### Duplicate Detection
 Automatic detection of duplicate invoices after ANAF sync:
 
