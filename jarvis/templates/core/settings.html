@@ -384,6 +384,7 @@
                                             <th>Opacity</th>
                                             <th>Order</th>
                                             <th>Min Role</th>
+                                            <th>Notify</th>
                                             <th>Active</th>
                                             <th width="100">Actions</th>
                                         </tr>
@@ -3948,6 +3949,13 @@
                                 <option value="Manager" ${opt.min_role === 'Manager' ? 'selected' : ''}>Manager</option>
                                 <option value="Admin" ${opt.min_role === 'Admin' ? 'selected' : ''}>Admin</option>
                             </select>
+                        </td>
+                        <td>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" ${opt.notify_on_status ? 'checked' : ''}
+                                       onchange="updateDropdownOption(${opt.id}, 'notify_on_status', this.checked)"
+                                       title="Notify managers when invoice status changes to this">
+                            </div>
                         </td>
                         <td>
                             <div class="form-check form-switch">

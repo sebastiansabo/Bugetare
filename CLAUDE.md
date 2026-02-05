@@ -304,8 +304,9 @@ The platform uses a normalized organizational hierarchy with foreign key referen
 - `password_reset_tokens` - Time-limited tokens for self-service password reset (1-hour expiry, single-use)
 - `vat_rates` - VAT rate definitions (id, name, rate)
 - `dropdown_options` - Configurable dropdown options (invoice_status, payment_status)
-  - id, dropdown_type, value, label, color, opacity, sort_order, is_active, min_role
+  - id, dropdown_type, value, label, color, opacity, sort_order, is_active, min_role, notify_on_status
   - `min_role` controls which user roles can set invoices to this status
+  - `notify_on_status` triggers notifications to managers when invoice status changes to this status
 - `connectors` - External service connectors (Google Ads, Anthropic) - DISABLED
 - `vendor_mappings` - Regex patterns to match bank transactions to suppliers
 - `bank_statement_transactions` - Parsed transactions from bank statements

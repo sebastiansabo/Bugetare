@@ -42,7 +42,7 @@ from database import (
     get_tags, get_tag, save_tag, update_tag, delete_tag,
     get_entity_tags, get_entities_tags_bulk, add_entity_tag, remove_entity_tag,
     bulk_add_entity_tags, bulk_remove_entity_tags,
-    get_dropdown_options, get_dropdown_option, add_dropdown_option, update_dropdown_option, delete_dropdown_option,
+    get_dropdown_options, get_dropdown_option, add_dropdown_option, update_dropdown_option, delete_dropdown_option, should_notify_on_status,
     refresh_connection_pool, ping_db, cleanup_expired_caches,
     get_all_permissions, get_permissions_flat, get_role_permissions, get_role_permissions_list, set_role_permissions
 )
@@ -1377,6 +1377,24 @@ def api_db_update_invoice(invoice_id):
                           f'Invoice #{current_invoice.get("invoice_number", invoice_id)} status changed from "{old_status}" to "{new_status}"',
                           entity_type='invoice', entity_id=invoice_id,
                           details={'old_status': old_status, 'new_status': new_status})
+
+                # Check if new status should trigger notifications
+                if should_notify_on_status(new_status, 'invoice_status'):
+                    # Send notifications to managers for each allocation
+                    if NOTIFICATIONS_ENABLED and is_smtp_configured():
+                        allocations = current_invoice.get('allocations', [])
+                        if allocations:
+                            invoice_data = {
+                                'supplier': current_invoice.get('supplier'),
+                                'invoice_number': current_invoice.get('invoice_number'),
+                                'invoice_date': current_invoice.get('invoice_date'),
+                                'invoice_value': current_invoice.get('invoice_value'),
+                                'currency': current_invoice.get('currency'),
+                                'drive_link': current_invoice.get('drive_link'),
+                                'status': new_status,
+                            }
+                            notify_invoice_allocations(invoice_data, allocations)
+
             # Log payment status change if it occurred
             if new_payment_status is not None and old_payment_status != new_payment_status:
                 log_event('payment_status_changed',
@@ -2809,7 +2827,8 @@ def api_add_dropdown_option():
             color=data.get('color'),
             opacity=data.get('opacity', 0.7),
             sort_order=data.get('sort_order', 0),
-            is_active=data.get('is_active', True)
+            is_active=data.get('is_active', True),
+            notify_on_status=data.get('notify_on_status', False)
         )
         return jsonify({'success': True, 'id': option_id})
     except Exception as e:
@@ -2832,7 +2851,8 @@ def api_update_dropdown_option(option_id):
             color=data.get('color'),
             opacity=data.get('opacity'),
             sort_order=data.get('sort_order'),
-            is_active=data.get('is_active')
+            is_active=data.get('is_active'),
+            notify_on_status=data.get('notify_on_status')
         )
         if success:
             return jsonify({'success': True})

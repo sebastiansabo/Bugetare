@@ -31,6 +31,13 @@
 - **Sync run tracking**: Each import operation now creates a `efactura_sync_runs` record with statistics (messages_checked, invoices_created, invoices_skipped, errors_count).
 - **Debug endpoint**: Added `/efactura/api/anaf/debug/<message_id>` endpoint to analyze ANAF message ZIP contents for troubleshooting.
 
+### Status-Based Notifications
+- **New Feature**: Added `notify_on_status` toggle to Invoice Status Options in Settings
+- **Database**: Added `notify_on_status` BOOLEAN column to `dropdown_options` table
+- **API**: Updated `/api/dropdown-options` POST/PUT endpoints to support `notify_on_status` field
+- **Trigger Logic**: When invoice status changes to a status with `notify_on_status=TRUE`, notifications are automatically sent to managers defined in `department_structure` for each allocation's company + department
+- **Use Case**: Enable notifications on "Bugetata" status so managers are notified when invoices are allocated, regardless of how/where the status was set
+
 ### Bug Fixes
 - **Company dropdown empty**: Fixed to use non-HR-protected endpoints (`/api/companies`, `/api/brands/<company>`, etc.)
 - **User org fields not saving**: Added missing company, brand, department, subdepartment parameters to `/api/users/<id>` PUT endpoint

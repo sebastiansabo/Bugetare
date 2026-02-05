@@ -1346,6 +1346,17 @@ def init_db():
         END $$;
     ''')
 
+    # Add notify_on_status column for status-based notifications
+    cursor.execute('''
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                          WHERE table_name = 'dropdown_options' AND column_name = 'notify_on_status') THEN
+                ALTER TABLE dropdown_options ADD COLUMN notify_on_status BOOLEAN DEFAULT FALSE;
+            END IF;
+        END $$;
+    ''')
+
     # Insert default dropdown options if table is empty
     cursor.execute('SELECT COUNT(*) as cnt FROM dropdown_options')
     if cursor.fetchone()['cnt'] == 0:
@@ -5597,16 +5608,17 @@ def get_dropdown_option(option_id: int) -> Optional[dict]:
 
 
 def add_dropdown_option(dropdown_type: str, value: str, label: str,
-                        color: str = None, opacity: float = 0.7, sort_order: int = 0, is_active: bool = True) -> int:
+                        color: str = None, opacity: float = 0.7, sort_order: int = 0,
+                        is_active: bool = True, notify_on_status: bool = False) -> int:
     """Add a new dropdown option. Returns the new option ID."""
     conn = get_db()
     cursor = get_cursor(conn)
 
     cursor.execute('''
-        INSERT INTO dropdown_options (dropdown_type, value, label, color, opacity, sort_order, is_active)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO dropdown_options (dropdown_type, value, label, color, opacity, sort_order, is_active, notify_on_status)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
-    ''', (dropdown_type, value, label, color, opacity, sort_order, is_active))
+    ''', (dropdown_type, value, label, color, opacity, sort_order, is_active, notify_on_status))
 
     option_id = cursor.fetchone()['id']
     conn.commit()
@@ -5615,7 +5627,8 @@ def add_dropdown_option(dropdown_type: str, value: str, label: str,
 
 
 def update_dropdown_option(option_id: int, value: str = None, label: str = None,
-                           color: str = None, opacity: float = None, sort_order: int = None, is_active: bool = None) -> bool:
+                           color: str = None, opacity: float = None, sort_order: int = None,
+                           is_active: bool = None, notify_on_status: bool = None) -> bool:
     """Update a dropdown option. Returns True if updated."""
     conn = get_db()
     cursor = get_cursor(conn)
@@ -5641,6 +5654,9 @@ def update_dropdown_option(option_id: int, value: str = None, label: str = None,
     if is_active is not None:
         updates.append('is_active = %s')
         params.append(is_active)
+    if notify_on_status is not None:
+        updates.append('notify_on_status = %s')
+        params.append(notify_on_status)
 
     if not updates:
         release_db(conn)
@@ -5668,6 +5684,30 @@ def delete_dropdown_option(option_id: int) -> bool:
     conn.commit()
     release_db(conn)
     return deleted
+
+
+def should_notify_on_status(status_value: str, dropdown_type: str = 'invoice_status') -> bool:
+    """Check if a status value should trigger notifications.
+
+    Args:
+        status_value: The status value to check (e.g., 'Bugetata', 'new')
+        dropdown_type: The dropdown type ('invoice_status' or 'payment_status')
+
+    Returns:
+        True if the status has notify_on_status enabled, False otherwise
+    """
+    conn = get_db()
+    cursor = get_cursor(conn)
+
+    cursor.execute('''
+        SELECT notify_on_status FROM dropdown_options
+        WHERE dropdown_type = %s AND value = %s AND is_active = TRUE
+    ''', (dropdown_type, status_value))
+
+    result = cursor.fetchone()
+    release_db(conn)
+
+    return result['notify_on_status'] if result and result['notify_on_status'] else False
 
 
 # ============== Department Structure CRUD ==============
