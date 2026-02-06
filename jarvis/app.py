@@ -44,7 +44,8 @@ from database import (
     bulk_add_entity_tags, bulk_remove_entity_tags,
     get_dropdown_options, get_dropdown_option, add_dropdown_option, update_dropdown_option, delete_dropdown_option, should_notify_on_status,
     refresh_connection_pool, ping_db, cleanup_expired_caches,
-    get_all_permissions, get_permissions_flat, get_role_permissions, get_role_permissions_list, set_role_permissions
+    get_all_permissions, get_permissions_flat, get_role_permissions, get_role_permissions_list, set_role_permissions,
+    check_permission_v2
 )
 
 # Google Drive integration (optional)
@@ -1841,7 +1842,15 @@ def settings():
     if not current_user.can_access_settings:
         flash('You do not have permission to access settings.', 'error')
         return redirect(url_for('index'))
-    return render_template('core/settings.html')
+
+    # Check HR settings edit permission
+    can_edit_hr_settings = False
+    role_id = getattr(current_user, 'role_id', None)
+    if role_id:
+        perm = check_permission_v2(role_id, 'hr', 'settings', 'edit')
+        can_edit_hr_settings = perm.get('has_permission', False)
+
+    return render_template('core/settings.html', can_edit_hr_settings=can_edit_hr_settings)
 
 
 # ============== ROLE MANAGEMENT ENDPOINTS ==============

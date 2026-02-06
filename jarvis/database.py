@@ -973,7 +973,8 @@ def init_db():
             ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'add', 'Add', 'Create new bonuses', FALSE, 8),
             ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'edit', 'Edit', 'Modify bonuses', TRUE, 9),
             ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'delete', 'Delete', 'Delete bonuses', FALSE, 10),
-            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'export', 'Export', 'Export bonus data', FALSE, 11)
+            ('hr', 'HR', 'bi-people-fill', 'bonuses', 'Bonuses', 'export', 'Export', 'Export bonus data', FALSE, 11),
+            ('hr', 'HR', 'bi-people-fill', 'settings', 'Settings', 'edit', 'Edit', 'Edit HR settings (lock deadline)', FALSE, 12)
         ''')
 
         # Set default permissions for existing roles
@@ -1039,6 +1040,23 @@ def init_db():
                     VALUES (%s, %s, %s, %s)
                     ON CONFLICT (role_id, permission_id) DO NOTHING
                 ''', (role_id, perm_id, scope, granted))
+
+    # Migration: Add hr.settings.edit permission if it doesn't exist (for existing databases)
+    cursor.execute('''
+        INSERT INTO permissions_v2 (module_key, module_label, module_icon, entity_key, entity_label, action_key, action_label, description, is_scope_based, sort_order)
+        VALUES ('hr', 'HR', 'bi-people-fill', 'settings', 'Settings', 'edit', 'Edit', 'Edit HR settings (lock deadline)', FALSE, 12)
+        ON CONFLICT (module_key, entity_key, action_key) DO NOTHING
+    ''')
+    # Add role_permissions_v2 entries for the new permission (Admin gets it by default)
+    cursor.execute('''
+        INSERT INTO role_permissions_v2 (role_id, permission_id, scope, granted)
+        SELECT r.id, p.id, 'all', TRUE
+        FROM roles r
+        CROSS JOIN permissions_v2 p
+        WHERE r.name = 'Admin'
+        AND p.module_key = 'hr' AND p.entity_key = 'settings' AND p.action_key = 'edit'
+        ON CONFLICT (role_id, permission_id) DO NOTHING
+    ''')
 
     # Seed default permissions if table is empty
     cursor.execute('SELECT COUNT(*) as cnt FROM permissions')

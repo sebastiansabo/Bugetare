@@ -567,10 +567,15 @@ def api_get_hr_settings():
 @login_required
 @hr_required
 def api_update_hr_settings():
-    """API: Update HR module settings. Admin only."""
-    # Only admin can change settings
-    if getattr(current_user, 'role_name', 'User') != 'Admin':
-        return jsonify({'success': False, 'error': 'Admin access required'}), 403
+    """API: Update HR module settings."""
+    # Check permission to edit HR settings
+    role_id = getattr(current_user, 'role_id', None)
+    if role_id:
+        perm = check_permission_v2(role_id, 'hr', 'settings', 'edit')
+        if not perm['has_permission']:
+            return jsonify({'success': False, 'error': 'Permission denied: hr.settings.edit required'}), 403
+    else:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
     from database import save_notification_setting
 

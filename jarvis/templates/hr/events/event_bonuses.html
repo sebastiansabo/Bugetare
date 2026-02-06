@@ -847,21 +847,37 @@
                     const editBtn = row.querySelector('.btn-edit');
                     const deleteBtn = row.querySelector('.btn-delete');
                     const checkbox = row.querySelector('input[type="checkbox"]');
+                    const actionsCell = row.querySelector('td:last-child');
+
+                    // Build detailed lock info message
+                    const monthName = MONTHS[month] || month;
+                    const lockInfo = `Bonusurile pentru ${monthName} ${year} sunt blocate.\n${status.message}\nDeadline-ul de editare a expirat.`;
 
                     if (editBtn) {
                         editBtn.classList.add('disabled');
                         editBtn.setAttribute('disabled', 'disabled');
-                        editBtn.title = status.message;
+                        editBtn.title = lockInfo;
                     }
                     if (deleteBtn) {
                         deleteBtn.classList.add('disabled');
                         deleteBtn.setAttribute('disabled', 'disabled');
-                        deleteBtn.title = status.message;
+                        deleteBtn.title = lockInfo;
                     }
                     if (checkbox) {
                         checkbox.disabled = true;
-                        checkbox.title = status.message;
+                        checkbox.title = lockInfo;
                     }
+
+                    // Add lock icon indicator if not already present
+                    if (actionsCell && !actionsCell.querySelector('.lock-indicator')) {
+                        const lockIcon = document.createElement('span');
+                        lockIcon.className = 'lock-indicator text-warning ms-1';
+                        lockIcon.innerHTML = '<i class="bi bi-lock-fill"></i>';
+                        lockIcon.title = lockInfo;
+                        lockIcon.style.cursor = 'help';
+                        actionsCell.insertBefore(lockIcon, actionsCell.firstChild);
+                    }
+
                     row.classList.add('locked-row');
                 }
             });
