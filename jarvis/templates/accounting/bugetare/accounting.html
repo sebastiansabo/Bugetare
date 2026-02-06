@@ -2569,19 +2569,19 @@
                         // Helper to check if allocation has reinvoice destinations
                         const hasReinvoice = (s) => (s.reinvoice_destinations && s.reinvoice_destinations.length > 0) || s.reinvoice_to;
 
-                        // Helper to format reinvoice display for an allocation
+                        // Helper to format reinvoice display for an allocation (simplified)
                         const formatReinvoiceDisplay = (s, currency) => {
                             if (s.reinvoice_destinations && s.reinvoice_destinations.length > 0) {
-                                // Show each reinvoice destination with value
+                                // Simplified: (Brand) / Department - Value (comment icon)
                                 return s.reinvoice_destinations.map(dest => {
-                                    let destStr = dest.company;
-                                    if (dest.brand) destStr += ` (${dest.brand})`;
+                                    let destStr = dest.brand ? `(${dest.brand})` : dest.company;
                                     if (dest.department) destStr += ` / ${dest.department}`;
-                                    return `<br><span class="text-reinvoice"><i class="bi bi-arrow-right"></i> ${destStr}<br><strong>${formatCurrency(dest.value)} ${currency}</strong></span>`;
+                                    const commentIcon = dest.comment ? ` <span class="text-info"><i class="bi bi-chat-text-fill"></i></span>` : '';
+                                    return `<div class="text-reinvoice"><i class="bi bi-arrow-right"></i> ${destStr} - <strong>${formatCurrency(dest.value)} ${currency}</strong>${commentIcon}</div>`;
                                 }).join('');
                             } else if (s.reinvoice_to) {
                                 // Legacy single destination
-                                return `<br><span class="text-reinvoice"><i class="bi bi-arrow-right"></i> ${s.reinvoice_to}</span>`;
+                                return `<div class="text-reinvoice"><i class="bi bi-arrow-right"></i> ${s.reinvoice_to}</div>`;
                             }
                             return '';
                         };
@@ -2599,40 +2599,27 @@
                             const reinvoiceLine = formatReinvoiceDisplay(s, displayCurrency);
                             const commentIcon = s.id ? `<a href="#" class="allocation-comment-btn ms-1 ${s.comment ? 'text-info' : 'text-muted'}" data-allocation-id="${s.id}" data-department="${location}" data-brand="${s.brand || ''}" data-value="${displayValue}" data-percent="${s.percent}" data-comment="${(s.comment || '').replace(/"/g, '&quot;')}" title="${s.comment ? 'View/Edit comment' : 'Add comment'}"><i class="bi bi-chat-text${s.comment ? '-fill' : ''}"></i></a>` : '';
 
-                            // When has reinvoice, show full breakdown (allocation total, retained, reinvoice destinations)
+                            // When has reinvoice: show source with retained value, then reinvoice destinations
                             if (hasReinvoice(s) && s.reinvoice_destinations && s.reinvoice_destinations.length > 0) {
                                 const reinvoiceTotal = s.reinvoice_destinations.reduce((rsum, d) => rsum + (d.value || 0), 0);
-                                const allocationTotal = displayValue + reinvoiceTotal;
+                                const retainedValue = displayValue - reinvoiceTotal;
                                 return `<div class="small border-start ${borderColor} ps-2">
-                                    <span class="badge bg-secondary">${s.percent}%</span>${commentIcon}
-                                    <strong>${formatCurrency(allocationTotal)} ${displayCurrency}</strong>
-                                    <div class="text-success small ms-2">└ Retained: ${formatCurrency(displayValue)} ${displayCurrency}</div>
+                                    <div>${location}${brandPart} - <strong>${formatCurrency(retainedValue)} ${displayCurrency}</strong>${commentIcon}</div>
                                     ${reinvoiceLine}
                                 </div>`;
                             }
 
-                            // No reinvoice: show full details
+                            // No reinvoice: show department/brand and value
                             return `<div class="small border-start ${borderColor} ps-2">
-                                <span class="text-muted">${location}${brandPart}</span>${commentIcon}<br>
-                                <strong>${formatCurrency(displayValue)} ${displayCurrency}</strong>
-                                <span class="badge bg-secondary">${s.percent}%</span>
+                                ${location}${brandPart} - <strong>${formatCurrency(displayValue)} ${displayCurrency}</strong>${commentIcon}
                             </div>`;
                         }
 
                         // Multiple allocations - collapsible
                         const collapseId = 'split-' + Math.random().toString(36).substr(2, 9);
 
-                        // Calculate summary using allocation totals (retained + reinvoice) so total matches invoice total
-                        const totalValue = value.reduce((sum, s) => {
-                            const retainedValue = getValueForCurrency(s, displayCurrency);
-                            if (hasReinvoice(s) && s.reinvoice_destinations && s.reinvoice_destinations.length > 0) {
-                                // Allocation total = retained + reinvoice total
-                                const reinvoiceTotal = s.reinvoice_destinations.reduce((rsum, d) => rsum + (d.value || 0), 0);
-                                return sum + retainedValue + reinvoiceTotal;
-                            }
-                            // No reinvoice: just the allocation value
-                            return sum + retainedValue;
-                        }, 0);
+                        // Calculate summary - allocation_value is already the total for each row
+                        const totalValue = value.reduce((sum, s) => sum + getValueForCurrency(s, displayCurrency), 0);
                         const reinvoicedAllocs = value.filter(s => hasReinvoice(s));
                         const allocsWithComments = value.filter(s => s.comment);
 
@@ -2655,23 +2642,19 @@
                             const reinvoiceLine = formatReinvoiceDisplay(s, currency);
                             const commentIcon = s.id ? `<a href="#" class="allocation-comment-btn ms-1 ${s.comment ? 'text-info' : 'text-muted'}" data-allocation-id="${s.id}" data-department="${location}" data-brand="${s.brand || ''}" data-value="${displayValue}" data-percent="${s.percent}" data-comment="${(s.comment || '').replace(/"/g, '&quot;')}" title="${s.comment ? 'View/Edit comment' : 'Add comment'}"><i class="bi bi-chat-text${s.comment ? '-fill' : ''}"></i></a>` : '';
 
-                            // When has reinvoice, show full breakdown (allocation total, retained, reinvoice destinations)
+                            // When has reinvoice: show source with retained value, then reinvoice destinations
                             if (hasReinvoice(s) && s.reinvoice_destinations && s.reinvoice_destinations.length > 0) {
                                 const reinvoiceTotal = s.reinvoice_destinations.reduce((rsum, d) => rsum + (d.value || 0), 0);
-                                const allocationTotal = displayValue + reinvoiceTotal;
+                                const retainedValue = displayValue - reinvoiceTotal;
                                 return `<div class="small border-start ${borderColor} ps-2 mb-1">
-                                    <span class="badge bg-secondary">${s.percent}%</span>${commentIcon}
-                                    <strong>${formatCurrency(allocationTotal)} ${currency}</strong>
-                                    <div class="text-success small ms-2">└ Retained: ${formatCurrency(displayValue)} ${currency}</div>
+                                    <div>${location}${brandPart} - <strong>${formatCurrency(retainedValue)} ${currency}</strong>${commentIcon}</div>
                                     ${reinvoiceLine}
                                 </div>`;
                             }
 
-                            // No reinvoice: show full details
+                            // No reinvoice: show department/brand and value
                             return `<div class="small border-start ${borderColor} ps-2 mb-1">
-                                <span class="text-muted">${location}${brandPart}</span>${commentIcon}<br>
-                                <strong>${formatCurrency(displayValue)} ${currency}</strong>
-                                <span class="badge bg-secondary">${s.percent}%</span>
+                                ${location}${brandPart} - <strong>${formatCurrency(displayValue)} ${currency}</strong>${commentIcon}
                             </div>`;
                         }).join('');
 
@@ -3384,41 +3367,31 @@
                                 const reinvoiceTotal = (a.reinvoice_destinations && a.reinvoice_destinations.length > 0)
                                     ? a.reinvoice_destinations.reduce((sum, rd) => sum + (rd.value || 0), 0)
                                     : 0;
-                                // Allocation total = retained + reinvoice total
-                                const allocationTotal = (a.allocation_value || 0) + reinvoiceTotal;
+                                // allocation_value is the total; retained = total - reinvoice
+                                const retainedValue = (a.allocation_value || 0) - reinvoiceTotal;
                                 const hasReinvoice = reinvoiceTotal > 0;
 
                                 return `
                                 <div class="allocation-row">
-                                    <div class="d-flex justify-content-between">
-                                        <strong>${a.company}</strong>
+                                    ${a.comment ? `<div class="small text-info mb-1"><i class="bi bi-chat-text-fill"></i> ${a.comment}</div>` : ''}
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <strong>${formatCurrency(a.allocation_value)} ${invoice.currency || 'RON'}</strong>
                                         <span class="badge bg-primary">${a.allocation_percent}%</span>
                                     </div>
-                                    <div class="small text-muted">
-                                        ${a.department}${a.subdepartment ? ' > ' + a.subdepartment : ''}
-                                        ${a.brand ? ' (' + a.brand + ')' : ''}
-                                    </div>
                                     ${hasReinvoice ? `
-                                        <div class="fw-bold">${formatCurrency(allocationTotal)} ${invoice.currency || 'RON'}</div>
-                                        <div class="small text-success ms-2">└ Retained: ${formatCurrency(a.allocation_value)} ${invoice.currency || 'RON'}</div>
+                                        <div class="small text-success ms-2">└ ${formatCurrency(retainedValue)} ${invoice.currency || 'RON'} - ${a.department}${a.brand ? ' (' + a.brand + ')' : ''}</div>
                                     ` : `
-                                        <div class="fw-bold text-success">${formatCurrency(a.allocation_value)} ${invoice.currency || 'RON'}</div>
+                                        <div class="small text-muted ms-2">└ ${a.department}${a.subdepartment ? ' > ' + a.subdepartment : ''}${a.brand ? ' (' + a.brand + ')' : ''}</div>
                                     `}
-                                    <div class="small">Responsible: ${a.responsible || '-'}</div>
-                                    ${a.comment ? `<div class="small text-info"><i class="bi bi-chat-text-fill"></i> ${a.comment}</div>` : ''}
                                     ${(a.reinvoice_destinations && a.reinvoice_destinations.length > 0) ?
-                                        a.reinvoice_destinations.map(rd => `<div class="small text-reinvoice ms-2">└ <i class="bi bi-arrow-right"></i> ${rd.company}${rd.brand ? ' (' + rd.brand + ')' : ''}${rd.department ? ' / ' + rd.department : ''} - <strong>${formatCurrency(rd.value)} ${invoice.currency || 'RON'}</strong>${rd.comment ? ` <span class="text-info"><i class="bi bi-chat-text"></i> ${rd.comment}</span>` : ''}</div>`).join('')
-                                        : (a.reinvoice_to ? `<div class="small text-reinvoice"><i class="bi bi-arrow-right"></i> Reinvoice to: ${a.reinvoice_to}${a.reinvoice_brand ? ' (' + a.reinvoice_brand + ')' : ''}${a.reinvoice_department ? ' / ' + a.reinvoice_department : ''}${a.reinvoice_subdepartment ? ' / ' + a.reinvoice_subdepartment : ''}</div>` : '')}
+                                        a.reinvoice_destinations.map(rd => `<div class="small text-reinvoice ms-2">└ ${formatCurrency(rd.value)} ${invoice.currency || 'RON'} - ${rd.company}${rd.brand ? ' (' + rd.brand + ')' : ''}${rd.department ? ' / ' + rd.department : ''}${rd.comment ? ` <span class="text-info"><i class="bi bi-chat-text"></i></span>` : ''}</div>`).join('')
+                                        : (a.reinvoice_to ? `<div class="small text-reinvoice ms-2">└ Reinvoice to: ${a.reinvoice_to}${a.reinvoice_brand ? ' (' + a.reinvoice_brand + ')' : ''}${a.reinvoice_department ? ' / ' + a.reinvoice_department : ''}${a.reinvoice_subdepartment ? ' / ' + a.reinvoice_subdepartment : ''}</div>` : '')}
                                 </div>
                             `}).join('')}
                             <div class="border-top mt-3 pt-2">
                                 <div class="d-flex justify-content-between fw-bold">
                                     <span>Total (${invoice.allocations.length} allocation${invoice.allocations.length !== 1 ? 's' : ''})${invoice.subtract_vat ? ' <small class="text-muted fw-normal">excl. VAT</small>' : ''}</span>
-                                    <span class="text-success">${formatCurrency(invoice.allocations.reduce((sum, a) => {
-                                        const reinvTotal = (a.reinvoice_destinations && a.reinvoice_destinations.length > 0)
-                                            ? a.reinvoice_destinations.reduce((s, rd) => s + (rd.value || 0), 0) : 0;
-                                        return sum + (a.allocation_value || 0) + reinvTotal;
-                                    }, 0))} ${invoice.currency || 'RON'}</span>
+                                    <span class="text-success">${formatCurrency(invoice.allocations.reduce((sum, a) => sum + (a.allocation_value || 0), 0))} ${invoice.currency || 'RON'}</span>
                                 </div>
                             </div>
                         </div>
