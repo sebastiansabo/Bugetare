@@ -3369,7 +3369,16 @@
                         </div>
                         <div class="col-md-6">
                             <h6>Cost Allocations</h6>
-                            ${invoice.allocations.map(a => `
+                            ${invoice.allocations.map(a => {
+                                // Calculate reinvoice total for this allocation
+                                const reinvoiceTotal = (a.reinvoice_destinations && a.reinvoice_destinations.length > 0)
+                                    ? a.reinvoice_destinations.reduce((sum, rd) => sum + (rd.value || 0), 0)
+                                    : 0;
+                                // GROSS = NET + reinvoice total
+                                const grossValue = (a.allocation_value || 0) + reinvoiceTotal;
+                                const hasReinvoice = reinvoiceTotal > 0;
+
+                                return `
                                 <div class="allocation-row">
                                     <div class="d-flex justify-content-between">
                                         <strong>${a.company}</strong>
@@ -3379,17 +3388,26 @@
                                         ${a.department}${a.subdepartment ? ' > ' + a.subdepartment : ''}
                                         ${a.brand ? ' (' + a.brand + ')' : ''}
                                     </div>
-                                    <div class="fw-bold text-success">${formatCurrency(a.allocation_value)} ${invoice.currency || 'RON'}</div>
+                                    ${hasReinvoice ? `
+                                        <div class="fw-bold">${formatCurrency(grossValue)} ${invoice.currency || 'RON'}</div>
+                                        <div class="small text-success ms-2">└ Retained: ${formatCurrency(a.allocation_value)} ${invoice.currency || 'RON'}</div>
+                                    ` : `
+                                        <div class="fw-bold text-success">${formatCurrency(a.allocation_value)} ${invoice.currency || 'RON'}</div>
+                                    `}
                                     <div class="small">Responsible: ${a.responsible || '-'}</div>
                                     ${(a.reinvoice_destinations && a.reinvoice_destinations.length > 0) ?
-                                        a.reinvoice_destinations.map(rd => `<div class="small text-reinvoice"><i class="bi bi-arrow-right"></i> Reinvoice to: ${rd.company}${rd.brand ? ' (' + rd.brand + ')' : ''}${rd.department ? ' / ' + rd.department : ''}${rd.subdepartment ? ' / ' + rd.subdepartment : ''} - <strong>${formatCurrency(rd.value)} ${invoice.currency || 'RON'}</strong></div>`).join('')
+                                        a.reinvoice_destinations.map(rd => `<div class="small text-reinvoice ms-2">└ <i class="bi bi-arrow-right"></i> ${rd.company}${rd.brand ? ' (' + rd.brand + ')' : ''}${rd.department ? ' / ' + rd.department : ''} - <strong>${formatCurrency(rd.value)} ${invoice.currency || 'RON'}</strong></div>`).join('')
                                         : (a.reinvoice_to ? `<div class="small text-reinvoice"><i class="bi bi-arrow-right"></i> Reinvoice to: ${a.reinvoice_to}${a.reinvoice_brand ? ' (' + a.reinvoice_brand + ')' : ''}${a.reinvoice_department ? ' / ' + a.reinvoice_department : ''}${a.reinvoice_subdepartment ? ' / ' + a.reinvoice_subdepartment : ''}</div>` : '')}
                                 </div>
-                            `).join('')}
+                            `}).join('')}
                             <div class="border-top mt-3 pt-2">
                                 <div class="d-flex justify-content-between fw-bold">
                                     <span>Total (${invoice.allocations.length} allocation${invoice.allocations.length !== 1 ? 's' : ''})${invoice.subtract_vat ? ' <small class="text-muted fw-normal">excl. VAT</small>' : ''}</span>
-                                    <span class="text-success">${formatCurrency(invoice.allocations.reduce((sum, a) => sum + (a.allocation_value || 0), 0))} ${invoice.currency || 'RON'}</span>
+                                    <span class="text-success">${formatCurrency(invoice.allocations.reduce((sum, a) => {
+                                        const reinvTotal = (a.reinvoice_destinations && a.reinvoice_destinations.length > 0)
+                                            ? a.reinvoice_destinations.reduce((s, rd) => s + (rd.value || 0), 0) : 0;
+                                        return sum + (a.allocation_value || 0) + reinvTotal;
+                                    }, 0))} ${invoice.currency || 'RON'}</span>
                                 </div>
                             </div>
                         </div>
