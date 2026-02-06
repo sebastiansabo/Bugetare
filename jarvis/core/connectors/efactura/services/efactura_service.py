@@ -1998,7 +1998,26 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                         # Second allocation: secondary department at 50%
                         dept2 = inv.get('department_override_2')
                         subdept2 = inv.get('subdepartment_override_2')
-                        # Note: responsible for dept2 left as NULL - user can set when editing
+
+                        # Look up responsible for second department
+                        responsible2 = None
+                        responsible2_user_id = None
+                        if dept2:
+                            cursor.execute("""
+                                SELECT ds.manager, u.id as user_id
+                                FROM department_structure ds
+                                LEFT JOIN users u ON LOWER(u.name) = LOWER(ds.manager)
+                                WHERE ds.company = %s AND ds.department = %s
+                                ORDER BY
+                                    CASE WHEN ds.subdepartment = %s THEN 0 ELSE 1 END,
+                                    ds.id
+                                LIMIT 1
+                            """, (company_name, dept2, subdept2))
+                            row = cursor.fetchone()
+                            if row and row['manager']:
+                                responsible2 = row['manager']
+                                responsible2_user_id = row['user_id']
+
                         alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s)")
                         alloc_params.extend([
                             jarvis_id,
@@ -2008,8 +2027,8 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                             subdept2,
                             50.0,              # 50% to second dept
                             allocation_value_half,
-                            None,              # responsible - user sets when editing
-                            None,              # responsible_user_id
+                            responsible2,
+                            responsible2_user_id,
                         ])
                     else:
                         # Single department: create ONE allocation at 100%
