@@ -3349,6 +3349,7 @@
                                 <tr><th>Status</th><td>${statusDropdown}</td></tr>
                                 <tr><th>Payment</th><td>${paymentStatusDropdown}</td></tr>
                                 <tr><th>Supplier</th><td>${invoice.supplier}</td></tr>
+                                <tr><th>Company</th><td>${invoice.allocations && invoice.allocations.length > 0 ? invoice.allocations[0].company : '-'}</td></tr>
                                 <tr><th>Invoice #</th><td><code>${invoice.invoice_number}</code></td></tr>
                                 <tr><th>Date</th><td>${formatDateRomanian(invoice.invoice_date)}</td></tr>
                                 <tr><th>Total Value</th><td><strong>${formatCurrency(invoice.invoice_value)} ${invoice.currency || 'RON'}</strong></td></tr>
