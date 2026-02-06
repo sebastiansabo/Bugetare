@@ -1967,30 +1967,64 @@ Only mark as duplicate if you're confident (>0.7) it's the same invoice."""
                 department = inv.get('department')
                 has_second_dept = bool(inv.get('department_override_2'))
 
-                # Only create allocation if:
-                # 1. We have company and department, AND
-                # 2. No second department is set (multi-dept = user allocates manually in Accounting)
-                if company_name and department and not has_second_dept:
+                # Only create allocation if we have company and department
+                if company_name and department:
                     # Use net_value for allocation if available, otherwise gross
                     net_value = inv.get('total_without_vat')
-                    allocation_value = net_value if net_value else inv['total_amount']
+                    total_value = net_value if net_value else inv['total_amount']
                     subdepartment = inv.get('subdepartment')
                     brand = inv.get('brand')  # From supplier mapping
                     responsible = inv.get('responsible')  # From department_structure
                     responsible_user_id = responsible_user_ids.get(responsible.lower()) if responsible else None
 
-                    alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s)")
-                    alloc_params.extend([
-                        jarvis_id,        # invoice_id
-                        company_name,     # company
-                        brand,            # brand (from supplier mapping)
-                        department,       # department
-                        subdepartment,    # subdepartment
-                        100.0,            # allocation_percent (100% to single dept)
-                        allocation_value, # allocation_value (net if available)
-                        responsible,      # responsible (manager from department_structure)
-                        responsible_user_id,  # responsible_user_id (FK for fast queries)
-                    ])
+                    if has_second_dept:
+                        # Multi-department: create TWO allocations at 50% each
+                        allocation_value_half = total_value / 2
+
+                        # First allocation: primary department at 50%
+                        alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                        alloc_params.extend([
+                            jarvis_id,
+                            company_name,
+                            brand,
+                            department,
+                            subdepartment,
+                            50.0,              # 50% to first dept
+                            allocation_value_half,
+                            responsible,
+                            responsible_user_id,
+                        ])
+
+                        # Second allocation: secondary department at 50%
+                        dept2 = inv.get('department_override_2')
+                        subdept2 = inv.get('subdepartment_override_2')
+                        # Note: responsible for dept2 left as NULL - user can set when editing
+                        alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                        alloc_params.extend([
+                            jarvis_id,
+                            company_name,
+                            brand,             # Same brand for both allocations
+                            dept2,
+                            subdept2,
+                            50.0,              # 50% to second dept
+                            allocation_value_half,
+                            None,              # responsible - user sets when editing
+                            None,              # responsible_user_id
+                        ])
+                    else:
+                        # Single department: create ONE allocation at 100%
+                        alloc_values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s)")
+                        alloc_params.extend([
+                            jarvis_id,
+                            company_name,
+                            brand,
+                            department,
+                            subdepartment,
+                            100.0,             # 100% to single dept
+                            total_value,
+                            responsible,
+                            responsible_user_id,
+                        ])
 
             # Bulk insert allocations if any
             allocations_created = []
