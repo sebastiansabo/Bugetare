@@ -2617,8 +2617,17 @@
                         // Multiple allocations - collapsible
                         const collapseId = 'split-' + Math.random().toString(36).substr(2, 9);
 
-                        // Calculate summary using correct currency values
-                        const totalValue = value.reduce((sum, s) => sum + getValueForCurrency(s, displayCurrency), 0);
+                        // Calculate summary - match what's displayed:
+                        // - For allocations WITHOUT reinvoice: use NET allocation value
+                        // - For allocations WITH reinvoice: use sum of reinvoice destination values
+                        const totalValue = value.reduce((sum, s) => {
+                            if (hasReinvoice(s) && s.reinvoice_destinations && s.reinvoice_destinations.length > 0) {
+                                // Sum reinvoice destination values
+                                return sum + s.reinvoice_destinations.reduce((rsum, d) => rsum + (d.value || 0), 0);
+                            }
+                            // No reinvoice: use allocation value
+                            return sum + getValueForCurrency(s, displayCurrency);
+                        }, 0);
                         const reinvoicedAllocs = value.filter(s => hasReinvoice(s));
                         const allocsWithComments = value.filter(s => s.comment);
 
