@@ -1969,6 +1969,18 @@ def init_db():
             ) THEN
                 ALTER TABLE efactura_invoices ADD COLUMN subdepartment_override VARCHAR(255);
             END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'efactura_invoices' AND column_name = 'department_override_2'
+            ) THEN
+                ALTER TABLE efactura_invoices ADD COLUMN department_override_2 VARCHAR(255);
+            END IF;
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'efactura_invoices' AND column_name = 'subdepartment_override_2'
+            ) THEN
+                ALTER TABLE efactura_invoices ADD COLUMN subdepartment_override_2 VARCHAR(255);
+            END IF;
         END $$;
     ''')
 

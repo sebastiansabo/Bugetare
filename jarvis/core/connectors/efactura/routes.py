@@ -1080,18 +1080,24 @@ def update_invoice_overrides(invoice_id):
         type_override: Optional type override value
         department_override: Optional department override value
         subdepartment_override: Optional subdepartment override value
+        department_override_2: Optional second department (for multi-dept allocation)
+        subdepartment_override_2: Optional second subdepartment
     """
     try:
         data = request.get_json()
         type_override = data.get('type_override') or None
         department_override = data.get('department_override') or None
         subdepartment_override = data.get('subdepartment_override') or None
+        department_override_2 = data.get('department_override_2') or None
+        subdepartment_override_2 = data.get('subdepartment_override_2') or None
 
         success = efactura_service.invoice_repo.update_overrides(
             invoice_id=invoice_id,
             type_override=type_override,
             department_override=department_override,
             subdepartment_override=subdepartment_override,
+            department_override_2=department_override_2,
+            subdepartment_override_2=subdepartment_override_2,
         )
 
         if success:
@@ -1118,6 +1124,8 @@ def bulk_update_invoice_overrides():
         type_override: Optional type override value (only updated if key is present)
         department_override: Optional department override value (only updated if key is present)
         subdepartment_override: Optional subdepartment override value (only updated if key is present)
+        department_override_2: Optional second department (only updated if key is present)
+        subdepartment_override_2: Optional second subdepartment (only updated if key is present)
 
     Note: Only fields present in the request body will be updated.
           Passing null clears the override. Omitting a field keeps the existing value.
@@ -1137,6 +1145,10 @@ def bulk_update_invoice_overrides():
             updates['department_override'] = data['department_override'] or None
         if 'subdepartment_override' in data:
             updates['subdepartment_override'] = data['subdepartment_override'] or None
+        if 'department_override_2' in data:
+            updates['department_override_2'] = data['department_override_2'] or None
+        if 'subdepartment_override_2' in data:
+            updates['subdepartment_override_2'] = data['subdepartment_override_2'] or None
 
         if not updates:
             return jsonify({'success': False, 'error': 'No fields to update provided'}), 400

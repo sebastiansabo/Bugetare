@@ -1035,6 +1035,39 @@
                             </div>
                         </div>
                     </div>
+                    <!-- Second Department (for multi-department allocation) -->
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="enableSecondDepartment" onchange="toggleSecondDepartment()">
+                            <label class="form-check-label" for="enableSecondDepartment">
+                                <i class="bi bi-diagram-2"></i> Split between two departments
+                            </label>
+                        </div>
+                        <div class="form-text text-muted">
+                            When enabled, the invoice will be sent to Accounting without auto-allocation. You'll allocate percentages manually.
+                        </div>
+                    </div>
+                    <div class="row" id="secondDepartmentRow" style="display: none;">
+                        <div class="col-12 mb-2">
+                            <small class="text-muted fw-bold">Second Department</small>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Department 2</label>
+                                <select class="form-select" id="invoiceDepartmentOverride2">
+                                    <option value="">-- Select --</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Subdepartment 2</label>
+                                <select class="form-select" id="invoiceSubdepartmentOverride2">
+                                    <option value="">-- Select --</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -3884,8 +3917,74 @@
             const subdeptSelect = document.getElementById('invoiceSubdepartmentOverride');
             subdeptSelect.value = inv.subdepartment_override || '';
 
+            // Second Department setup
+            const deptSelect2 = document.getElementById('invoiceDepartmentOverride2');
+            deptSelect2.innerHTML = `<option value="">-- Select --</option>` +
+                departmentsCache.map(d => `<option value="${d.name}">${d.name}</option>`).join('');
+            deptSelect2.value = inv.department_override_2 || '';
+
+            // Add change handler for second department to filter subdepartments
+            deptSelect2.onchange = () => {
+                updateInvoiceSubdepartmentsForDepartment2(deptSelect2.value);
+            };
+
+            // Load subdepartments for second department
+            updateInvoiceSubdepartmentsForDepartment2(inv.department_override_2 || '');
+
+            // Set subdepartment 2 value after dropdown is populated
+            const subdeptSelect2 = document.getElementById('invoiceSubdepartmentOverride2');
+            subdeptSelect2.value = inv.subdepartment_override_2 || '';
+
+            // Set checkbox and show/hide second department row based on existing data
+            const enableCheckbox = document.getElementById('enableSecondDepartment');
+            const hasSecondDept = !!(inv.department_override_2);
+            enableCheckbox.checked = hasSecondDept;
+            document.getElementById('secondDepartmentRow').style.display = hasSecondDept ? 'flex' : 'none';
+
             const modal = new bootstrap.Modal(document.getElementById('editInvoiceOverridesModal'));
             modal.show();
+        }
+
+        function toggleSecondDepartment() {
+            const checkbox = document.getElementById('enableSecondDepartment');
+            const row = document.getElementById('secondDepartmentRow');
+            row.style.display = checkbox.checked ? 'flex' : 'none';
+
+            // Clear second department values when unchecking
+            if (!checkbox.checked) {
+                document.getElementById('invoiceDepartmentOverride2').value = '';
+                document.getElementById('invoiceSubdepartmentOverride2').value = '';
+            }
+        }
+
+        function updateInvoiceSubdepartmentsForDepartment2(department) {
+            const select = document.getElementById('invoiceSubdepartmentOverride2');
+            if (!select) return;
+
+            if (!department) {
+                select.innerHTML = `<option value="">-- Select --</option>`;
+                select.disabled = true;
+                return;
+            }
+
+            // Filter subdepartments that exist for this department in the structure
+            const subdepts = new Set();
+            departmentStructureCache.forEach(ds => {
+                if (ds.department === department && ds.subdepartment) {
+                    subdepts.add(ds.subdepartment);
+                }
+            });
+
+            const subdeptList = Array.from(subdepts).sort();
+
+            if (subdeptList.length === 0) {
+                select.innerHTML = `<option value="">-- Select --</option>`;
+                select.disabled = true;
+            } else {
+                select.innerHTML = `<option value="">-- Select --</option>` +
+                    subdeptList.map(s => `<option value="${s}">${s}</option>`).join('');
+                select.disabled = false;
+            }
         }
 
         function updateInvoiceSubdepartmentsForDepartment(department, mappingSubdept) {
@@ -3926,6 +4025,11 @@
             const departmentOverride = document.getElementById('invoiceDepartmentOverride').value;
             const subdepartmentOverride = document.getElementById('invoiceSubdepartmentOverride').value;
 
+            // Second department (only if checkbox is checked)
+            const enableSecondDept = document.getElementById('enableSecondDepartment').checked;
+            const departmentOverride2 = enableSecondDept ? document.getElementById('invoiceDepartmentOverride2').value : '';
+            const subdepartmentOverride2 = enableSecondDept ? document.getElementById('invoiceSubdepartmentOverride2').value : '';
+
             try {
                 const res = await fetch(`/efactura/api/invoices/${invoiceId}/overrides`, {
                     method: 'PUT',
@@ -3934,6 +4038,8 @@
                         type_override: typeOverride || null,
                         department_override: departmentOverride || null,
                         subdepartment_override: subdepartmentOverride || null,
+                        department_override_2: departmentOverride2 || null,
+                        subdepartment_override_2: subdepartmentOverride2 || null,
                     })
                 });
                 const data = await res.json();
@@ -3948,6 +4054,8 @@
                         inv.type_override = typeOverride || null;
                         inv.department_override = departmentOverride || null;
                         inv.subdepartment_override = subdepartmentOverride || null;
+                        inv.department_override_2 = departmentOverride2 || null;
+                        inv.subdepartment_override_2 = subdepartmentOverride2 || null;
 
                         // Calculate effective values (override takes precedence)
                         inv.type_name = typeOverride || inv.mapping_type_name || null;

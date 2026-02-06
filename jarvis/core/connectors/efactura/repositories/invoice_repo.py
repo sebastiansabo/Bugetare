@@ -642,12 +642,18 @@ class InvoiceRepository:
         type_override: Optional[str] = None,
         department_override: Optional[str] = None,
         subdepartment_override: Optional[str] = None,
+        department_override_2: Optional[str] = None,
+        subdepartment_override_2: Optional[str] = None,
     ) -> bool:
         """
         Update invoice-level overrides for Type, Department, and Subdepartment.
 
         These overrides take precedence over the mapping defaults.
         Passing None clears the override.
+
+        department_override_2/subdepartment_override_2: Optional second department
+        for multi-department allocation. When set, invoice is sent to Accounting
+        without auto-allocation (user must allocate manually).
         """
         conn = get_db()
         try:
@@ -657,9 +663,12 @@ class InvoiceRepository:
                 SET type_override = %s,
                     department_override = %s,
                     subdepartment_override = %s,
+                    department_override_2 = %s,
+                    subdepartment_override_2 = %s,
                     updated_at = NOW()
                 WHERE id = %s
-            """, (type_override, department_override, subdepartment_override, invoice_id))
+            """, (type_override, department_override, subdepartment_override,
+                  department_override_2, subdepartment_override_2, invoice_id))
             conn.commit()
             logger.info(
                 f"Invoice overrides updated",
@@ -668,6 +677,8 @@ class InvoiceRepository:
                     'type_override': type_override,
                     'department_override': department_override,
                     'subdepartment_override': subdepartment_override,
+                    'department_override_2': department_override_2,
+                    'subdepartment_override_2': subdepartment_override_2,
                 }
             )
             return True
@@ -689,7 +700,8 @@ class InvoiceRepository:
         Args:
             invoice_ids: List of invoice IDs to update
             updates: Dict of field -> value pairs to update. Only fields present in the dict will be updated.
-                     Supported fields: type_override, department_override, subdepartment_override
+                     Supported fields: type_override, department_override, subdepartment_override,
+                     department_override_2, subdepartment_override_2
 
         Returns the number of invoices updated.
         """
@@ -697,7 +709,8 @@ class InvoiceRepository:
             return 0
 
         # Build SET clause dynamically based on provided updates
-        allowed_fields = {'type_override', 'department_override', 'subdepartment_override'}
+        allowed_fields = {'type_override', 'department_override', 'subdepartment_override',
+                          'department_override_2', 'subdepartment_override_2'}
         set_clauses = []
         params = []
 
@@ -932,6 +945,9 @@ class InvoiceRepository:
                 inv_dict['subdepartment_override'] = row.get('subdepartment_override')
                 inv_dict['mapping_subdepartment'] = row.get('mapping_subdepartment')  # Keep mapping value separate for frontend
                 inv_dict['subdepartment'] = row.get('subdepartment_override') or row.get('mapping_subdepartment')
+                # Second department override (for multi-department allocation)
+                inv_dict['department_override_2'] = row.get('department_override_2')
+                inv_dict['subdepartment_override_2'] = row.get('subdepartment_override_2')
                 invoices.append(inv_dict)
 
             return invoices, total, hidden_by_filter
@@ -1620,6 +1636,8 @@ class InvoiceRepository:
                     c.company as company_name,
                     i.department_override,
                     i.subdepartment_override,
+                    i.department_override_2,
+                    i.subdepartment_override_2,
                     sm.department as mapping_department,
                     sm.subdepartment as mapping_subdepartment,
                     sm.brand as mapping_brand,
@@ -1668,6 +1686,8 @@ class InvoiceRepository:
                     'company_name': row['company_name'],
                     'department': effective_department,
                     'subdepartment': effective_subdepartment,
+                    'department_override_2': row['department_override_2'],
+                    'subdepartment_override_2': row['subdepartment_override_2'],
                     'brand': row['mapping_brand'],
                     'responsible': row['responsible'],
                 })
