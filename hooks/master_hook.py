@@ -16,7 +16,7 @@ import json
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -280,7 +280,7 @@ class MasterHook:
         total_time = (time.time() - start_time) * 1000
 
         return ValidationReport(
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
             target_path=str(self.target_path),
             hooks_run=len(results),
             hooks_passed=passed,
