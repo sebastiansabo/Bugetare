@@ -191,6 +191,7 @@ class MasterHook:
     5. Cache (TTL validation)
     6. Database (ACID, pools)
     7. Resources (memory, loops)
+    8. Documentation (markdown structure)
     """
 
     def __init__(self, target_path: str):
@@ -210,6 +211,7 @@ class MasterHook:
             from .cache_hook import CacheHook
             from .database_hook import DatabaseHook
             from .resources_hook import ResourcesHook
+            from .documentation_hook import DocumentationHook
         except ImportError:
             # Fall back to absolute imports (when run as a script)
             hooks_dir = Path(__file__).parent
@@ -221,6 +223,7 @@ class MasterHook:
             from cache_hook import CacheHook
             from database_hook import DatabaseHook
             from resources_hook import ResourcesHook
+            from documentation_hook import DocumentationHook
 
         hook_classes = [
             TestingHook,
@@ -230,6 +233,7 @@ class MasterHook:
             CacheHook,
             DatabaseHook,
             ResourcesHook,
+            DocumentationHook,
         ]
 
         for hook_class in hook_classes:
