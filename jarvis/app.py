@@ -1,4 +1,4 @@
-# Version: 2025-12-18-role-fix
+# Version: 2026-02-08-docker
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -9,6 +9,7 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, f
 from core.utils.logging_config import setup_logging, get_logger
 logger = setup_logging(level=os.environ.get('LOG_LEVEL', 'INFO'))
 app_logger = get_logger('jarvis.app')
+app_logger.info('JARVIS app module loading...')
 from flask_compress import Compress
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from models import load_structure
@@ -33,7 +34,7 @@ check_permission_v2 = _perm_repo.check_permission_v2
 
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production'))
 
 # Flask-Compress for gzip/brotli compression (60-70% size reduction)
 compress = Compress()
@@ -107,6 +108,8 @@ app.register_blueprint(drive_bp)
 
 from core.connectors import connectors_bp
 app.register_blueprint(connectors_bp)
+
+app_logger.info(f'JARVIS startup complete — {len(app.url_map._rules)} routes registered')
 
 
 # ============== After-Request Hook ==============
@@ -378,8 +381,8 @@ def health_check():
     return jsonify({
         'status': status,
         'checks': checks,
-        'service': 'bugetare',
-        'version': '2025-01-16'
+        'service': 'jarvis',
+        'version': '2026-02-08'
     }), http_code
 
 
