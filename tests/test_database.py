@@ -114,27 +114,22 @@ class TestClearCaches:
     """Tests for cache clearing functions."""
 
     def test_clear_invoices_cache(self):
-        from database import clear_invoices_cache
+        from accounting.invoices.repositories.invoice_repository import clear_invoices_cache
         # Just verify function can be called without error
         clear_invoices_cache()
 
     def test_clear_templates_cache(self):
-        from database import clear_templates_cache
+        from accounting.templates.repositories.template_repository import clear_templates_cache
         # Just verify function can be called without error
         clear_templates_cache()
 
     def test_clear_summary_cache(self):
-        from database import clear_summary_cache
+        from accounting.invoices.repositories.summary_repository import clear_summary_cache
         # Just verify function can be called without error
         clear_summary_cache()
 
-    def test_clear_responsables_cache(self):
-        from database import clear_responsables_cache
-        # Just verify function can be called without error
-        clear_responsables_cache()
-
     def test_clear_companies_vat_cache(self):
-        from database import clear_companies_vat_cache
+        from core.organization.repositories.company_repository import clear_companies_vat_cache
         # Just verify function can be called without error
         clear_companies_vat_cache()
 
@@ -156,7 +151,7 @@ class TestCacheValidity:
     """Tests for cache validity checking."""
 
     def test_is_cache_valid_with_recent_timestamp(self):
-        from database import _is_cache_valid
+        from core.cache import _is_cache_valid
         import time
 
         cache_entry = {
@@ -166,7 +161,7 @@ class TestCacheValidity:
         assert _is_cache_valid(cache_entry) is True
 
     def test_is_cache_valid_with_old_timestamp(self):
-        from database import _is_cache_valid
+        from core.cache import _is_cache_valid
         import time
 
         cache_entry = {
@@ -176,7 +171,7 @@ class TestCacheValidity:
         assert _is_cache_valid(cache_entry) is False
 
     def test_is_cache_valid_with_no_data(self):
-        from database import _is_cache_valid
+        from core.cache import _is_cache_valid
         import time
 
         cache_entry = {
@@ -186,7 +181,7 @@ class TestCacheValidity:
         assert _is_cache_valid(cache_entry) is False
 
     def test_is_cache_valid_with_zero_timestamp(self):
-        from database import _is_cache_valid
+        from core.cache import _is_cache_valid
 
         cache_entry = {
             'data': ['test'],
@@ -201,28 +196,28 @@ class TestCacheData:
     """Tests for cache data get/set functions."""
 
     def test_get_cache_data(self):
-        from database import _get_cache_data
+        from core.cache import _get_cache_data
 
         cache_dict = {'data': ['item1', 'item2'], 'timestamp': 123}
         result = _get_cache_data(cache_dict)
         assert result == ['item1', 'item2']
 
     def test_get_cache_data_with_custom_key(self):
-        from database import _get_cache_data
+        from core.cache import _get_cache_data
 
         cache_dict = {'custom': 'value', 'other': 'other'}
         result = _get_cache_data(cache_dict, key='custom')
         assert result == 'value'
 
     def test_get_cache_data_missing_key(self):
-        from database import _get_cache_data
+        from core.cache import _get_cache_data
 
         cache_dict = {'other': 'value'}
         result = _get_cache_data(cache_dict, key='missing')
         assert result is None
 
     def test_set_cache_data(self):
-        from database import _set_cache_data
+        from core.cache import _set_cache_data
         import time
 
         cache_dict = {}
@@ -250,17 +245,17 @@ class TestCacheTTL:
     """Tests for cache TTL values in cache dictionaries."""
 
     def test_templates_cache_has_ttl(self):
-        from database import _templates_cache
+        from accounting.templates.repositories.template_repository import _templates_cache
         assert 'ttl' in _templates_cache
         assert _templates_cache['ttl'] > 0
 
     def test_invoices_cache_has_ttl(self):
-        from database import _invoices_cache
+        from accounting.invoices.repositories.invoice_repository import _invoices_cache
         assert 'ttl' in _invoices_cache
         assert _invoices_cache['ttl'] > 0
 
     def test_max_summary_cache_entries_exists(self):
-        from database import MAX_SUMMARY_CACHE_ENTRIES
+        from core.cache import MAX_SUMMARY_CACHE_ENTRIES
         assert MAX_SUMMARY_CACHE_ENTRIES > 0
 
 

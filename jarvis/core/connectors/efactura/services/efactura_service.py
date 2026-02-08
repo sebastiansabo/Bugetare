@@ -15,7 +15,10 @@ from datetime import date
 
 from core.utils.logging_config import get_logger
 from core.database import get_db, get_cursor, release_db
-from services import match_company_by_vat, get_companies_with_vat
+from core.organization.repositories import CompanyRepository as _CompanyRepo
+_company_repo = _CompanyRepo()
+match_company_by_vat = _company_repo.match_by_vat
+get_companies_with_vat = _company_repo.get_all_with_vat_and_brands
 from core.services.notification_service import notify_invoice_allocations, is_smtp_configured
 
 from ..config import InvoiceDirection, ArtifactType
@@ -81,8 +84,8 @@ class EFacturaService:
 
         # Try OAuth tokens first (preferred method)
         try:
-            from database import get_efactura_oauth_tokens
-            tokens = get_efactura_oauth_tokens(company_cif)
+            from core.connectors.efactura.repositories.oauth_repository import OAuthRepository
+            tokens = OAuthRepository().get_tokens(company_cif)
 
             if tokens and tokens.get('access_token'):
                 from ..client.oauth_client import ANAFOAuthClient

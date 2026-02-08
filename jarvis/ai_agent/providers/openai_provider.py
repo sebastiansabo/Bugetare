@@ -5,7 +5,7 @@ OpenAI GPT LLM provider implementation.
 """
 
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Generator, Tuple
 
 import openai
 
@@ -152,3 +152,73 @@ class OpenAIProvider(BaseProvider):
             })
 
         return formatted
+
+    def generate_stream(
+        self,
+        model_name: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> Generator[Tuple[Optional[str], Optional[LLMResponse]], None, None]:
+        """Stream a response from OpenAI, yielding text chunks."""
+        key = api_key or os.environ.get('OPENAI_API_KEY')
+        if not key:
+            raise LLMAuthenticationError("OPENAI_API_KEY not found")
+
+        formatted_messages = self.format_messages(messages)
+        if 'system' in kwargs:
+            formatted_messages.insert(0, {
+                'role': 'system',
+                'content': kwargs.pop('system'),
+            })
+
+        temperature = max(0.0, min(2.0, temperature))
+
+        try:
+            client = openai.OpenAI(api_key=key)
+
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=formatted_messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+                stream_options={"include_usage": True},
+            )
+
+            full_content = ""
+            input_tokens = 0
+            output_tokens = 0
+            finish_reason = None
+
+            for chunk in response:
+                if chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        full_content += delta.content
+                        yield (delta.content, None)
+                    if chunk.choices[0].finish_reason:
+                        finish_reason = chunk.choices[0].finish_reason
+
+                if chunk.usage:
+                    input_tokens = chunk.usage.prompt_tokens or 0
+                    output_tokens = chunk.usage.completion_tokens or 0
+
+            yield (None, LLMResponse(
+                content=full_content,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model=model_name,
+                finish_reason=finish_reason,
+            ))
+
+        except openai.RateLimitError as e:
+            raise LLMRateLimitError(f"Rate limit exceeded: {e}")
+        except openai.AuthenticationError as e:
+            raise LLMAuthenticationError(f"Authentication failed: {e}")
+        except openai.APIError as e:
+            raise LLMProviderError(f"OpenAI API error: {e}")
+        except Exception as e:
+            raise LLMProviderError(f"Failed to stream OpenAI API: {e}")

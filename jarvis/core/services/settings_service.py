@@ -9,71 +9,72 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
 
 from core.utils.logging_config import get_logger
-from database import (
-    # Users
-    get_all_users,
-    get_user,
-    get_user_by_email,
-    save_user,
-    update_user,
-    delete_user,
-    authenticate_user,
-    set_user_password,
-    update_user_last_login,
-    update_user_last_seen,
-    get_online_users_count,
-    set_default_password_for_users,
-    # Roles & Permissions
-    get_all_roles,
-    get_role,
-    save_role,
-    update_role,
-    delete_role,
-    get_all_permissions,
-    get_permissions_flat,
-    get_role_permissions,
-    get_role_permissions_list,
-    set_role_permissions,
-    # Companies & Structure
-    get_all_companies,
-    get_company,
-    save_company,
-    update_company,
-    delete_company as delete_company_db,
-    get_all_department_structures,
-    get_department_structure,
-    save_department_structure,
-    update_department_structure,
-    delete_department_structure,
-    get_unique_departments,
-    get_unique_brands,
-    # Responsables
-    get_all_responsables,
-    get_responsable,
-    save_responsable,
-    update_responsable,
-    delete_responsable,
-    # VAT Rates
-    get_vat_rates,
-    add_vat_rate,
-    update_vat_rate,
-    delete_vat_rate,
-    # Notifications
-    get_notification_settings,
-    save_notification_settings_bulk,
-    save_notification_setting,
-    get_notification_logs,
-    # Dropdown Options
-    get_dropdown_options,
-    get_dropdown_option,
-    add_dropdown_option,
-    update_dropdown_option,
-    delete_dropdown_option,
-    # User Events
-    log_user_event,
-    get_user_events,
-    get_event_types,
-)
+from core.auth.repositories import UserRepository, EventRepository
+from core.roles.repositories import RoleRepository, PermissionRepository
+from core.organization.repositories import CompanyRepository, StructureRepository
+from core.notifications.repositories import NotificationRepository
+from core.settings.dropdowns.repositories import DropdownRepository
+
+_user = UserRepository()
+_event = EventRepository()
+_role = RoleRepository()
+_perm = PermissionRepository()
+_company = CompanyRepository()
+_struct = StructureRepository()
+_notif = NotificationRepository()
+_dd = DropdownRepository()
+
+# Function aliases (preserve call sites)
+get_all_users = _user.get_all
+get_user = _user.get_by_id
+get_user_by_email = _user.get_by_email
+save_user = _user.save
+update_user = _user.update
+delete_user = _user.delete
+set_user_password = _user.update_password
+update_user_last_login = _user.update_last_login
+update_user_last_seen = _user.update_last_seen
+set_default_password_for_users = _user.set_default_passwords
+get_all_roles = _role.get_all
+get_role = _role.get
+save_role = _role.save
+update_role = _role.update
+delete_role = _role.delete
+get_all_permissions = _perm.get_all
+get_permissions_flat = _perm.get_flat
+get_role_permissions = _perm.get_role_permissions
+get_role_permissions_list = _perm.get_role_permissions_list
+set_role_permissions = _perm.set_role_permissions
+get_all_companies = _company.get_all
+get_company = _company.get
+save_company = _company.save
+update_company = _company.update
+delete_company_db = _company.delete
+get_all_department_structures = _struct.get_all
+get_department_structure = _struct.get
+save_department_structure = _struct.save
+update_department_structure = _struct.update
+delete_department_structure = _struct.delete
+get_unique_departments = _struct.get_unique_departments
+get_unique_brands = _struct.get_unique_brands
+get_all_responsables = _user.get_all
+get_responsable = _user.get_by_id
+get_vat_rates = _dd.get_vat_rates
+add_vat_rate = _dd.add_vat_rate
+update_vat_rate = _dd.update_vat_rate
+delete_vat_rate = _dd.delete_vat_rate
+get_notification_settings = _notif.get_settings
+save_notification_settings_bulk = _notif.save_settings_bulk
+save_notification_setting = _notif.save_setting
+get_notification_logs = _notif.get_logs
+get_dropdown_options = _dd.get_options
+get_dropdown_option = _dd.get_option
+add_dropdown_option = _dd.add_option
+update_dropdown_option = _dd.update_option
+delete_dropdown_option = _dd.delete_option
+log_user_event = _event.log_event
+get_user_events = _event.get_events
+get_event_types = _event.get_event_types
 
 logger = get_logger('jarvis.core.services.settings')
 
@@ -183,7 +184,7 @@ class SettingsService:
     def authenticate_user(self, email: str, password: str) -> ServiceResult:
         """Authenticate a user by email and password."""
         try:
-            user = authenticate_user(email, password)
+            user = _user.authenticate(email, password)
             if user:
                 update_user_last_login(user['id'])
                 return ServiceResult(success=True, data=user)
@@ -215,7 +216,7 @@ class SettingsService:
     def get_online_users_count(self) -> ServiceResult:
         """Get count of online users."""
         try:
-            count = get_online_users_count()
+            count = _user.get_online_count()
             return ServiceResult(success=True, data={'count': count})
         except Exception as e:
             return ServiceResult(success=False, error=str(e))
@@ -514,7 +515,9 @@ class SettingsService:
     def create_responsable(self, data: Dict) -> ServiceResult:
         """Create a new responsable."""
         try:
-            responsable_id = save_responsable(data)
+            if 'departments' in data:
+                data['department'] = data.pop('departments')
+            responsable_id = _user.save(**data)
             if responsable_id:
                 return ServiceResult(success=True, data={'responsable_id': responsable_id})
             return ServiceResult(success=False, error="Failed to create responsable")
@@ -525,7 +528,9 @@ class SettingsService:
     def update_responsable(self, responsable_id: int, data: Dict) -> ServiceResult:
         """Update a responsable."""
         try:
-            success = update_responsable(responsable_id, data)
+            if 'departments' in data:
+                data['department'] = data.pop('departments')
+            success = _user.update(user_id=responsable_id, **data)
             if success:
                 return ServiceResult(success=True)
             return ServiceResult(success=False, error="Failed to update responsable")
@@ -536,7 +541,7 @@ class SettingsService:
     def delete_responsable(self, responsable_id: int) -> ServiceResult:
         """Delete a responsable."""
         try:
-            success = delete_responsable(responsable_id)
+            success = _user.delete(responsable_id)
             if success:
                 return ServiceResult(success=True)
             return ServiceResult(success=False, error="Failed to delete responsable")

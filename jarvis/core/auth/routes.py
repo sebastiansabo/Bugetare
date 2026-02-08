@@ -1,149 +1,313 @@
-"""JARVIS Core Auth Routes.
+"""Auth module API routes.
 
-Authentication routes: login, logout, password management.
-Follows layered architecture: Routes -> Services -> Repositories -> Database
+User management, employee management, password management, and event log routes.
+Note: Page routes (login, logout, forgot-password, reset-password) and basic auth
+API routes (current-user, change-password, heartbeat, online-users) remain in app.py
+until template url_for references are migrated.
 """
-from flask import render_template, redirect, url_for, request, flash, jsonify
-from flask_login import login_user, logout_user, login_required, current_user
+from flask import jsonify, request
+from flask_login import login_required, current_user
 
 from . import auth_bp
-from .models import User
-from .services import AuthService
+from .repositories import UserRepository, EventRepository
 
-# Initialize service layer
-auth_service = AuthService()
-
-
-def log_event(event_type, description=None, entity_type=None, entity_id=None, details=None):
-    """Helper to log user events with current user info."""
-    user_id = current_user.id if current_user.is_authenticated else None
-    user_email = current_user.email if current_user.is_authenticated else None
-    ip_address = request.remote_addr if request else None
-    user_agent = request.headers.get('User-Agent', '')[:500] if request else None
-
-    auth_service.log_event(
-        event_type=event_type,
-        description=description,
-        user_id=user_id,
-        user_email=user_email,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-        details=details
-    )
+_user_repo = UserRepository()
+_event_repo = EventRepository()
 
 
-@auth_bp.route('/login', methods=['GET', 'POST'])
-def login():
-    """Login page and form handler."""
-    if current_user.is_authenticated:
-        # Redirect based on user permissions
-        if current_user.can_access_main_apps():
-            return redirect(url_for('apps_page'))
-        return redirect(url_for('profile.profile_page'))
+# ============== USER MANAGEMENT ==============
 
-    if request.method == 'POST':
-        email = request.form.get('email', '').strip()
-        password = request.form.get('password', '')
-
-        if not email or not password:
-            flash('Please enter both email and password.', 'error')
-            return render_template('core/login.html')
-
-        result = auth_service.authenticate(email, password)
-        if result.success:
-            user = User(result.user_data)
-            remember = request.form.get('remember') == 'on'
-            login_user(user, remember=remember)
-            auth_service.update_last_login(user.id)
-            log_event('login', f'User {email} logged in')
-
-            # Redirect based on user permissions
-            next_page = request.args.get('next')
-            if next_page:
-                return redirect(next_page)
-            if user.can_access_main_apps():
-                return redirect(url_for('apps_page'))
-            return redirect(url_for('profile.profile_page'))
-        else:
-            log_event('login_failed', f'Failed login attempt for {email}')
-            flash('Invalid email or password.', 'error')
-
-    return render_template('core/login.html')
-
-
-@auth_bp.route('/logout')
+@auth_bp.route('/api/users', methods=['GET'])
 @login_required
-def logout():
-    """Logout current user."""
-    log_event('logout', f'User {current_user.email} logged out')
-    logout_user()
-    flash('You have been logged out.', 'info')
-    return redirect(url_for('auth.login'))
+def api_get_users():
+    """Get all users with role information."""
+    users = _user_repo.get_all()
+    return jsonify(users)
 
 
-@auth_bp.route('/api/auth/current-user')
+@auth_bp.route('/api/users/<int:user_id>', methods=['GET'])
 @login_required
-def get_current_user():
-    """Get current user details including role permissions."""
+def api_get_user(user_id):
+    """Get a specific user with role information."""
+    user = _user_repo.get_by_id(user_id)
+    if user:
+        return jsonify(user)
+    return jsonify({'error': 'User not found'}), 404
+
+
+@auth_bp.route('/api/users', methods=['POST'])
+@login_required
+def api_create_user():
+    """Create a new user."""
+    data = request.get_json()
+    name = data.get('name', '').strip() if data.get('name') else ''
+    email = data.get('email', '').strip() if data.get('email') else ''
+    phone = data.get('phone', '').strip() if data.get('phone') else ''
+    password = data.get('password', '').strip() if data.get('password') else ''
+
+    if not name or not email:
+        return jsonify({'error': 'Name and email are required'}), 400
+
+    try:
+        user_id = _user_repo.save(
+            name=name,
+            email=email,
+            phone=phone if phone else None,
+            role_id=data.get('role_id'),
+            is_active=data.get('is_active', True)
+        )
+        if password:
+            _user_repo.update_password(user_id, password)
+        return jsonify({'success': True, 'id': user_id})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@auth_bp.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+def api_update_user(user_id):
+    """Update a user."""
+    data = request.get_json()
+    try:
+        updated = _user_repo.update(
+            user_id=user_id,
+            name=data.get('name'),
+            email=data.get('email'),
+            phone=data.get('phone'),
+            role_id=data.get('role_id'),
+            is_active=data.get('is_active'),
+            notify_on_allocation=data.get('notify_on_allocation'),
+            company=data.get('company'),
+            brand=data.get('brand'),
+            department=data.get('department'),
+            subdepartment=data.get('subdepartment')
+        )
+        if updated:
+            password = data.get('password', '').strip() if data.get('password') else ''
+            if password:
+                _user_repo.update_password(user_id, password)
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'User not found'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@auth_bp.route('/api/users/<int:user_id>', methods=['DELETE'])
+@login_required
+def api_delete_user(user_id):
+    """Delete a user."""
+    if _user_repo.delete(user_id):
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'User not found'}), 404
+
+
+@auth_bp.route('/api/users/bulk-delete', methods=['POST'])
+@login_required
+def api_bulk_delete_users():
+    """Delete multiple users."""
+    data = request.get_json()
+    user_ids = data.get('ids', [])
+    if not user_ids:
+        return jsonify({'success': False, 'error': 'No IDs provided'}), 400
+    try:
+        user_ids = [int(id) for id in user_ids]
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'error': 'Invalid ID format'}), 400
+    deleted_count = _user_repo.delete_bulk(user_ids)
+    return jsonify({'success': True, 'deleted': deleted_count})
+
+
+# ============== EMPLOYEE MANAGEMENT (legacy alias) ==============
+
+@auth_bp.route('/api/employees', methods=['GET'])
+@login_required
+def api_get_employees():
+    """Get all users as employees."""
+    users = _user_repo.get_all()
+    for user in users:
+        user['departments'] = user.get('department')
+    return jsonify(users)
+
+
+@auth_bp.route('/api/employees/<int:employee_id>', methods=['GET'])
+@login_required
+def api_get_employee(employee_id):
+    """Get a specific user as employee."""
+    user = _user_repo.get_by_id(employee_id)
+    if user:
+        user['departments'] = user.get('department')
+        return jsonify(user)
+    return jsonify({'error': 'Employee not found'}), 404
+
+
+@auth_bp.route('/api/employees', methods=['POST'])
+@login_required
+def api_create_employee():
+    """Create a new user/employee."""
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    email = data.get('email', '').strip() if data.get('email') else None
+    phone = data.get('phone', '').strip() if data.get('phone') else None
+    department = data.get('department') or data.get('departments')
+    department = department.strip() if department else None
+    subdepartment = data.get('subdepartment', '').strip() if data.get('subdepartment') else None
+    company = data.get('company', '').strip() if data.get('company') else None
+    brand = data.get('brand', '').strip() if data.get('brand') else None
+
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+
+    try:
+        user_id = _user_repo.save(
+            name=name,
+            email=email,
+            phone=phone,
+            department=department,
+            subdepartment=subdepartment,
+            company=company,
+            brand=brand,
+            notify_on_allocation=data.get('notify_on_allocation', True),
+            is_active=data.get('is_active', True)
+        )
+        return jsonify({'success': True, 'id': user_id})
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@auth_bp.route('/api/employees/<int:employee_id>', methods=['PUT'])
+@login_required
+def api_update_employee(employee_id):
+    """Update a user/employee."""
+    data = request.get_json()
+    department = data.get('department') if data.get('department') is not None else data.get('departments')
+    try:
+        updated = _user_repo.update(
+            user_id=employee_id,
+            name=data.get('name'),
+            email=data.get('email'),
+            phone=data.get('phone'),
+            department=department,
+            subdepartment=data.get('subdepartment'),
+            company=data.get('company'),
+            brand=data.get('brand'),
+            notify_on_allocation=data.get('notify_on_allocation'),
+            is_active=data.get('is_active')
+        )
+        if updated:
+            return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'Employee not found'}), 404
+    except ValueError as e:
+        return jsonify({'success': False, 'error': str(e)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@auth_bp.route('/api/employees/<int:employee_id>', methods=['DELETE'])
+@login_required
+def api_delete_employee(employee_id):
+    """Delete a user/employee."""
+    if _user_repo.delete(employee_id):
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'Employee not found'}), 404
+
+
+# ============== PASSWORD MANAGEMENT ==============
+
+@auth_bp.route('/api/auth/update-profile', methods=['POST'])
+@login_required
+def api_update_profile():
+    """Update current user's profile (name, phone)."""
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    phone = data.get('phone', '').strip() or None
+
+    if not name:
+        return jsonify({'success': False, 'error': 'Name is required'}), 400
+    if len(name) < 2:
+        return jsonify({'success': False, 'error': 'Name must be at least 2 characters'}), 400
+
+    _user_repo.update(current_user.id, name=name, phone=phone)
+    from core.auth.repositories import EventRepository
+    EventRepository().log_event('profile_updated', event_description=f'User updated their profile: name={name}')
+    return jsonify({'success': True, 'message': 'Profile updated successfully', 'name': name})
+
+
+@auth_bp.route('/api/users/<int:user_id>/set-password', methods=['POST'])
+@login_required
+def api_set_user_password(user_id):
+    """Admin route to set a user's password."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    data = request.get_json()
+    new_password = data.get('password', '')
+    if not new_password or len(new_password) < 6:
+        return jsonify({'success': False, 'error': 'Password must be at least 6 characters'}), 400
+
+    user = _user_repo.get_by_id(user_id)
+    if not user:
+        return jsonify({'success': False, 'error': 'User not found'}), 404
+
+    _user_repo.update_password(user_id, new_password)
+    from core.auth.repositories import EventRepository
+    EventRepository().log_event('admin_password_reset', event_description=f'Password reset for user {user["email"]}', entity_type='user', entity_id=user_id)
+    return jsonify({'success': True, 'message': f'Password set for {user["name"]}'})
+
+
+@auth_bp.route('/api/users/set-default-passwords', methods=['POST'])
+@login_required
+def api_set_default_passwords():
+    """Set default password for all users without one."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+
+    data = request.get_json() or {}
+    default_password = data.get('password', 'changeme123')
+    updated_count = _user_repo.set_default_passwords(default_password)
+    from core.auth.repositories import EventRepository
+    EventRepository().log_event('bulk_password_set', event_description=f'Set default password for {updated_count} users')
     return jsonify({
-        'id': current_user.id,
-        'email': current_user.email,
-        'name': current_user.name,
-        'role_id': current_user.role_id,
-        'role_name': current_user.role_name,
-        'permissions': {
-            'can_add_invoices': current_user.can_add_invoices,
-            'can_edit_invoices': current_user.can_edit_invoices,
-            'can_delete_invoices': current_user.can_delete_invoices,
-            'can_view_invoices': current_user.can_view_invoices,
-            'can_access_accounting': current_user.can_access_accounting,
-            'can_access_settings': current_user.can_access_settings,
-            'can_access_connectors': current_user.can_access_connectors,
-            'can_access_templates': current_user.can_access_templates,
-            'can_access_hr': current_user.can_access_hr,
-            'is_hr_manager': current_user.is_hr_manager,
-        }
+        'success': True,
+        'message': f'Default password set for {updated_count} users',
+        'updated_count': updated_count
     })
 
 
-@auth_bp.route('/api/auth/change-password', methods=['POST'])
+# ============== EVENT LOG ==============
+
+@auth_bp.route('/api/events', methods=['GET'])
 @login_required
-def change_password():
-    """Change current user's password."""
-    data = request.get_json()
-    if not data:
-        return jsonify({'success': False, 'error': 'No data provided'}), 400
+def api_get_events():
+    """Get user events/audit log."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
-    current_password = data.get('current_password')
-    new_password = data.get('new_password')
+    limit = request.args.get('limit', 100, type=int)
+    offset = request.args.get('offset', 0, type=int)
+    user_id = request.args.get('user_id', type=int)
+    event_type = request.args.get('event_type', '')
+    entity_type = request.args.get('entity_type', '')
 
-    result = auth_service.change_password(
-        user_id=current_user.id,
-        user_email=current_user.email,
-        current_password=current_password,
-        new_password=new_password
+    events = _event_repo.get_events(
+        limit=limit,
+        offset=offset,
+        user_id=user_id if user_id else None,
+        event_type=event_type if event_type else None,
+        entity_type=entity_type if entity_type else None
     )
-
-    if result.success:
-        log_event('password_changed', f'User {current_user.email} changed their password')
-        return jsonify({'success': True})
-    else:
-        return jsonify({'success': False, 'error': result.error}), 400
+    return jsonify(events)
 
 
-@auth_bp.route('/api/heartbeat', methods=['POST'])
+@auth_bp.route('/api/events/types', methods=['GET'])
 @login_required
-def heartbeat():
-    """Update user's last seen timestamp for online status tracking."""
-    auth_service.update_last_seen(current_user.id)
-    return jsonify({'success': True})
-
-
-@auth_bp.route('/api/online-users')
-@login_required
-def online_users():
-    """Get count and list of currently online users."""
-    result = auth_service.get_online_users(minutes=5)
-    return jsonify(result)
+def api_get_event_types():
+    """Get distinct event types for filtering."""
+    if not current_user.can_access_settings:
+        return jsonify({'success': False, 'error': 'Permission denied'}), 403
+    return jsonify(_event_repo.get_event_types())

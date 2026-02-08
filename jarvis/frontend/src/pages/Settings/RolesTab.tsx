@@ -1,0 +1,262 @@
+import { Fragment, useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Plus, Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Checkbox } from '@/components/ui/checkbox'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { rolesApi } from '@/api/roles'
+import { toast } from 'sonner'
+import type { Role, PermissionMatrix, RolePermission } from '@/types/roles'
+
+export default function RolesTab() {
+  const queryClient = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [deleteId, setDeleteId] = useState<number | null>(null)
+
+  const { data: roles = [], isLoading: rolesLoading } = useQuery({
+    queryKey: ['settings', 'roles'],
+    queryFn: rolesApi.getRoles,
+  })
+
+  const { data: matrix } = useQuery({
+    queryKey: ['settings', 'permissionMatrix'],
+    queryFn: rolesApi.getPermissionMatrix,
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (data: Partial<Role>) => rolesApi.createRole(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'roles'] })
+      queryClient.invalidateQueries({ queryKey: ['settings', 'permissionMatrix'] })
+      setShowAdd(false)
+      toast.success('Role created')
+    },
+    onError: () => toast.error('Failed to create role'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => rolesApi.deleteRole(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'roles'] })
+      queryClient.invalidateQueries({ queryKey: ['settings', 'permissionMatrix'] })
+      setDeleteId(null)
+      toast.success('Role deleted')
+    },
+    onError: () => toast.error('Failed to delete role'),
+  })
+
+  const permMutation = useMutation({
+    mutationFn: ({ permId, roleId, granted }: { permId: number; roleId: number; granted: boolean }) =>
+      rolesApi.setSinglePermissionV2(permId, roleId, { scope: 'full', granted }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'permissionMatrix'] })
+    },
+    onError: () => toast.error('Failed to update permission'),
+  })
+
+  return (
+    <div className="space-y-6">
+      {/* Roles List */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Roles</CardTitle>
+            <Button size="sm" onClick={() => setShowAdd(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add Role
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {rolesLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-10 animate-pulse rounded bg-muted" />
+              ))}
+            </div>
+          ) : roles.length === 0 ? (
+            <EmptyState title="No roles" description="Add your first role." />
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="w-20">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {roles.map((role) => (
+                  <TableRow key={role.id}>
+                    <TableCell className="font-medium">{role.name}</TableCell>
+                    <TableCell className="text-muted-foreground">{role.description || '-'}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive"
+                        onClick={() => setDeleteId(role.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Permission Matrix */}
+      {matrix && <PermissionMatrixView matrix={matrix} roles={roles} onToggle={permMutation.mutate} />}
+
+      {/* Add Role Dialog */}
+      <AddRoleDialog
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        onSave={(data) => createMutation.mutate(data)}
+        isPending={createMutation.isPending}
+      />
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={() => setDeleteId(null)}
+        title="Delete Role"
+        description="This will remove the role and its permissions."
+        onConfirm={() => deleteId && deleteMutation.mutate(deleteId)}
+        destructive
+      />
+    </div>
+  )
+}
+
+function PermissionMatrixView({
+  matrix,
+  roles,
+  onToggle,
+}: {
+  matrix: PermissionMatrix
+  roles: Role[]
+  onToggle: (args: { permId: number; roleId: number; granted: boolean }) => void
+}) {
+  const modules = matrix.modules || []
+  // role_permissions may come from matrix response as a separate field
+  const rolePerms = (matrix as unknown as Record<string, unknown>).role_permissions as Record<number, Record<number, RolePermission>> | undefined
+
+  const isGranted = (permId: number, roleId: number): boolean => {
+    if (!rolePerms) return false
+    const rp = rolePerms[roleId]
+    if (!rp) return false
+    const perm = rp[permId]
+    return perm?.granted ?? false
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Permission Matrix</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="sticky left-0 z-10 bg-card">Permission</TableHead>
+                {roles.map((r) => (
+                  <TableHead key={r.id} className="text-center">
+                    {r.name}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {modules.map((mod) => (
+                <Fragment key={mod.key}>
+                  <TableRow>
+                    <TableCell colSpan={roles.length + 1} className="bg-muted/50 font-semibold">
+                      {mod.label}
+                    </TableCell>
+                  </TableRow>
+                  {mod.entities.flatMap((entity) =>
+                    entity.actions.map((action) => (
+                      <TableRow key={action.id}>
+                        <TableCell className="sticky left-0 z-10 bg-card text-sm">
+                          {entity.label} &mdash; {action.label}
+                        </TableCell>
+                        {roles.map((role) => (
+                          <TableCell key={role.id} className="text-center">
+                            <Checkbox
+                              checked={isGranted(action.id, role.id)}
+                              onCheckedChange={(checked) =>
+                                onToggle({ permId: action.id, roleId: role.id, granted: !!checked })
+                              }
+                            />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    )),
+                  )}
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AddRoleDialog({
+  open,
+  onClose,
+  onSave,
+  isPending,
+}: {
+  open: boolean
+  onClose: () => void
+  onSave: (data: Partial<Role>) => void
+  isPending: boolean
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o) onClose()
+      }}
+    >
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Add Role</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Description</Label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={isPending || !name} onClick={() => onSave({ name, description })}>
+            {isPending ? 'Creating...' : 'Create'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

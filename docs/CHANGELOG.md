@@ -2,6 +2,41 @@
 
 ## 2026-02-07
 
+### Development Guidelines Integration
+- **`docs/CLAUDE.md`**: Added Development Guidelines section extracted from Claude Agents reference files
+  - **Coding Conventions**: Python naming (PascalCase classes, snake_case functions, UPPER_SNAKE_CASE constants), JS/TS React conventions, API endpoint naming
+  - **Git Commit Convention**: `type(scope): description` format with actual module scopes (accounting, efactura, hr, auth, etc.)
+  - **Architecture Rules**: Dependency direction (routes → services → repositories → database), repository pattern with connection management, module boundaries
+  - **Code Review Checklist**: Module boundaries, data safety, error handling, performance, security, testing checks
+  - **Security Guidelines**: SQL injection prevention (parameterized queries), authentication/authorization patterns, secrets management, input validation
+  - **Financial Data Rules**: Romanian compliance (VAT rates, retention, fiscal year), currency handling (BNR rates, multi-currency storage), allocation rules
+  - **Testing Standards**: Test naming conventions, organization, running commands, 437-test baseline
+- **Source**: Adapted from `Claude Agents/files/` reference documents — rewritten for actual Flask/psycopg2 stack (originals targeted aspirational FastAPI/SQLAlchemy async stack)
+
+### Phase 19: Documentation Refresh
+- **`docs/CLAUDE.md`**: Removed stale "Protected Functions" section (OAuth functions moved to `OAuthRepository` in Phase 11)
+- **Project structure tree**: Completely rewritten to show all 17 blueprints, ~30 repositories, migrations/, ai_agent/, frontend/
+- **Fixed stale references**: `services.py` (deleted), `database.py` function locations (now in repositories), OAuth token functions, Company VAT matching, tagging system, notification service
+- **`README.md`**: Updated sections table (added AI, expanded Core), tech stack (added React/multi-provider AI), project structure tree
+- **Result**: Docs match the actual codebase. 377/377 tests pass.
+
+### Phase 18: Decompose init_db() into migrations/
+- **Created `jarvis/migrations/` package** with `__init__.py` and `init_schema.py`
+- **Extracted `create_schema(conn, cursor)`** — 1,934 lines containing all CREATE TABLE, ALTER TABLE, CREATE INDEX, and INSERT statements
+- **Extracted helper functions**: `_seed_department_structure(cursor)` and `_seed_companies(cursor)` moved alongside schema
+- **Thin `init_db()` in database.py** — delegates to `create_schema()`, keeps module-load behavior
+- **Result**: `database.py` 2,144 → 235 lines (pure infrastructure). 377/377 tests pass.
+
+### Phase 17: Final Business-Logic Extraction
+- **`authenticate_user`** → `UserRepository.authenticate()` method (with `check_password_hash`)
+- **`get_online_users_count`** → `UserRepository.get_online_count()` method
+- **Deleted 5 cache facade functions** from `database.py` (dead code — no consumers)
+- **Deleted 5 business-logic wrappers** (`authenticate_user`, `get_online_users_count`, `save_responsable`, `update_responsable`, `delete_responsable`) from `database.py`
+- **Deleted `services.py`** entirely (7 pure facades to `CompanyRepository`)
+- **Updated consumers**: `app.py` imports from `UserRepository`, `settings_service.py` calls `_user` directly, `efactura_service.py` imports from `CompanyRepository`
+- **Updated tests**: Cache clear tests now import from repository modules directly
+- **Result**: `database.py` 2,220 → 2,144 lines. Zero business logic remains. 377/377 tests pass.
+
 ### Documentation Structure Cleanup
 - **New docs/ Directory**: Moved project documentation to centralized `docs/` folder
   - `docs/CLAUDE.md` - Project instructions for Claude Code

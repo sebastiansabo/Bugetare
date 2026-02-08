@@ -693,7 +693,12 @@ def get_all_companies_with_brands():
     companies = [dict_from_row(row) for row in cursor.fetchall()]
 
     # Get brands for each company
-    cursor.execute("SELECT company_id, brand FROM company_brands WHERE is_active = TRUE")
+    cursor.execute("""
+        SELECT cb.company_id, b.name AS brand
+        FROM company_brands cb
+        JOIN brands b ON b.id = cb.brand_id
+        WHERE cb.is_active = TRUE
+    """)
     brand_rows = cursor.fetchall()
     release_db(conn)
 
@@ -756,19 +761,21 @@ def get_all_company_brands(company_id=None):
 
     if company_id:
         cursor.execute("""
-            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
+            SELECT cb.id, cb.company_id, c.company, b.name AS brand, cb.is_active, cb.created_at
             FROM company_brands cb
             JOIN companies c ON cb.company_id = c.id
+            JOIN brands b ON cb.brand_id = b.id
             WHERE cb.company_id = %s AND cb.is_active = TRUE
-            ORDER BY cb.brand
+            ORDER BY b.name
         """, (company_id,))
     else:
         cursor.execute("""
-            SELECT cb.id, cb.company_id, c.company, cb.brand, cb.is_active, cb.created_at
+            SELECT cb.id, cb.company_id, c.company, b.name AS brand, cb.is_active, cb.created_at
             FROM company_brands cb
             JOIN companies c ON cb.company_id = c.id
+            JOIN brands b ON cb.brand_id = b.id
             WHERE cb.is_active = TRUE
-            ORDER BY c.company, cb.brand
+            ORDER BY c.company, b.name
         """)
 
     rows = cursor.fetchall()

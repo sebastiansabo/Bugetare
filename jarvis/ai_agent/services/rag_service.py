@@ -121,6 +121,26 @@ class RAGService:
             logger.error(f"RAG search failed: {e}")
             return []
 
+    # Metadata keys to display per source type
+    METADATA_DISPLAY_KEYS = {
+        'invoice': [
+            ('supplier', 'Supplier'), ('invoice_number', 'Invoice'), ('date', 'Date'),
+            ('amount', 'Amount'), ('currency', 'Currency'),
+        ],
+        'transaction': [
+            ('vendor_name', 'Vendor'), ('amount', 'Amount'), ('currency', 'Currency'),
+            ('date', 'Date'), ('status', 'Status'),
+        ],
+        'company': [('name', 'Company'), ('cui', 'CUI')],
+        'department': [('name', 'Department'), ('company', 'Company'), ('brand', 'Brand')],
+        'employee': [('name', 'Employee'), ('department', 'Department'), ('company', 'Company'), ('role', 'Role')],
+        'event': [('name', 'Event'), ('company', 'Company'), ('start_date', 'Start'), ('end_date', 'End')],
+        'efactura': [
+            ('invoice_number', 'Invoice'), ('partner_name', 'Partner'), ('amount', 'Amount'),
+            ('currency', 'Currency'), ('date', 'Date'), ('direction', 'Direction'),
+        ],
+    }
+
     def format_context(
         self,
         sources: List[RAGSource],
@@ -143,32 +163,25 @@ class RAGService:
         approx_tokens = 0
 
         for i, source in enumerate(sources, 1):
-            # Build source context
             header = f"[Source {i}: {source.source_type}]"
 
-            # Add metadata if useful
+            # Build metadata using source-type-aware keys
             meta_parts = []
             if source.metadata:
-                if 'supplier' in source.metadata:
-                    meta_parts.append(f"Supplier: {source.metadata['supplier']}")
-                if 'invoice_number' in source.metadata:
-                    meta_parts.append(f"Invoice: {source.metadata['invoice_number']}")
-                if 'date' in source.metadata:
-                    meta_parts.append(f"Date: {source.metadata['date']}")
-                if 'amount' in source.metadata:
-                    meta_parts.append(f"Amount: {source.metadata['amount']}")
+                display_keys = self.METADATA_DISPLAY_KEYS.get(source.source_type, [])
+                for key, label in display_keys:
+                    val = source.metadata.get(key)
+                    if val:
+                        meta_parts.append(f"{label}: {val}")
 
             meta_str = " | ".join(meta_parts) if meta_parts else ""
 
-            # Build entry
             entry = f"{header}\n"
             if meta_str:
                 entry += f"{meta_str}\n"
             entry += f"{source.snippet}\n"
 
-            # Rough token estimate (4 chars per token)
             entry_tokens = len(entry) // 4
-
             if approx_tokens + entry_tokens > max_tokens:
                 break
 
@@ -395,3 +408,586 @@ class RAGService:
             return snippet[:last_space] + "..."
 
         return snippet + "..."
+
+    # ============== Generic Index Helper ==============
+
+    def _index_document(
+        self,
+        source_type: RAGSourceType,
+        source_id: int,
+        source_table: str,
+        content: str,
+        metadata: Dict[str, Any],
+        company_id: Optional[int] = None,
+    ) -> ServiceResult:
+        """
+        Generic document indexing — hash check, upsert, embed.
+
+        Used by all source-type-specific index methods to avoid duplication.
+        """
+        try:
+            content_hash = self.embedding_service.compute_content_hash(content)
+
+            existing = self.document_repo.get_by_source(source_type, source_id)
+            if existing and existing.content_hash == content_hash:
+                return ServiceResult(success=True, data=existing)
+
+            embedding = None
+            if self._has_embeddings:
+                try:
+                    embedding = self.embedding_service.generate_embedding(content)
+                except Exception as e:
+                    logger.warning(f"Failed to generate embedding for {source_type.value} {source_id}: {e}")
+
+            document = RAGDocument(
+                source_type=source_type,
+                source_id=source_id,
+                source_table=source_table,
+                content=content,
+                content_hash=content_hash,
+                embedding=embedding,
+                metadata=metadata,
+                company_id=company_id,
+            )
+
+            if existing:
+                if embedding:
+                    self.document_repo.update_embedding(existing.id, embedding, content_hash)
+                document.id = existing.id
+            else:
+                document = self.document_repo.create(document)
+
+            return ServiceResult(success=True, data=document)
+
+        except Exception as e:
+            logger.error(f"Failed to index {source_type.value} {source_id}: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    def _lookup_company_id(self, company_name: Optional[str]) -> Optional[int]:
+        """Look up company ID from company name."""
+        if not company_name:
+            return None
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("SELECT id FROM companies WHERE company = %s", (company_name,))
+            row = cursor.fetchone()
+            return row['id'] if row else None
+        finally:
+            release_db(conn)
+
+    # ============== Company Indexing ==============
+
+    def _fetch_company_data(self, company_id: int) -> Optional[Dict]:
+        """Fetch company data from database."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("SELECT * FROM companies WHERE id = %s", (company_id,))
+            return cursor.fetchone()
+        finally:
+            release_db(conn)
+
+    def _build_company_content(self, data: Dict) -> str:
+        """Build searchable content from company data."""
+        parts = []
+        if data.get('company'):
+            parts.append(f"Company: {data['company']}")
+        if data.get('vat'):
+            parts.append(f"VAT/CUI: {data['vat']}")
+        if data.get('brands'):
+            parts.append(f"Brands: {data['brands']}")
+        return "\n".join(parts)
+
+    def index_company(self, company_id: int) -> ServiceResult:
+        """Index a company for RAG search."""
+        data = self._fetch_company_data(company_id)
+        if not data:
+            return ServiceResult(success=False, error="Company not found")
+
+        content = self._build_company_content(data)
+        metadata = {
+            'name': data.get('company'),
+            'cui': data.get('vat'),
+        }
+        return self._index_document(
+            RAGSourceType.COMPANY, company_id, 'companies', content, metadata, company_id
+        )
+
+    def index_companies_batch(self, limit: int = 500) -> ServiceResult:
+        """Batch index companies."""
+        try:
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute("""
+                    SELECT c.id FROM companies c
+                    LEFT JOIN ai_agent.rag_documents r
+                        ON r.source_type = 'company' AND r.source_id = c.id AND r.is_active = TRUE
+                    WHERE r.id IS NULL
+                    LIMIT %s
+                """, (limit,))
+                rows = cursor.fetchall()
+            finally:
+                release_db(conn)
+
+            indexed = 0
+            for row in rows:
+                if self.index_company(row['id']).success:
+                    indexed += 1
+
+            logger.info(f"Batch indexed {indexed} companies")
+            return ServiceResult(success=True, data={'indexed': indexed})
+        except Exception as e:
+            logger.error(f"Company batch indexing failed: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    # ============== Department Indexing ==============
+
+    def _fetch_department_data(self, dept_id: int) -> Optional[Dict]:
+        """Fetch department structure data from database."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("SELECT * FROM department_structure WHERE id = %s", (dept_id,))
+            return cursor.fetchone()
+        finally:
+            release_db(conn)
+
+    def _build_department_content(self, data: Dict) -> str:
+        """Build searchable content from department data."""
+        parts = []
+        if data.get('department'):
+            parts.append(f"Department: {data['department']}")
+        if data.get('subdepartment'):
+            parts.append(f"Subdepartment: {data['subdepartment']}")
+        if data.get('company'):
+            parts.append(f"Company: {data['company']}")
+        if data.get('brand'):
+            parts.append(f"Brand: {data['brand']}")
+        if data.get('manager'):
+            parts.append(f"Manager: {data['manager']}")
+        return "\n".join(parts)
+
+    def index_department(self, dept_id: int) -> ServiceResult:
+        """Index a department for RAG search."""
+        data = self._fetch_department_data(dept_id)
+        if not data:
+            return ServiceResult(success=False, error="Department not found")
+
+        content = self._build_department_content(data)
+        metadata = {
+            'name': data.get('department'),
+            'subdepartment': data.get('subdepartment'),
+            'company': data.get('company'),
+            'brand': data.get('brand'),
+        }
+        company_id = self._lookup_company_id(data.get('company'))
+        return self._index_document(
+            RAGSourceType.DEPARTMENT, dept_id, 'department_structure', content, metadata, company_id
+        )
+
+    def index_departments_batch(self, limit: int = 500) -> ServiceResult:
+        """Batch index departments."""
+        try:
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute("""
+                    SELECT d.id FROM department_structure d
+                    LEFT JOIN ai_agent.rag_documents r
+                        ON r.source_type = 'department' AND r.source_id = d.id AND r.is_active = TRUE
+                    WHERE r.id IS NULL
+                    LIMIT %s
+                """, (limit,))
+                rows = cursor.fetchall()
+            finally:
+                release_db(conn)
+
+            indexed = 0
+            for row in rows:
+                if self.index_department(row['id']).success:
+                    indexed += 1
+
+            logger.info(f"Batch indexed {indexed} departments")
+            return ServiceResult(success=True, data={'indexed': indexed})
+        except Exception as e:
+            logger.error(f"Department batch indexing failed: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    # ============== Employee Indexing ==============
+
+    def _fetch_employee_data(self, user_id: int) -> Optional[Dict]:
+        """Fetch employee/user data from database."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT u.*, r.name as role_name
+                FROM users u
+                LEFT JOIN roles r ON r.id = u.role_id
+                WHERE u.id = %s AND u.is_active = TRUE
+            """, (user_id,))
+            return cursor.fetchone()
+        finally:
+            release_db(conn)
+
+    def _build_employee_content(self, data: Dict) -> str:
+        """Build searchable content from employee data."""
+        parts = []
+        if data.get('name'):
+            parts.append(f"Employee: {data['name']}")
+        if data.get('email'):
+            parts.append(f"Email: {data['email']}")
+        if data.get('phone'):
+            parts.append(f"Phone: {data['phone']}")
+        if data.get('company'):
+            parts.append(f"Company: {data['company']}")
+        if data.get('department'):
+            parts.append(f"Department: {data['department']}")
+        if data.get('subdepartment'):
+            parts.append(f"Subdepartment: {data['subdepartment']}")
+        if data.get('brand'):
+            parts.append(f"Brand: {data['brand']}")
+        if data.get('role_name'):
+            parts.append(f"Role: {data['role_name']}")
+        return "\n".join(parts)
+
+    def index_employee(self, user_id: int) -> ServiceResult:
+        """Index an employee for RAG search."""
+        data = self._fetch_employee_data(user_id)
+        if not data:
+            return ServiceResult(success=False, error="Employee not found")
+
+        content = self._build_employee_content(data)
+        metadata = {
+            'name': data.get('name'),
+            'department': data.get('department'),
+            'company': data.get('company'),
+            'role': data.get('role_name'),
+        }
+        company_id = self._lookup_company_id(data.get('company'))
+        return self._index_document(
+            RAGSourceType.EMPLOYEE, user_id, 'users', content, metadata, company_id
+        )
+
+    def index_employees_batch(self, limit: int = 500) -> ServiceResult:
+        """Batch index employees."""
+        try:
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute("""
+                    SELECT u.id FROM users u
+                    LEFT JOIN ai_agent.rag_documents r
+                        ON r.source_type = 'employee' AND r.source_id = u.id AND r.is_active = TRUE
+                    WHERE u.is_active = TRUE AND r.id IS NULL
+                    LIMIT %s
+                """, (limit,))
+                rows = cursor.fetchall()
+            finally:
+                release_db(conn)
+
+            indexed = 0
+            for row in rows:
+                if self.index_employee(row['id']).success:
+                    indexed += 1
+
+            logger.info(f"Batch indexed {indexed} employees")
+            return ServiceResult(success=True, data={'indexed': indexed})
+        except Exception as e:
+            logger.error(f"Employee batch indexing failed: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    # ============== Bank Transaction Indexing ==============
+
+    def _fetch_transaction_data(self, txn_id: int) -> Optional[Dict]:
+        """Fetch bank transaction data from database."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT t.*, c.id as company_id_lookup
+                FROM bank_statement_transactions t
+                LEFT JOIN companies c ON c.vat = t.company_cui
+                WHERE t.id = %s AND t.merged_into_id IS NULL
+            """, (txn_id,))
+            return cursor.fetchone()
+        finally:
+            release_db(conn)
+
+    def _build_transaction_content(self, data: Dict) -> str:
+        """Build searchable content from transaction data."""
+        parts = []
+        if data.get('description'):
+            parts.append(f"Bank Transaction: {data['description']}")
+        if data.get('vendor_name'):
+            parts.append(f"Vendor: {data['vendor_name']}")
+        if data.get('matched_supplier'):
+            parts.append(f"Matched Supplier: {data['matched_supplier']}")
+        if data.get('amount') is not None:
+            currency = data.get('currency', 'RON')
+            parts.append(f"Amount: {data['amount']} {currency}")
+        if data.get('transaction_date'):
+            parts.append(f"Date: {data['transaction_date']}")
+        if data.get('company_name'):
+            parts.append(f"Company: {data['company_name']}")
+        if data.get('account_number'):
+            parts.append(f"Account: {data['account_number']}")
+        if data.get('status'):
+            parts.append(f"Status: {data['status']}")
+        return "\n".join(parts)
+
+    def index_transaction(self, txn_id: int) -> ServiceResult:
+        """Index a bank transaction for RAG search."""
+        data = self._fetch_transaction_data(txn_id)
+        if not data:
+            return ServiceResult(success=False, error="Transaction not found")
+
+        content = self._build_transaction_content(data)
+        metadata = {
+            'vendor_name': data.get('vendor_name') or data.get('matched_supplier'),
+            'amount': str(data.get('amount', '')),
+            'currency': data.get('currency', 'RON'),
+            'date': str(data.get('transaction_date', '')),
+            'status': data.get('status'),
+        }
+        company_id = data.get('company_id_lookup')
+        return self._index_document(
+            RAGSourceType.TRANSACTION, txn_id, 'bank_statement_transactions', content, metadata, company_id
+        )
+
+    def index_transactions_batch(self, limit: int = 500) -> ServiceResult:
+        """Batch index bank transactions."""
+        try:
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute("""
+                    SELECT t.id FROM bank_statement_transactions t
+                    LEFT JOIN ai_agent.rag_documents r
+                        ON r.source_type = 'transaction' AND r.source_id = t.id AND r.is_active = TRUE
+                    WHERE t.merged_into_id IS NULL AND r.id IS NULL
+                    LIMIT %s
+                """, (limit,))
+                rows = cursor.fetchall()
+            finally:
+                release_db(conn)
+
+            indexed = 0
+            for row in rows:
+                if self.index_transaction(row['id']).success:
+                    indexed += 1
+
+            logger.info(f"Batch indexed {indexed} transactions")
+            return ServiceResult(success=True, data={'indexed': indexed})
+        except Exception as e:
+            logger.error(f"Transaction batch indexing failed: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    # ============== e-Factura Indexing ==============
+
+    def _fetch_efactura_data(self, ef_id: int) -> Optional[Dict]:
+        """Fetch e-Factura invoice data from database."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT * FROM efactura_invoices
+                WHERE id = %s AND deleted_at IS NULL AND ignored = FALSE
+            """, (ef_id,))
+            return cursor.fetchone()
+        finally:
+            release_db(conn)
+
+    def _build_efactura_content(self, data: Dict) -> str:
+        """Build searchable content from e-Factura data."""
+        parts = []
+        if data.get('invoice_number'):
+            series = data.get('invoice_series', '')
+            num = data.get('invoice_number')
+            parts.append(f"e-Factura Invoice: {series}{num}" if series else f"e-Factura Invoice: {num}")
+        if data.get('partner_name'):
+            parts.append(f"Partner: {data['partner_name']}")
+        if data.get('partner_cif'):
+            parts.append(f"Partner CIF: {data['partner_cif']}")
+        if data.get('direction'):
+            parts.append(f"Direction: {data['direction']}")
+        if data.get('total_amount') is not None:
+            currency = data.get('currency', 'RON')
+            parts.append(f"Amount: {data['total_amount']} {currency}")
+        if data.get('total_vat') is not None:
+            parts.append(f"VAT: {data['total_vat']}")
+        if data.get('issue_date'):
+            parts.append(f"Date: {data['issue_date']}")
+        if data.get('status'):
+            parts.append(f"Status: {data['status']}")
+        if data.get('cif_owner'):
+            parts.append(f"Owner CIF: {data['cif_owner']}")
+        return "\n".join(parts)
+
+    def index_efactura(self, ef_id: int) -> ServiceResult:
+        """Index an e-Factura invoice for RAG search."""
+        data = self._fetch_efactura_data(ef_id)
+        if not data:
+            return ServiceResult(success=False, error="e-Factura invoice not found")
+
+        content = self._build_efactura_content(data)
+        metadata = {
+            'invoice_number': data.get('invoice_number'),
+            'partner_name': data.get('partner_name'),
+            'amount': str(data.get('total_amount', '')),
+            'currency': data.get('currency', 'RON'),
+            'date': str(data.get('issue_date', '')),
+            'direction': data.get('direction'),
+        }
+        return self._index_document(
+            RAGSourceType.EFACTURA, ef_id, 'efactura_invoices', content, metadata, data.get('company_id')
+        )
+
+    def index_efactura_batch(self, limit: int = 500) -> ServiceResult:
+        """Batch index e-Factura invoices."""
+        try:
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute("""
+                    SELECT e.id FROM efactura_invoices e
+                    LEFT JOIN ai_agent.rag_documents r
+                        ON r.source_type = 'efactura' AND r.source_id = e.id AND r.is_active = TRUE
+                    WHERE e.deleted_at IS NULL AND e.ignored = FALSE AND r.id IS NULL
+                    LIMIT %s
+                """, (limit,))
+                rows = cursor.fetchall()
+            finally:
+                release_db(conn)
+
+            indexed = 0
+            for row in rows:
+                if self.index_efactura(row['id']).success:
+                    indexed += 1
+
+            logger.info(f"Batch indexed {indexed} e-Factura invoices")
+            return ServiceResult(success=True, data={'indexed': indexed})
+        except Exception as e:
+            logger.error(f"e-Factura batch indexing failed: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    # ============== HR Event Indexing ==============
+
+    def _fetch_event_data(self, event_id: int) -> Optional[Dict]:
+        """Fetch HR event data with aggregated bonus info."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("""
+                SELECT e.*,
+                       COUNT(b.id) as bonus_count,
+                       COALESCE(SUM(b.bonus_net), 0) as total_bonus_net
+                FROM hr.events e
+                LEFT JOIN hr.event_bonuses b ON b.event_id = e.id
+                WHERE e.id = %s
+                GROUP BY e.id
+            """, (event_id,))
+            return cursor.fetchone()
+        finally:
+            release_db(conn)
+
+    def _build_event_content(self, data: Dict) -> str:
+        """Build searchable content from HR event data."""
+        parts = []
+        if data.get('name'):
+            parts.append(f"HR Event: {data['name']}")
+        if data.get('company'):
+            parts.append(f"Company: {data['company']}")
+        if data.get('brand'):
+            parts.append(f"Brand: {data['brand']}")
+        if data.get('start_date'):
+            parts.append(f"Start: {data['start_date']}")
+        if data.get('end_date'):
+            parts.append(f"End: {data['end_date']}")
+        if data.get('description'):
+            parts.append(f"Description: {data['description']}")
+        if data.get('bonus_count'):
+            parts.append(f"Bonuses: {data['bonus_count']} entries")
+        if data.get('total_bonus_net'):
+            parts.append(f"Total Bonus Net: {data['total_bonus_net']} RON")
+        return "\n".join(parts)
+
+    def index_event(self, event_id: int) -> ServiceResult:
+        """Index an HR event for RAG search."""
+        data = self._fetch_event_data(event_id)
+        if not data:
+            return ServiceResult(success=False, error="HR event not found")
+
+        content = self._build_event_content(data)
+        metadata = {
+            'name': data.get('name'),
+            'company': data.get('company'),
+            'brand': data.get('brand'),
+            'start_date': str(data.get('start_date', '')),
+            'end_date': str(data.get('end_date', '')),
+            'bonus_count': data.get('bonus_count', 0),
+        }
+        company_id = self._lookup_company_id(data.get('company'))
+        return self._index_document(
+            RAGSourceType.EVENT, event_id, 'hr.events', content, metadata, company_id
+        )
+
+    def index_events_batch(self, limit: int = 500) -> ServiceResult:
+        """Batch index HR events."""
+        try:
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute("""
+                    SELECT e.id FROM hr.events e
+                    LEFT JOIN ai_agent.rag_documents r
+                        ON r.source_type = 'event' AND r.source_id = e.id AND r.is_active = TRUE
+                    WHERE r.id IS NULL
+                    LIMIT %s
+                """, (limit,))
+                rows = cursor.fetchall()
+            finally:
+                release_db(conn)
+
+            indexed = 0
+            for row in rows:
+                if self.index_event(row['id']).success:
+                    indexed += 1
+
+            logger.info(f"Batch indexed {indexed} HR events")
+            return ServiceResult(success=True, data={'indexed': indexed})
+        except Exception as e:
+            logger.error(f"HR event batch indexing failed: {e}")
+            return ServiceResult(success=False, error=str(e))
+
+    # ============== Orchestration ==============
+
+    def index_all_sources(self, limit: int = 500) -> ServiceResult:
+        """Reindex all source types."""
+        results = {}
+        total = 0
+
+        batch_methods = [
+            ('invoices', self.index_invoices_batch),
+            ('companies', self.index_companies_batch),
+            ('departments', self.index_departments_batch),
+            ('employees', self.index_employees_batch),
+            ('transactions', self.index_transactions_batch),
+            ('efactura', self.index_efactura_batch),
+            ('events', self.index_events_batch),
+        ]
+
+        for name, method in batch_methods:
+            try:
+                result = method(limit=limit)
+                count = result.data.get('indexed', 0) if result.success else 0
+                results[name] = count
+                total += count
+            except Exception as e:
+                logger.error(f"Failed to index {name}: {e}")
+                results[name] = 0
+
+        logger.info(f"Total indexed across all sources: {total}")
+        return ServiceResult(success=True, data={'by_source': results, 'total': total})

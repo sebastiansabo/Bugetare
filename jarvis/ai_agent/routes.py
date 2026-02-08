@@ -5,7 +5,7 @@ API endpoints and page routes for AI Agent module.
 """
 
 from functools import wraps
-from flask import render_template, request, jsonify, redirect, url_for, flash
+from flask import render_template, request, jsonify, redirect, url_for, flash, Response, stream_with_context
 from flask_login import login_required, current_user
 
 from core.utils.logging_config import get_logger
@@ -360,6 +360,49 @@ def api_list_models():
     return jsonify({'models': models})
 
 
+@ai_agent_bp.route('/api/chat/stream', methods=['POST'])
+@login_required
+@ai_agent_required
+def api_chat_stream():
+    """
+    API: Send a message and stream the AI response via SSE.
+
+    Same request body as /api/chat. Returns text/event-stream with:
+    - event: token  — incremental text chunks
+    - event: done   — final metadata (message_id, tokens, cost, rag_sources)
+    - event: error  — error message
+    """
+    service = get_service()
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+
+    conversation_id = data.get('conversation_id')
+    message = data.get('message', '').strip()
+    model_config_id = data.get('model_config_id')
+
+    if not conversation_id:
+        return jsonify({'error': 'conversation_id required'}), 400
+    if not message:
+        return jsonify({'error': 'message required'}), 400
+
+    return Response(
+        stream_with_context(service.chat_stream(
+            conversation_id=conversation_id,
+            user_id=current_user.id,
+            user_message=message,
+            model_config_id=model_config_id,
+        )),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive',
+        },
+    )
+
+
 # ============== Admin Routes ==============
 
 @ai_agent_bp.route('/api/rag/reindex', methods=['POST'])
@@ -369,28 +412,59 @@ def api_rag_reindex():
     """
     API: Trigger RAG document reindexing.
 
-    Admin-only endpoint for reindexing invoice data.
-    Requires settings access permission.
+    Admin-only endpoint for reindexing data sources.
+    Supports optional source_type param to reindex a specific type,
+    otherwise reindexes all sources.
     """
     # Check admin permission
     if not getattr(current_user, 'can_access_settings', False):
         return jsonify({'error': 'Admin access required'}), 403
 
     from .services import RAGService
+    from .models import RAGSourceType
     rag_service = RAGService()
 
     data = request.get_json() or {}
-    limit = data.get('limit', 100)
+    limit = data.get('limit', 500)
+    source_type = data.get('source_type')
 
-    result = rag_service.index_invoices_batch(limit=limit)
+    # Map source_type string to specific batch method
+    BATCH_METHODS = {
+        'invoice': rag_service.index_invoices_batch,
+        'company': rag_service.index_companies_batch,
+        'department': rag_service.index_departments_batch,
+        'employee': rag_service.index_employees_batch,
+        'transaction': rag_service.index_transactions_batch,
+        'efactura': rag_service.index_efactura_batch,
+        'event': rag_service.index_events_batch,
+    }
 
-    if not result.success:
-        return jsonify({'error': result.error}), 500
+    if source_type:
+        # Validate source_type
+        if source_type not in BATCH_METHODS:
+            valid = ', '.join(BATCH_METHODS.keys())
+            return jsonify({'error': f'Invalid source_type. Valid: {valid}'}), 400
 
-    return jsonify({
-        'success': True,
-        'indexed': result.data.get('indexed', 0),
-    })
+        result = BATCH_METHODS[source_type](limit=limit)
+        if not result.success:
+            return jsonify({'error': result.error}), 500
+
+        return jsonify({
+            'success': True,
+            'source_type': source_type,
+            'indexed': result.data.get('indexed', 0),
+        })
+    else:
+        # Reindex all sources
+        result = rag_service.index_all_sources(limit=limit)
+        if not result.success:
+            return jsonify({'error': result.error}), 500
+
+        return jsonify({
+            'success': True,
+            'by_source': result.data.get('by_source', {}),
+            'total': result.data.get('total', 0),
+        })
 
 
 @ai_agent_bp.route('/api/rag/stats', methods=['GET'])
@@ -413,3 +487,152 @@ def api_rag_stats():
         'has_pgvector': stats.get('has_pgvector', False),
         'has_embeddings': stats.get('has_embeddings', False),
     })
+
+
+# ============== Model Management Routes ==============
+
+@ai_agent_bp.route('/api/models/all', methods=['GET'])
+@login_required
+@ai_agent_required
+def api_list_all_models():
+    """API: List all models including inactive (admin)."""
+    if not getattr(current_user, 'can_access_settings', False):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from .repositories import ModelConfigRepository
+    repo = ModelConfigRepository()
+
+    models = []
+    for model in repo.get_all():
+        models.append({
+            'id': model.id,
+            'provider': model.provider.value,
+            'model_name': model.model_name,
+            'display_name': model.display_name,
+            'cost_per_1k_input': str(model.cost_per_1k_input),
+            'cost_per_1k_output': str(model.cost_per_1k_output),
+            'max_tokens': model.max_tokens,
+            'default_temperature': str(model.default_temperature),
+            'is_active': model.is_active,
+            'is_default': model.is_default,
+            'has_api_key': bool(model.api_key_encrypted),
+        })
+
+    return jsonify({'models': models})
+
+
+@ai_agent_bp.route('/api/models/<int:model_id>/default', methods=['PUT'])
+@login_required
+@ai_agent_required
+def api_set_default_model(model_id: int):
+    """API: Set a model as default for its provider."""
+    if not getattr(current_user, 'can_access_settings', False):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from .repositories import ModelConfigRepository
+    repo = ModelConfigRepository()
+
+    success = repo.set_default(model_id)
+    if not success:
+        return jsonify({'error': 'Model not found'}), 404
+
+    return jsonify({'success': True})
+
+
+@ai_agent_bp.route('/api/models/<int:model_id>/toggle', methods=['PUT'])
+@login_required
+@ai_agent_required
+def api_toggle_model(model_id: int):
+    """API: Enable or disable a model."""
+    if not getattr(current_user, 'can_access_settings', False):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    data = request.get_json() or {}
+    is_active = data.get('is_active', True)
+
+    from .repositories import ModelConfigRepository
+    repo = ModelConfigRepository()
+
+    success = repo.toggle_active(model_id, is_active)
+    if not success:
+        return jsonify({'error': 'Model not found'}), 404
+
+    return jsonify({'success': True})
+
+
+@ai_agent_bp.route('/api/models/<int:model_id>/api-key', methods=['PUT'])
+@login_required
+@ai_agent_required
+def api_update_model_key(model_id: int):
+    """API: Update a model's API key."""
+    if not getattr(current_user, 'can_access_settings', False):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    data = request.get_json() or {}
+    api_key = data.get('api_key', '').strip()
+    if not api_key:
+        return jsonify({'error': 'api_key required'}), 400
+
+    from .repositories import ModelConfigRepository
+    repo = ModelConfigRepository()
+
+    success = repo.update_api_key(model_id, api_key)
+    if not success:
+        return jsonify({'error': 'Model not found'}), 404
+
+    return jsonify({'success': True})
+
+
+# ============== AI Settings Routes ==============
+
+AI_SETTINGS_KEYS = [
+    'ai_rag_enabled', 'ai_analytics_enabled', 'ai_rag_top_k',
+    'ai_temperature', 'ai_max_tokens',
+]
+
+
+@ai_agent_bp.route('/api/settings', methods=['GET'])
+@login_required
+@ai_agent_required
+def api_get_ai_settings():
+    """API: Get AI configuration settings."""
+    if not getattr(current_user, 'can_access_settings', False):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    from core.notifications.repositories.notification_repository import NotificationRepository
+    repo = NotificationRepository()
+
+    all_settings = repo.get_settings()
+
+    # Extract only AI-related settings with defaults
+    settings = {
+        'ai_rag_enabled': all_settings.get('ai_rag_enabled', 'true'),
+        'ai_analytics_enabled': all_settings.get('ai_analytics_enabled', 'true'),
+        'ai_rag_top_k': all_settings.get('ai_rag_top_k', '5'),
+        'ai_temperature': all_settings.get('ai_temperature', '0.7'),
+        'ai_max_tokens': all_settings.get('ai_max_tokens', '2048'),
+    }
+
+    return jsonify({'settings': settings})
+
+
+@ai_agent_bp.route('/api/settings', methods=['POST'])
+@login_required
+@ai_agent_required
+def api_save_ai_settings():
+    """API: Save AI configuration settings."""
+    if not getattr(current_user, 'can_access_settings', False):
+        return jsonify({'error': 'Admin access required'}), 403
+
+    data = request.get_json() or {}
+
+    from core.notifications.repositories.notification_repository import NotificationRepository
+    repo = NotificationRepository()
+
+    # Only save recognized AI settings
+    to_save = {k: str(v) for k, v in data.items() if k in AI_SETTINGS_KEYS}
+
+    if to_save:
+        repo.save_settings_bulk(to_save)
+
+    return jsonify({'success': True})

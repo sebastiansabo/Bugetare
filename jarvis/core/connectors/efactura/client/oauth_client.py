@@ -124,9 +124,9 @@ class ANAFOAuthClient:
         Raises:
             AuthenticationError: If no tokens found for CIF
         """
-        from database import get_efactura_oauth_tokens
+        from core.connectors.efactura.repositories.oauth_repository import OAuthRepository
 
-        tokens = get_efactura_oauth_tokens(company_cif)
+        tokens = OAuthRepository().get_tokens(company_cif)
 
         if not tokens:
             raise AuthenticationError(
@@ -189,8 +189,8 @@ class ANAFOAuthClient:
             self._expires_at = new_tokens.expires_at
 
             # Persist to database
-            from database import save_efactura_oauth_tokens
-            save_efactura_oauth_tokens(self.company_cif, new_tokens.to_dict())
+            from core.connectors.efactura.repositories.oauth_repository import OAuthRepository
+            OAuthRepository().save_tokens(self.company_cif, new_tokens.to_dict())
 
             # Reset session to use new token
             if self._session:

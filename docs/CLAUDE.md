@@ -39,47 +39,23 @@ git push origin main
 
 ## ⛔ CRITICAL: Protected Code Sections
 
-**NEVER DELETE OR MODIFY** the following critical sections without explicit user confirmation:
+**NEVER DELETE OR MODIFY** the following without explicit user confirmation:
 
-### database.py - Protected Functions
-These functions are **ESSENTIAL** for the application to work. Do NOT remove them:
+### migrations/init_schema.py - Schema & Seed Data
+All CREATE TABLE, ALTER TABLE, CREATE INDEX, and INSERT seed statements live in `jarvis/migrations/init_schema.py` (1,934 lines). The thin `init_db()` in `database.py` delegates to `create_schema(conn, cursor)`.
 
-```python
-# e-Factura OAuth Token Functions (lines ~6444-6580)
-- get_efactura_oauth_tokens(company_cif)    # Required for ANAF authentication
-- save_efactura_oauth_tokens(company_cif, tokens)  # Required for ANAF authentication
-- delete_efactura_oauth_tokens(company_cif)  # Required for ANAF authentication
-- get_efactura_oauth_status(company_cif)     # Required for ANAF authentication
-```
-
-### database.py - Protected Table Definitions in init_db()
-These CREATE TABLE statements are **ESSENTIAL**. Do NOT remove them:
-
-```sql
--- e-Factura Connector Tables (lines ~1730-2050)
-- efactura_company_connections
-- efactura_invoices (with all migrations: ignored, deleted_at, overrides)
-- efactura_invoice_refs
-- efactura_invoice_artifacts
-- efactura_sync_runs
-- efactura_sync_errors
-- efactura_oauth_tokens
-- efactura_partner_types
-- efactura_supplier_mappings
-- efactura_supplier_mapping_types (junction table)
-```
+### Repository Layer
+Business logic is in ~30 repository classes across the codebase. Key repositories:
+- `core/connectors/efactura/repositories/oauth_repository.py` — ANAF OAuth token management
+- `accounting/invoices/repositories/invoice_repository.py` — Invoice CRUD + cache
+- `core/auth/repositories/user_repository.py` — User auth + password management
+- `core/organization/repositories/company_repository.py` — Company VAT matching
 
 ### Before Removing Any Code
 1. **Search for usages**: `grep -r "function_name" jarvis/`
-2. **Check imports**: Look for `from database import function_name`
+2. **Check imports**: Look for import statements across the codebase
 3. **Verify no dependencies**: Ensure no other code relies on the function
-4. **Ask user**: "This function appears to be used by X. Should I still remove it?"
-
-### Recovery Procedure
-If critical functions are accidentally removed:
-1. Check git history: `git log --oneline --all -S "function_name"`
-2. Find the last commit with the function: `git show <commit>:jarvis/database.py | grep -A50 "def function_name"`
-3. Restore from that commit
+4. **Ask user** if uncertain
 
 ## Project Overview
 J.A.R.V.I.S. is a modular enterprise platform with multiple sections:
@@ -98,102 +74,127 @@ J.A.R.V.I.S. is a modular enterprise platform with multiple sections:
 ## Project Structure
 ```
 jarvis/                           # Main application folder
-├── app.py                        # Main Flask application
-├── database.py                   # Database operations (PostgreSQL)
+├── app.py                        # Flask app (484 lines), 17 blueprints
+├── database.py                   # DB pool + helpers (235 lines, pure infra)
 ├── models.py                     # Data models and structure loading
-├── services.py                   # Company VAT matching utilities
+│
+├── migrations/                   # Schema & seed data (Phase 18)
+│   ├── __init__.py
+│   └── init_schema.py            # create_schema() — 1,934 lines DDL/seeds
 │
 ├── core/                         # Core Platform (shared across sections)
-│   ├── __init__.py
-│   ├── database.py               # Base DB connection pool
-│   ├── config.py                 # Configuration settings
-│   ├── auth/                     # Authentication module
-│   │   ├── __init__.py
+│   ├── cache.py                  # In-memory cache infrastructure
+│   ├── auth/                     # Authentication (Phase 9)
 │   │   ├── models.py             # User model (Flask-Login)
-│   │   ├── routes.py             # Auth blueprint routes (not registered - routes in app.py)
+│   │   ├── routes.py             # auth_bp (16 routes)
 │   │   ├── repositories/
-│   │   │   ├── user_repository.py    # User + password reset token CRUD
-│   │   │   └── event_repository.py   # Audit event logging
+│   │   │   ├── user_repository.py       # User CRUD + authenticate + password
+│   │   │   ├── responsable_repository.py # Employee/responsable CRUD
+│   │   │   └── event_repository.py      # Audit event logging
 │   │   └── services/
-│   │       └── auth_service.py       # Auth business logic + password reset
-│   ├── services/                 # Shared services
-│   │   ├── drive_service.py      # Google Drive integration
-│   │   ├── notification_service.py # SMTP email notifications
-│   │   ├── image_compressor.py   # TinyPNG compression
-│   │   └── currency_converter.py # BNR exchange rates
-│   ├── settings/                 # Platform settings
-│   │   ├── __init__.py
-│   │   └── routes.py             # Settings routes
-│   ├── profile/                  # User profile module
-│   │   ├── __init__.py           # Blueprint registration
-│   │   └── routes.py             # Profile API endpoints
-│   ├── connectors/               # External service connectors
+│   │       └── auth_service.py          # Password reset flow
+│   ├── roles/                    # Roles & Permissions (Phase 8)
+│   │   ├── routes.py             # roles_bp
+│   │   └── repositories/
+│   │       ├── role_repository.py
+│   │       └── permission_repository.py
+│   ├── organization/             # Companies & Structure (Phase 10)
+│   │   ├── routes.py             # org_bp (23 routes)
+│   │   └── repositories/
+│   │       ├── company_repository.py    # Company CRUD + VAT matching
+│   │       └── structure_repository.py  # Org hierarchy
+│   ├── settings/                 # Platform settings (Phases 2/3/7)
+│   │   ├── routes.py             # settings_bp
+│   │   ├── themes/repositories/theme_repository.py
+│   │   ├── menus/repositories/menu_repository.py
+│   │   └── dropdowns/repositories/dropdown_repository.py
+│   ├── tags/                     # Tagging system (Phase 4)
+│   │   ├── routes.py             # tags_bp
+│   │   └── repositories/tag_repository.py
+│   ├── presets/                  # User presets (Phase 5)
+│   │   ├── routes.py             # presets_bp
+│   │   └── repositories/preset_repository.py
+│   ├── notifications/            # Notifications (Phase 6)
+│   │   ├── routes.py             # notifications_bp
+│   │   └── repositories/notification_repository.py
+│   ├── profile/                  # User profile (Phase 14)
+│   │   ├── routes.py             # profile_bp
+│   │   └── repositories/profile_repository.py
+│   ├── connectors/               # External connectors (Phase 11)
+│   │   ├── routes.py             # connectors_bp
+│   │   ├── repositories/connector_repository.py
 │   │   └── efactura/             # ANAF e-Factura connector
-│   │       ├── __init__.py       # Blueprint registration
-│   │       ├── routes.py         # API endpoints
-│   │       ├── anaf_client.py    # ANAF API client (OAuth/X.509)
+│   │       ├── routes.py         # efactura_bp
 │   │       ├── xml_parser.py     # UBL 2.1 XML parser
-│   │       ├── models.py         # ParsedInvoice, InvoiceLineItem
-│   │       ├── mock_client.py    # Development mock client
-│   │       └── repositories/
-│   │           └── invoice_repo.py  # Database operations
+│   │       ├── client/           # anaf_client, oauth_client, mock_client
+│   │       ├── repositories/
+│   │       │   ├── company_repo.py
+│   │       │   ├── invoice_repo.py
+│   │       │   ├── sync_repo.py
+│   │       │   └── oauth_repository.py  # OAuth token management
+│   │       └── services/
+│   │           ├── efactura_service.py
+│   │           ├── oauth_service.py
+│   │           └── invoice_service.py
+│   ├── drive/                    # Google Drive (Phase 15)
+│   │   └── routes.py             # drive_bp
+│   ├── services/                 # Shared utility services
+│   │   ├── invoice_service.py
+│   │   ├── notification_service.py
+│   │   ├── settings_service.py
+│   │   ├── drive_service.py
+│   │   ├── currency_converter.py
+│   │   └── image_compressor.py
 │   └── utils/
-│       └── logging_config.py     # Structured logging
+│       └── logging_config.py
 │
 ├── accounting/                   # Accounting Section
-│   ├── __init__.py               # Section blueprint
-│   ├── bugetare/                 # Bugetare App
-│   │   ├── __init__.py           # App blueprint
-│   │   ├── routes.py             # Invoice routes
+│   ├── invoices/                 # Invoice management (Phase 13)
+│   │   ├── routes.py             # invoices_bp (~24 routes)
+│   │   └── repositories/
+│   │       ├── invoice_repository.py
+│   │       ├── allocation_repository.py
+│   │       └── summary_repository.py
+│   ├── templates/                # Invoice templates (Phase 12)
+│   │   ├── routes.py             # templates_bp (7 routes)
+│   │   └── repositories/template_repository.py
+│   ├── bugetare/                 # Bulk operations (Phase 14)
+│   │   ├── routes.py             # bugetare_bp (6 bulk routes)
 │   │   ├── invoice_parser.py     # AI invoice parsing
-│   │   └── bulk_processor.py     # Bulk processing
-│   └── statements/               # Bank Statement Parsing App
-│       ├── __init__.py           # App blueprint
-│       ├── routes.py             # Statement API routes
-│       ├── parser.py             # PDF parsing logic
-│       ├── vendors.py            # Vendor pattern matching
-│       └── database.py           # Statement DB functions
+│   │   └── bulk_processor.py
+│   ├── statements/               # Bank statements
+│   │   ├── routes.py
+│   │   ├── parser.py
+│   │   ├── vendors.py
+│   │   └── services/statements_service.py
+│   └── efactura/                 # Accounting-side e-Factura UI
+│       └── routes.py             # accounting_efactura_bp
 │
 ├── hr/                           # HR Section
-│   ├── __init__.py               # Section blueprint
-│   └── events/                   # Events App
-│       ├── __init__.py           # App blueprint
-│       ├── routes.py             # HR routes
-│       └── database.py           # HR database functions
+│   └── events/
+│       ├── routes.py
+│       ├── utils.py              # Bonus lock logic
+│       └── database.py
+│
+├── ai_agent/                     # AI Agent (4,551 lines)
+│   ├── routes.py                 # ai_agent_bp
+│   ├── providers/                # Claude, OpenAI, Groq, Gemini
+│   ├── repositories/             # conversations, messages, RAG docs
+│   └── services/                 # ai_agent_service, rag_service
+│
+├── frontend/                     # React SPA (Vite+React 19+TS+Tailwind)
+│   └── src/                      # Builds to static/react/
 │
 ├── static/                       # Static assets
-│   ├── css/
-│   │   └── theme.css             # Main stylesheet (includes tag/dialog styles)
-│   ├── js/
-│   │   ├── jarvis-dialogs.js     # Custom dialog & toast system
-│   │   ├── jarvis-presets.js     # Reusable filter presets (JarvisPresets)
-│   │   ├── jarvis-tags.js        # Reusable tagging system (JarvisTags)
-│   │   └── invoice-edit.js       # Shared invoice edit modal
-│   └── img/
+│   ├── css/theme.css
+│   ├── js/                       # jarvis-dialogs, jarvis-presets, jarvis-tags, invoice-edit
+│   └── react/                    # React build output
 │
 └── templates/                    # Jinja2 templates
-    ├── core/                     # Core templates
-    │   ├── login.html
-    │   ├── forgot_password.html  # Password reset request
-    │   ├── reset_password.html   # Set new password
-    │   ├── profile.html          # User profile page
-    │   ├── settings.html
-    │   ├── apps.html
-    │   └── guide.html
-    ├── accounting/
-    │   ├── bugetare/
-    │   │   ├── index.html        # Add Invoice
-    │   │   ├── accounting.html   # Dashboard
-    │   │   ├── templates.html    # Template management
-    │   │   ├── bulk.html         # Bulk processing
-    │   │   └── efactura.html     # e-Factura unallocated invoices
-    │   └── statements/
-    │       └── index.html        # Bank statement upload & review
-    └── hr/
-        └── events/
-            ├── event_bonuses.html
-            ├── events.html
-            └── employees.html
+    ├── core/                     # login, settings, apps, guide, profile
+    ├── accounting/bugetare/      # index, accounting, templates, bulk, efactura
+    ├── accounting/statements/
+    └── hr/events/
 ```
 
 ## URL Structure
@@ -449,16 +450,16 @@ Page           (JSON)         (ANAF API)
 | POST | `/efactura/oauth/refresh` | Manually refresh OAuth access token |
 | POST | `/efactura/oauth/revoke` | Revoke OAuth tokens (disconnect company) |
 
-### OAuth Token Functions (database.py) ⚠️ CRITICAL
+### OAuth Token Functions (`core/connectors/efactura/repositories/oauth_repository.py`)
 
-These functions manage ANAF OAuth authentication. **DO NOT DELETE**:
+ANAF OAuth authentication is managed by `OAuthRepository`:
 
-| Function | Purpose |
-|----------|---------|
-| `get_efactura_oauth_tokens(cif)` | Get OAuth tokens from `connectors` table |
-| `save_efactura_oauth_tokens(cif, tokens)` | Save/update tokens (creates connector if needed) |
-| `delete_efactura_oauth_tokens(cif)` | Remove tokens, set connector status to disconnected |
-| `get_efactura_oauth_status(cif)` | Get auth status (authenticated, expires_at, is_expired) |
+| Method | Purpose |
+|--------|---------|
+| `get_tokens(cif)` | Get OAuth tokens from `connectors` table |
+| `save_tokens(cif, tokens)` | Save/update tokens (creates connector if needed) |
+| `delete_tokens(cif)` | Remove tokens, set connector status to disconnected |
+| `get_status(cif)` | Get auth status (authenticated, expires_at, is_expired) |
 
 **Storage**: Tokens are stored in the `connectors` table with `connector_type = 'efactura'` and `name = company_cif`. The `credentials` JSONB column contains:
 ```json
@@ -761,14 +762,14 @@ Templates define how to extract data from invoices:
 ### Company VAT Matching
 When customer_vat is extracted from an invoice, it's matched against the `companies` table to auto-populate the "Dedicated To (Company)" dropdown.
 
-**Matching Algorithm** (`services.py`):
+**Matching Algorithm** (`core/organization/repositories/company_repository.py`):
 
-1. **Normalization** (`normalize_vat()` in services.py):
+1. **Normalization** (`normalize_vat()` in `CompanyRepository`):
    - Removes prefixes: `CUI:`, `CUI`, `CIF:`, `CIF`, `VAT:`, etc.
    - Removes separators: spaces, dashes, dots, slashes
    - Returns cleaned VAT string
 
-2. **Two-Pass Matching** (`match_company_by_vat()`):
+2. **Two-Pass Matching** (`CompanyRepository.match_by_vat()`):
    - **First pass**: Exact match after normalization
      - `RO 225615` normalized → `RO225615` matches `RO225615`
    - **Second pass**: Numeric-only comparison (if first pass fails)
@@ -1127,10 +1128,10 @@ Notifications are sent to managers defined in `department_structure` for the com
 
 | Function | File | Description |
 |----------|------|-------------|
-| `get_responsables_by_department(department, company)` | database.py | Looks up managers from department_structure |
+| `get_responsables_by_department(department, company)` | notification_repository.py | Looks up managers from department_structure |
 | `find_responsables_for_allocation(allocation)` | notification_service.py | Finds all users to notify for an allocation |
 | `notify_allocation(invoice_data, allocation)` | notification_service.py | Sends notification emails |
-| `get_department_cc_email(company, department)` | database.py | Looks up CC email from department_structure |
+| `get_department_cc_email(company, department)` | notification_repository.py | Looks up CC email from department_structure |
 
 ### Department CC Email
 Each department structure entry can have an optional `cc_email`. When `notify_allocation()` runs:
@@ -1225,12 +1226,11 @@ Tags are managed in Settings → Tags tab (Tag Management section):
 - **Tag Groups**: Table with Name, Description, Color, Sort, Active, Actions
 - **Tags**: Table with Name, Group dropdown, Color, Icon, Global toggle, Status, Actions
 
-### Database Functions (`database.py`)
-~15 functions in the `# ============== TAGGING SYSTEM ==============` section:
-- `get_tag_groups()`, `save_tag_group()`, `update_tag_group()`, `delete_tag_group()`
-- `get_tags()`, `get_tag()`, `save_tag()`, `update_tag()`, `delete_tag()`
-- `get_entity_tags()`, `get_entities_tags_bulk()`, `add_entity_tag()`, `remove_entity_tag()`
-- `bulk_add_entity_tags()`, `bulk_remove_entity_tags()`
+### Repository (`core/tags/repositories/tag_repository.py`)
+`TagRepository` provides all tag CRUD operations:
+- Tag groups: `get_groups()`, `save_group()`, `update_group()`, `delete_group()`
+- Tags: `get_all()`, `get_by_id()`, `save()`, `update()`, `delete()`
+- Entity tags: `get_entity_tags()`, `get_bulk()`, `add()`, `remove()`, `bulk_add()`, `bulk_remove()`
 
 ### Auto-Status on Allocation Edit
 When allocations are edited (via any page including profile), the invoice status is automatically set to the first active `invoice_status` from Settings → Dropdown Options (by sort order). The status value is dynamically read from the database — no hardcoded values. Status change is logged to the activity log.
@@ -1273,3 +1273,216 @@ Some connector infrastructure remains disabled:
 - **Anthropic connector** (`anthropic_connector.py`) - for future invoice auto-fetching
 
 **Active connectors**: e-Factura (ANAF RO e-Invoicing) is fully functional in `core/connectors/efactura/`.
+
+## Development Guidelines
+
+### Coding Conventions
+
+**Python**
+- Files: `snake_case.py`
+- Classes: `PascalCase` (e.g., `InvoiceRepository`, `UserRepository`)
+- Functions/methods: `snake_case` (e.g., `get_by_id`, `save_invoice`)
+- Constants: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_LOCK_DAY`, `COLUMN_CONFIG_VERSION`)
+- Private helpers: `_single_underscore` prefix (e.g., `_compute_bonus_net`)
+- Database tables: `snake_case` plural (`invoices`, `allocations`, `department_structure`)
+- Database columns: `snake_case` (`created_at`, `invoice_number`, `org_unit_id`)
+
+**JavaScript/TypeScript (React frontend)**
+- Components: `PascalCase` files and names (e.g., `DashboardPage.tsx`)
+- Hooks/utilities: `camelCase` (e.g., `useAuth`, `apiClient`)
+- API modules: `camelCase` files (e.g., `invoices.ts`, `settings.ts`)
+- Types: `PascalCase` (e.g., `Invoice`, `DashboardStats`)
+
+**API Endpoints**
+- URL paths: `kebab-case` (e.g., `/api/entity-tags`, `/api/tag-groups`)
+- JSON bodies: `snake_case` keys (e.g., `invoice_number`, `created_at`)
+
+### Git Commit Convention
+
+Format: `type(scope): description`
+
+**Types:** `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `perf`
+
+**Scopes** (match actual modules):
+`accounting`, `invoices`, `statements`, `efactura`, `hr`, `auth`, `settings`, `profile`, `tags`, `presets`, `notifications`, `roles`, `organization`, `connectors`, `drive`, `ai-agent`, `frontend`, `db`, `infra`
+
+Examples:
+```
+feat(efactura): add supplier mapping defaults for department
+fix(accounting): correct GL balance for multi-currency allocations
+refactor(hr): extract bonus computation to dedicated service
+test(invoices): add edge cases for VAT subtraction
+docs(claude): update project structure tree
+perf(efactura): add trigram indexes for ILIKE search
+chore(db): add company_id column migration
+```
+
+**Rules:**
+- One logical change per commit
+- Never mix feature code with refactoring in same commit
+- Never commit secrets, `.env` files, or credentials
+- Always run `pytest tests/ -x` before pushing
+- Migrations get their own commit
+
+### Architecture Rules
+
+**Dependency Direction**
+```
+routes → services → repositories → database
+         ↓
+    domain logic lives HERE (services layer)
+```
+- Routes handle HTTP (request parsing, response formatting)
+- Services contain business logic and orchestration
+- Repositories handle SQL queries and data access
+- Never skip layers — routes don't touch repositories directly
+
+**Repository Pattern** (current implementation)
+```python
+class InvoiceRepository:
+    def get_by_id(self, invoice_id):
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute("SELECT * FROM invoices WHERE id = %s", (invoice_id,))
+            return cursor.fetchone()
+        finally:
+            release_db(conn)
+```
+
+**Connection Management**
+- Always use `try/finally` with `release_db(conn)` in finally block
+- Write operations: `conn.commit()` on success, `conn.rollback()` on error
+- Never leave connections open — prevents pool exhaustion
+
+**Module Boundaries**
+- Each module owns its tables — no cross-module writes
+- Shared read access is OK (e.g., notifications reading `department_structure`)
+- Shared utilities go in `core/services/`
+
+### Code Review Checklist
+
+**Module Boundaries**
+- [ ] No cross-module writes (each module owns its tables)
+- [ ] Dependencies flow downward: routes → services → repositories
+- [ ] No circular imports
+- [ ] Shared utilities in `core/services/` only
+
+**Data Safety**
+- [ ] All DB connections released in `finally` blocks
+- [ ] Write operations wrapped in `try/except` with `conn.rollback()`
+- [ ] Soft deletes used (never hard delete financial data)
+- [ ] Audit trail for user-facing operations (logged to `user_events`)
+- [ ] Unique constraints for idempotency on import operations
+
+**Error Handling**
+- [ ] External API calls wrapped in try/except
+- [ ] Rate limiting enforced (ANAF: 150/hr)
+- [ ] Failed operations don't leave partial state (use transactions)
+- [ ] Error responses include actionable information
+
+**Performance**
+- [ ] No N+1 queries (use JOINs)
+- [ ] Pagination on all list endpoints
+- [ ] Indexes on foreign keys and filter columns
+- [ ] Bulk operations for batch processing (not loop-and-insert)
+- [ ] Connection pool limits respected (`release_db` always called)
+
+**Security**
+- [ ] No secrets in code, logs, or error messages
+- [ ] SQL parameterized (`%s` placeholders, never f-strings in queries)
+- [ ] Authentication required on all financial endpoints (`@login_required`)
+- [ ] Role/permission checks where applicable (`@permission_required`)
+
+**Testing**
+- [ ] Tests exist for all new service methods
+- [ ] Edge cases covered (empty, null, boundary, duplicate)
+- [ ] Error paths tested (invalid input, external failure)
+- [ ] No test interdependencies
+
+### Security Guidelines
+
+**SQL Injection Prevention**
+- All database queries MUST use parameterized statements (`%s` placeholders)
+- No f-strings or string concatenation in SQL
+- Raw SQL with `cursor.execute(query, params)` — always pass params tuple
+
+**Authentication & Authorization**
+- Every financial endpoint requires `@login_required`
+- Role-based access via `@permission_required` decorator
+- HR module uses scope-based permissions (`deny`, `own`, `department`, `all`)
+- Password hashing with bcrypt (`check_password_hash`, `generate_password_hash`)
+
+**Data Exposure**
+- Financial amounts in logs use invoice/transaction IDs, not values
+- API error messages don't leak schema or implementation details
+- PDF/document downloads check ownership before serving
+
+**Secrets Management**
+- All API keys, DB credentials, tokens in environment variables
+- No `.env` files committed (in `.gitignore`)
+- OAuth tokens stored encrypted in `connectors` table (JSONB)
+
+**Input Validation**
+- File uploads: validate MIME type and size limits
+- Numeric inputs: validate range (no negative invoice totals)
+- String inputs: sanitized before rendering in templates
+
+### Financial Data Rules
+
+**Romanian Compliance**
+- VAT rates: 19% standard, 9% reduced, 5% special (managed in `vat_rates` table)
+- Fiscal year: January 1 – December 31
+- Retention: 5 years minimum for all financial documents
+- Soft deletes only — never hard delete financial records
+- Invoice numbering: sequential per series
+
+**Currency Handling**
+- All amounts stored with original currency + RON/EUR conversions
+- Exchange rates from BNR (National Bank of Romania) API
+- Rounding: standard 2 decimal places for RON/EUR
+- Multi-currency invoices: store `currency`, `invoice_value`, `value_ron`, `value_eur`, `exchange_rate`
+
+**VAT Calculation**
+- Net value = Invoice Value / (1 + VAT_Rate/100)
+- VAT amount = Invoice Value - Net Value
+- Allocation values use net value when VAT subtraction is enabled
+
+**Allocation Rules**
+- Each invoice allocated to a single company
+- Allocations split across departments within that company
+- Percentages must sum to 100% (1% tolerance for floating-point)
+- Locked allocations preserved during redistribution
+
+### Testing Standards
+
+**Running Tests**
+```bash
+pytest tests/ -x          # Stop on first failure
+pytest tests/ -v          # Verbose output
+pytest tests/ -k "test_name"  # Run specific test
+```
+
+**Test Naming**
+```python
+# Pattern: test_{action}_{scenario}_{expected_result}
+def test_authenticate_user_with_valid_credentials_succeeds(): ...
+def test_authenticate_user_with_wrong_password_fails(): ...
+def test_save_invoice_with_duplicate_number_raises_error(): ...
+```
+
+**Test Organization**
+```
+tests/
+├── conftest.py              # Shared fixtures, mocks
+├── test_database.py         # Database infrastructure tests
+├── test_notification_service.py  # Service layer tests
+├── test_company_repository.py    # Repository tests
+└── test_user_repository.py       # Repository tests
+```
+
+**Rules**
+- Mock external APIs (ANAF, Google Drive, LLM providers) — never hit real endpoints in tests
+- Each test is independent — no shared mutable state
+- Always test error paths, not just happy paths
+- Current baseline: 437 tests passing

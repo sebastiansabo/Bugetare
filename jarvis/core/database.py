@@ -38,13 +38,6 @@ from database import (
     DATABASE_URL,
     POOL_MIN_CONN,
     POOL_MAX_CONN,
-
-    # Cache utilities
-    create_cache,
-    get_cache_lock,
-    _is_cache_valid,
-    _get_cache_data,
-    _set_cache_data,
 )
 
 # Also export psycopg2 for type hints and error handling
@@ -64,11 +57,6 @@ __all__ = [
     'DATABASE_URL',
     'POOL_MIN_CONN',
     'POOL_MAX_CONN',
-    'create_cache',
-    'get_cache_lock',
-    '_is_cache_valid',
-    '_get_cache_data',
-    '_set_cache_data',
     'psycopg2',
     'RealDictCursor',
 ]

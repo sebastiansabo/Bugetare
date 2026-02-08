@@ -70,5 +70,8 @@ backups/
 anaf-php-main.zip
 anaf-php-main/
 
+# React frontend build output
+jarvis/static/react/
+
 # Claude Code internal
 .claude-code/

@@ -1,0 +1,69 @@
+const BASE_URL = ''
+
+interface ApiOptions extends RequestInit {
+  params?: Record<string, string>
+}
+
+class ApiError extends Error {
+  constructor(
+    public status: number,
+    public data: unknown,
+  ) {
+    super(`API Error ${status}`)
+    this.name = 'ApiError'
+  }
+}
+
+async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const { params, ...fetchOptions } = options
+
+  let url = `${BASE_URL}${path}`
+  if (params) {
+    const searchParams = new URLSearchParams(params)
+    url += `?${searchParams.toString()}`
+  }
+
+  const response = await fetch(url, {
+    ...fetchOptions,
+    headers: {
+      'Content-Type': 'application/json',
+      ...fetchOptions.headers,
+    },
+    credentials: 'same-origin',
+  })
+
+  if (response.status === 401) {
+    window.location.href = '/login'
+    throw new ApiError(401, null)
+  }
+
+  const data = await response.json()
+
+  if (!response.ok) {
+    throw new ApiError(response.status, data)
+  }
+
+  return data as T
+}
+
+export const api = {
+  get: <T>(path: string, params?: Record<string, string>) =>
+    request<T>(path, { method: 'GET', params }),
+
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'POST',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  put: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'PUT',
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+
+  delete: <T>(path: string) =>
+    request<T>(path, { method: 'DELETE' }),
+}
+
+export { ApiError }

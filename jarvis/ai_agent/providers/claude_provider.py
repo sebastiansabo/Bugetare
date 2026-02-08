@@ -5,7 +5,7 @@ Anthropic Claude LLM provider implementation.
 """
 
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Generator, Tuple
 
 import anthropic
 
@@ -176,3 +176,65 @@ class ClaudeProvider(BaseProvider):
             })
 
         return formatted
+
+    def generate_stream(
+        self,
+        model_name: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> Generator[Tuple[Optional[str], Optional[LLMResponse]], None, None]:
+        """Stream a response from Claude, yielding text chunks."""
+        key = api_key or os.environ.get('ANTHROPIC_API_KEY')
+        if not key:
+            raise LLMAuthenticationError("ANTHROPIC_API_KEY not found")
+
+        system_content, remaining_messages = self.extract_system_message(messages)
+        if 'system' in kwargs:
+            system_content = kwargs.pop('system')
+
+        formatted_messages = self.format_messages(remaining_messages)
+        temperature = max(0.0, min(1.0, temperature))
+
+        try:
+            client = anthropic.Anthropic(api_key=key)
+
+            request_params = {
+                'model': model_name,
+                'max_tokens': max_tokens,
+                'temperature': temperature,
+                'messages': formatted_messages,
+            }
+            if system_content:
+                request_params['system'] = system_content
+
+            with client.messages.stream(**request_params) as stream:
+                for text in stream.text_stream:
+                    yield (text, None)
+
+                final = stream.get_final_message()
+
+            input_tokens = final.usage.input_tokens if final.usage else 0
+            output_tokens = final.usage.output_tokens if final.usage else 0
+            content = ""
+            if final.content:
+                content = final.content[0].text
+
+            yield (None, LLMResponse(
+                content=content,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model=model_name,
+                finish_reason=final.stop_reason,
+            ))
+
+        except anthropic.RateLimitError as e:
+            raise LLMRateLimitError(f"Rate limit exceeded: {e}")
+        except anthropic.AuthenticationError as e:
+            raise LLMAuthenticationError(f"Authentication failed: {e}")
+        except anthropic.APIError as e:
+            raise LLMProviderError(f"Claude API error: {e}")
+        except Exception as e:
+            raise LLMProviderError(f"Failed to stream Claude API: {e}")

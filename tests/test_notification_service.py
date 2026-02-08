@@ -353,7 +353,7 @@ class TestCreateAllocationEmailText:
 class TestFindResponsablesForAllocation:
     """Tests for find_responsables_for_allocation() function."""
 
-    @patch('core.services.notification_service.get_responsables_by_department')
+    @patch('core.services.notification_service.get_managers_for_department')
     def test_finds_department_responsables(self, mock_get):
         mock_get.return_value = [
             {'id': 1, 'name': 'John', 'is_active': True, 'notify_on_allocation': True}
@@ -365,7 +365,7 @@ class TestFindResponsablesForAllocation:
         assert len(result) == 1
         assert result[0]['name'] == 'John'
 
-    @patch('core.services.notification_service.get_responsables_by_department')
+    @patch('core.services.notification_service.get_managers_for_department')
     def test_excludes_inactive_responsables(self, mock_get):
         mock_get.return_value = [
             {'id': 1, 'name': 'Active', 'is_active': True, 'notify_on_allocation': True},
@@ -378,7 +378,7 @@ class TestFindResponsablesForAllocation:
         assert len(result) == 1
         assert result[0]['name'] == 'Active'
 
-    @patch('core.services.notification_service.get_responsables_by_department')
+    @patch('core.services.notification_service.get_managers_for_department')
     def test_excludes_no_notify_responsables(self, mock_get):
         mock_get.return_value = [
             {'id': 1, 'name': 'Notify', 'is_active': True, 'notify_on_allocation': True},
@@ -391,9 +391,9 @@ class TestFindResponsablesForAllocation:
         assert len(result) == 1
         assert result[0]['name'] == 'Notify'
 
-    @patch('core.services.notification_service.get_responsables_by_department')
+    @patch('core.services.notification_service.get_managers_for_department')
     def test_includes_reinvoice_department(self, mock_get):
-        def side_effect(dept):
+        def side_effect(dept, company=None):
             if dept == 'Marketing':
                 return [{'id': 1, 'name': 'Marketing Person', 'is_active': True, 'notify_on_allocation': True}]
             elif dept == 'Sales':
@@ -411,7 +411,7 @@ class TestFindResponsablesForAllocation:
 
         assert len(result) == 2
 
-    @patch('core.services.notification_service.get_responsables_by_department')
+    @patch('core.services.notification_service.get_managers_for_department')
     def test_deduplicates_responsables(self, mock_get):
         """Same person in both departments should only appear once"""
         mock_get.return_value = [

@@ -6,15 +6,17 @@ A modular enterprise platform for accounting, HR, and business operations manage
 
 | Section | Apps | Description |
 |---------|------|-------------|
-| **Accounting** | Bugetare, Statements, e-Factura | Invoice allocation, bank statement parsing, ANAF e-invoicing |
+| **Accounting** | Invoices, Templates, Bugetare, Statements, e-Factura | Invoice allocation, bank statement parsing, ANAF e-invoicing |
 | **HR** | Events | Employee event bonus management |
-| **Core** | Auth, Settings, Profile | User management, platform configuration |
+| **AI** | AI Agent | Multi-provider chatbot with RAG (Claude, OpenAI, Groq, Gemini) |
+| **Core** | Auth, Roles, Organization, Settings, Profile, Tags, Presets, Notifications, Connectors, Drive | User management, permissions, platform configuration |
 
 ## Tech Stack
 
-- **Backend**: Flask + Gunicorn
-- **Database**: PostgreSQL
-- **AI**: Anthropic Claude API (invoice parsing)
+- **Backend**: Flask + Gunicorn (17 blueprints, ~30 repository classes)
+- **Database**: PostgreSQL (pgvector for RAG)
+- **Frontend**: React 19 + TypeScript + Vite + Tailwind + shadcn/ui (at `/app/*`)
+- **AI**: Multi-provider (Claude, OpenAI, Groq, Gemini) for chatbot + Claude Sonnet vision for invoice parsing
 - **Storage**: Google Drive integration
 - **Deployment**: DigitalOcean App Platform (Docker)
 
@@ -36,16 +38,31 @@ python jarvis/app.py
 
 ```
 jarvis/
-├── app.py                 # Main Flask application
-├── database.py            # Database operations
-├── core/                  # Core platform (auth, settings, connectors)
-│   └── connectors/
-│       └── efactura/      # ANAF e-Factura integration
+├── app.py                 # Flask app (484 lines, 17 blueprints)
+├── database.py            # DB pool + helpers (235 lines)
+├── migrations/            # Schema & seed data (init_schema.py)
+├── core/                  # Core platform
+│   ├── auth/              # Authentication & users
+│   ├── roles/             # Roles & permissions
+│   ├── organization/      # Companies & structure
+│   ├── settings/          # Themes, menus, dropdowns
+│   ├── tags/              # Platform-wide tagging
+│   ├── presets/           # User filter presets
+│   ├── notifications/     # Email notifications
+│   ├── profile/           # User profile
+│   ├── connectors/        # External connectors (e-Factura/ANAF)
+│   ├── drive/             # Google Drive integration
+│   └── services/          # Shared utilities
 ├── accounting/            # Accounting section
-│   ├── bugetare/          # Invoice budget allocation
-│   └── statements/        # Bank statement parsing
-└── hr/                    # HR section
-    └── events/            # Event bonus management
+│   ├── invoices/          # Invoice & allocation management
+│   ├── templates/         # Invoice parsing templates
+│   ├── bugetare/          # Bulk processor & invoice parser
+│   ├── statements/        # Bank statement parsing
+│   └── efactura/          # e-Factura accounting UI
+├── hr/                    # HR section
+│   └── events/            # Event bonus management
+├── ai_agent/              # AI chatbot (multi-provider + RAG)
+└── frontend/              # React SPA (Vite + TS + Tailwind)
 ```
 
 ## Documentation

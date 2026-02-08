@@ -10,29 +10,34 @@ from typing import Optional, List, Dict, Any
 from decimal import Decimal
 
 from core.utils.logging_config import get_logger
-from database import (
-    get_all_invoices,
-    get_invoice_with_allocations,
-    get_invoices_with_allocations,
-    search_invoices,
-    get_summary_by_company,
-    get_summary_by_department,
-    get_summary_by_brand,
-    get_summary_by_supplier,
-    delete_invoice,
-    restore_invoice,
-    update_invoice,
-    save_invoice,
-    update_invoice_allocations,
-    check_invoice_number_exists,
-    bulk_soft_delete_invoices,
-    bulk_restore_invoices,
-    permanently_delete_invoice,
-    bulk_permanently_delete_invoices,
-    get_invoice_drive_link,
-    get_invoice_drive_links,
-    update_allocation_comment,
-)
+from accounting.invoices.repositories import InvoiceRepository, AllocationRepository, SummaryRepository
+
+_inv = InvoiceRepository()
+_alloc = AllocationRepository()
+_summ = SummaryRepository()
+
+# Function aliases (preserve call sites)
+get_all_invoices = _inv.get_all
+get_invoice_with_allocations = _inv.get_with_allocations
+get_invoices_with_allocations = _inv.get_all_with_allocations
+search_invoices = _inv.search
+delete_invoice = _inv.delete
+restore_invoice = _inv.restore
+update_invoice = _inv.update
+save_invoice = _inv.save
+check_invoice_number_exists = _inv.check_number_exists
+bulk_soft_delete_invoices = _inv.bulk_soft_delete
+bulk_restore_invoices = _inv.bulk_restore
+permanently_delete_invoice = _inv.permanently_delete
+bulk_permanently_delete_invoices = _inv.bulk_permanently_delete
+get_invoice_drive_link = _inv.get_drive_link
+get_invoice_drive_links = _inv.get_drive_links
+update_invoice_allocations = _alloc.update_invoice_allocations
+update_allocation_comment = _alloc.update_comment
+get_summary_by_company = _summ.by_company
+get_summary_by_department = _summ.by_department
+get_summary_by_brand = _summ.by_brand
+get_summary_by_supplier = _summ.by_supplier
 
 logger = get_logger('jarvis.core.services.invoice')
 

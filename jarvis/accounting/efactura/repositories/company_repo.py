@@ -7,7 +7,7 @@ Database operations for e-Factura company connections.
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from core.database import get_db, get_cursor
+from core.database import get_db, get_cursor, release_db
 from core.utils.logging_config import get_logger
 from ..models import CompanyConnection
 
@@ -28,9 +28,9 @@ class CompanyConnectionRepository:
             Created CompanyConnection with ID
         """
         conn = get_db()
-        cursor = get_cursor(conn)
-
         try:
+            cursor = get_cursor(conn)
+
             cursor.execute("""
                 INSERT INTO efactura_company_connections (
                     cif, display_name, environment, status, status_message,
@@ -71,6 +71,8 @@ class CompanyConnectionRepository:
             conn.rollback()
             logger.error(f"Failed to create company connection: {e}")
             raise
+        finally:
+            release_db(conn)
 
     def get_by_cif(self, cif: str) -> Optional[CompanyConnection]:
         """
@@ -83,65 +85,77 @@ class CompanyConnectionRepository:
             CompanyConnection or None
         """
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT * FROM efactura_company_connections
-            WHERE cif = %s
-        """, (cif,))
+            cursor.execute("""
+                SELECT * FROM efactura_company_connections
+                WHERE cif = %s
+            """, (cif,))
 
-        row = cursor.fetchone()
-        if row is None:
-            return None
+            row = cursor.fetchone()
+            if row is None:
+                return None
 
-        return self._row_to_model(row)
+            return self._row_to_model(row)
+        finally:
+            release_db(conn)
 
     def get_by_id(self, connection_id: int) -> Optional[CompanyConnection]:
         """Get company connection by ID."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT * FROM efactura_company_connections
-            WHERE id = %s
-        """, (connection_id,))
+            cursor.execute("""
+                SELECT * FROM efactura_company_connections
+                WHERE id = %s
+            """, (connection_id,))
 
-        row = cursor.fetchone()
-        if row is None:
-            return None
+            row = cursor.fetchone()
+            if row is None:
+                return None
 
-        return self._row_to_model(row)
+            return self._row_to_model(row)
+        finally:
+            release_db(conn)
 
     def get_all_active(self) -> List[CompanyConnection]:
         """Get all active company connections."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT * FROM efactura_company_connections
-            WHERE status = 'active'
-            ORDER BY display_name
-        """)
+            cursor.execute("""
+                SELECT * FROM efactura_company_connections
+                WHERE status = 'active'
+                ORDER BY display_name
+            """)
 
-        return [self._row_to_model(row) for row in cursor.fetchall()]
+            return [self._row_to_model(row) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)
 
     def get_for_sync(self) -> List[CompanyConnection]:
         """Get companies that need synchronization."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        # Get active connections that haven't synced in the last hour
-        cursor.execute("""
-            SELECT * FROM efactura_company_connections
-            WHERE status = 'active'
-            AND (
-                last_sync_at IS NULL
-                OR last_sync_at < NOW() - INTERVAL '1 hour'
-            )
-            ORDER BY last_sync_at NULLS FIRST
-        """)
+            # Get active connections that haven't synced in the last hour
+            cursor.execute("""
+                SELECT * FROM efactura_company_connections
+                WHERE status = 'active'
+                AND (
+                    last_sync_at IS NULL
+                    OR last_sync_at < NOW() - INTERVAL '1 hour'
+                )
+                ORDER BY last_sync_at NULLS FIRST
+            """)
 
-        return [self._row_to_model(row) for row in cursor.fetchall()]
+            return [self._row_to_model(row) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)
 
     def update(self, connection: CompanyConnection) -> CompanyConnection:
         """
@@ -154,9 +168,9 @@ class CompanyConnectionRepository:
             Updated CompanyConnection
         """
         conn = get_db()
-        cursor = get_cursor(conn)
-
         try:
+            cursor = get_cursor(conn)
+
             cursor.execute("""
                 UPDATE efactura_company_connections SET
                     display_name = %(display_name)s,
@@ -196,6 +210,8 @@ class CompanyConnectionRepository:
             conn.rollback()
             logger.error(f"Failed to update company connection: {e}")
             raise
+        finally:
+            release_db(conn)
 
     def update_sync_cursor(
         self,
@@ -212,9 +228,9 @@ class CompanyConnectionRepository:
             sent_cursor: New cursor for sent messages
         """
         conn = get_db()
-        cursor = get_cursor(conn)
-
         try:
+            cursor = get_cursor(conn)
+
             updates = ['last_sync_at = NOW()', 'updated_at = NOW()']
             params = {'cif': cif}
 
@@ -243,6 +259,8 @@ class CompanyConnectionRepository:
             conn.rollback()
             logger.error(f"Failed to update sync cursor: {e}")
             raise
+        finally:
+            release_db(conn)
 
     def update_status(
         self,
@@ -259,9 +277,9 @@ class CompanyConnectionRepository:
             message: Status message
         """
         conn = get_db()
-        cursor = get_cursor(conn)
-
         try:
+            cursor = get_cursor(conn)
+
             cursor.execute("""
                 UPDATE efactura_company_connections SET
                     status = %s,
@@ -281,6 +299,8 @@ class CompanyConnectionRepository:
             conn.rollback()
             logger.error(f"Failed to update status: {e}")
             raise
+        finally:
+            release_db(conn)
 
     def delete(self, cif: str) -> bool:
         """
@@ -293,9 +313,9 @@ class CompanyConnectionRepository:
             True if deleted
         """
         conn = get_db()
-        cursor = get_cursor(conn)
-
         try:
+            cursor = get_cursor(conn)
+
             cursor.execute("""
                 DELETE FROM efactura_company_connections
                 WHERE cif = %s
@@ -316,6 +336,8 @@ class CompanyConnectionRepository:
             conn.rollback()
             logger.error(f"Failed to delete company connection: {e}")
             raise
+        finally:
+            release_db(conn)
 
     def _row_to_model(self, row: Dict[str, Any]) -> CompanyConnection:
         """Convert database row to CompanyConnection model."""

@@ -127,6 +127,32 @@ class ModelConfigRepository:
         finally:
             release_db(conn)
 
+    def get_all(self) -> List[ModelConfig]:
+        """Get all model configurations (including inactive)."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute("""
+                SELECT id, provider, model_name, display_name,
+                       api_key_encrypted, base_url,
+                       cost_per_1k_input, cost_per_1k_output,
+                       max_tokens, rate_limit_rpm, rate_limit_tpm,
+                       default_temperature, is_active, is_default,
+                       created_at, updated_at
+                FROM ai_agent.model_configs
+                ORDER BY
+                    CASE provider
+                        WHEN 'claude' THEN 1
+                        WHEN 'openai' THEN 2
+                        WHEN 'groq' THEN 3
+                        ELSE 4
+                    END,
+                    is_default DESC, model_name
+            """)
+            return [self._row_to_model_config(row) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)
+
     def get_all_active(self) -> List[ModelConfig]:
         """
         Get all active model configurations.

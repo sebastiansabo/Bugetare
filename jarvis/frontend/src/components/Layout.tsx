@@ -1,0 +1,68 @@
+import { Outlet } from 'react-router-dom'
+import { Menu } from 'lucide-react'
+import { useState } from 'react'
+import { useAuth } from '@/hooks/useAuth'
+import { Sidebar } from './Sidebar'
+import { Button } from '@/components/ui/button'
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Toaster } from '@/components/ui/sonner'
+
+export default function Layout() {
+  const { user, isLoading } = useAuth()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <div className="space-y-3">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    window.location.href = '/login'
+    return null
+  }
+
+  return (
+    <div className="flex h-screen bg-background">
+      {/* Desktop sidebar */}
+      <aside className="hidden w-64 border-r md:block">
+        <Sidebar />
+      </aside>
+
+      {/* Mobile sidebar */}
+      <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+        <SheetContent side="left" className="w-64 p-0">
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          <Sidebar />
+        </SheetContent>
+      </Sheet>
+
+      {/* Main content */}
+      <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Mobile header */}
+        <header className="flex h-14 items-center border-b px-4 md:hidden">
+          <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+          </Sheet>
+          <span className="ml-2 text-lg font-semibold">JARVIS</span>
+        </header>
+
+        <main className="flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
+
+      <Toaster />
+    </div>
+  )
+}

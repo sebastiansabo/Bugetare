@@ -1,0 +1,830 @@
+import { useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  FileText,
+  Building2,
+  FolderTree,
+  Tag,
+  Truck,
+  Trash2,
+  Plus,
+  Pencil,
+  RotateCcw,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Columns3,
+  GripVertical,
+  Eye,
+  EyeOff,
+} from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { PageHeader } from '@/components/shared/PageHeader'
+import { StatCard } from '@/components/shared/StatCard'
+import { StatusBadge } from '@/components/shared/StatusBadge'
+import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
+import { SearchInput } from '@/components/shared/SearchInput'
+import { FilterBar, type FilterField } from '@/components/shared/FilterBar'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
+import { invoicesApi } from '@/api/invoices'
+import { organizationApi } from '@/api/organization'
+import { settingsApi } from '@/api/settings'
+import { useAccountingStore } from '@/stores/accountingStore'
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import type { Invoice, InvoiceFilters } from '@/types/invoices'
+import { EditInvoiceDialog } from './EditInvoiceDialog'
+import { SummaryTable } from './SummaryTable'
+
+type TabKey = 'invoices' | 'company' | 'department' | 'brand' | 'supplier' | 'bin'
+
+const tabs: { key: TabKey; label: string; icon: React.ElementType }[] = [
+  { key: 'invoices', label: 'Invoices', icon: FileText },
+  { key: 'company', label: 'By Company', icon: Building2 },
+  { key: 'department', label: 'By Department', icon: FolderTree },
+  { key: 'brand', label: 'By Brand', icon: Tag },
+  { key: 'supplier', label: 'By Supplier', icon: Truck },
+  { key: 'bin', label: 'Bin', icon: Trash2 },
+]
+
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('ro-RO', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+export default function Accounting() {
+  const queryClient = useQueryClient()
+  const [activeTab, setActiveTab] = useState<TabKey>('invoices')
+  const [search, setSearch] = useState('')
+  const [editInvoice, setEditInvoice] = useState<Invoice | null>(null)
+  const [expandedRow, setExpandedRow] = useState<number | null>(null)
+  const [deleteIds, setDeleteIds] = useState<number[] | null>(null)
+  const [permanentDeleteIds, setPermanentDeleteIds] = useState<number[] | null>(null)
+
+  const {
+    filters,
+    selectedInvoiceIds,
+    setSelectedInvoiceIds,
+    toggleInvoiceSelected,
+    clearSelected,
+    updateFilter,
+    visibleColumns,
+    setVisibleColumns,
+  } = useAccountingStore()
+
+  // Data queries
+  const apiFilters: InvoiceFilters & { include_allocations?: boolean } = {
+    ...filters,
+    include_allocations: true,
+  }
+
+  const { data: invoices = [], isLoading } = useQuery({
+    queryKey: ['invoices', filters],
+    queryFn: () => invoicesApi.getInvoices(apiFilters),
+    enabled: activeTab === 'invoices',
+  })
+
+  const { data: binInvoices = [], isLoading: binLoading } = useQuery({
+    queryKey: ['invoices', 'bin'],
+    queryFn: () => invoicesApi.getDeletedInvoices(),
+    enabled: activeTab === 'bin',
+  })
+
+  const { data: companySummary = [] } = useQuery({
+    queryKey: ['invoices', 'summary', 'company', filters],
+    queryFn: () => invoicesApi.getCompanySummary(filters),
+  })
+
+  const { data: departmentSummary = [] } = useQuery({
+    queryKey: ['invoices', 'summary', 'department', filters],
+    queryFn: () => invoicesApi.getDepartmentSummary(filters),
+    enabled: activeTab === 'department',
+  })
+
+  const { data: brandSummary = [] } = useQuery({
+    queryKey: ['invoices', 'summary', 'brand', filters],
+    queryFn: () => invoicesApi.getBrandSummary(filters),
+    enabled: activeTab === 'brand',
+  })
+
+  const { data: supplierSummary = [] } = useQuery({
+    queryKey: ['invoices', 'summary', 'supplier', filters],
+    queryFn: () => invoicesApi.getSupplierSummary(filters),
+    enabled: activeTab === 'supplier',
+  })
+
+  // Filter options
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => organizationApi.getCompanies(),
+  })
+
+  const { data: dropdownOptions = [] } = useQuery({
+    queryKey: ['settings', 'dropdowns'],
+    queryFn: () => settingsApi.getDropdownOptions(),
+  })
+
+  const statusOptions = useMemo(
+    () => dropdownOptions.filter((d) => d.dropdown_type === 'invoice_status').map((d) => ({ value: d.value, label: d.label })),
+    [dropdownOptions],
+  )
+
+  const paymentOptions = useMemo(
+    () =>
+      dropdownOptions.filter((d) => d.dropdown_type === 'payment_status').map((d) => ({ value: d.value, label: d.label })),
+    [dropdownOptions],
+  )
+
+  const companyOptions = useMemo(
+    () => (companies as string[]).map((c) => ({ value: c, label: c })),
+    [companies],
+  )
+
+  const departmentOptions = useMemo(() => {
+    const depts = new Set(invoices.flatMap((inv) => inv.allocations?.map((a) => a.department) ?? []))
+    return Array.from(depts)
+      .sort()
+      .map((d) => ({ value: d, label: d }))
+  }, [invoices])
+
+  // Mutations
+  const deleteMutation = useMutation({
+    mutationFn: (ids: number[]) =>
+      ids.length === 1 ? invoicesApi.deleteInvoice(ids[0]) : invoicesApi.bulkDelete(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      clearSelected()
+      setDeleteIds(null)
+      toast.success('Invoice(s) moved to bin')
+    },
+    onError: () => toast.error('Failed to delete'),
+  })
+
+  const restoreMutation = useMutation({
+    mutationFn: (ids: number[]) =>
+      ids.length === 1 ? invoicesApi.restoreInvoice(ids[0]) : invoicesApi.bulkRestore(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      clearSelected()
+      toast.success('Invoice(s) restored')
+    },
+    onError: () => toast.error('Failed to restore'),
+  })
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (ids: number[]) =>
+      ids.length === 1 ? invoicesApi.permanentDeleteInvoice(ids[0]) : invoicesApi.bulkPermanentDelete(ids),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      clearSelected()
+      setPermanentDeleteIds(null)
+      toast.success('Invoice(s) permanently deleted')
+    },
+    onError: () => toast.error('Failed to permanently delete'),
+  })
+
+  // Derived data
+  const displayedInvoices = useMemo(() => {
+    const list = activeTab === 'bin' ? binInvoices : invoices
+    if (!search) return list
+    const q = search.toLowerCase()
+    return list.filter(
+      (inv) =>
+        inv.supplier.toLowerCase().includes(q) ||
+        inv.invoice_number.toLowerCase().includes(q) ||
+        inv.id.toString().includes(q),
+    )
+  }, [invoices, binInvoices, activeTab, search])
+
+  const totalRon = useMemo(
+    () => companySummary.reduce((sum, c) => sum + (c.total_value_ron ?? 0), 0),
+    [companySummary],
+  )
+
+  const totalEur = useMemo(
+    () => companySummary.reduce((sum, c) => sum + (c.total_value_eur ?? 0), 0),
+    [companySummary],
+  )
+
+  const allSelected = displayedInvoices.length > 0 && selectedInvoiceIds.length === displayedInvoices.length
+  const someSelected = selectedInvoiceIds.length > 0 && !allSelected
+
+  const filterFields: FilterField[] = [
+    { key: 'company', label: 'Company', type: 'select', options: companyOptions },
+    { key: 'department', label: 'Department', type: 'select', options: departmentOptions },
+    { key: 'status', label: 'Status', type: 'select', options: statusOptions },
+    { key: 'payment_status', label: 'Payment', type: 'select', options: paymentOptions },
+    { key: 'start_date', label: 'Start Date', type: 'date' },
+    { key: 'end_date', label: 'End Date', type: 'date' },
+  ]
+
+  const filterValues: Record<string, string> = {
+    company: filters.company ?? '',
+    department: filters.department ?? '',
+    status: filters.status ?? '',
+    payment_status: filters.payment_status ?? '',
+    start_date: filters.start_date ?? '',
+    end_date: filters.end_date ?? '',
+  }
+
+  const handleFilterChange = (values: Record<string, string>) => {
+    Object.entries(values).forEach(([key, value]) => {
+      updateFilter(key as keyof InvoiceFilters, value || undefined)
+    })
+  }
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      clearSelected()
+    } else {
+      setSelectedInvoiceIds(displayedInvoices.map((inv) => inv.id))
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Accounting"
+        description="Invoice management, allocations & financial reports."
+        actions={
+          <Button asChild>
+            <Link to="/app/accounting/add">
+              <Plus className="mr-1.5 h-4 w-4" />
+              New Invoice
+            </Link>
+          </Button>
+        }
+      />
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <StatCard
+          title="Invoices"
+          value={invoices.length}
+          icon={<FileText className="h-4 w-4" />}
+          isLoading={isLoading}
+        />
+        <StatCard
+          title="Companies"
+          value={companySummary.length}
+          icon={<Building2 className="h-4 w-4" />}
+        />
+        <StatCard
+          title="Departments"
+          value={new Set(invoices.flatMap((i) => i.allocations?.map((a) => a.department) ?? [])).size}
+          icon={<FolderTree className="h-4 w-4" />}
+          isLoading={isLoading}
+        />
+        <StatCard
+          title="Total RON"
+          value={new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(totalRon)}
+          icon={<span className="text-xs font-bold">RON</span>}
+        />
+        <StatCard
+          title="Total EUR"
+          value={new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(totalEur)}
+          icon={<span className="text-xs font-bold">EUR</span>}
+        />
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b">
+        {tabs.map((tab) => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setActiveTab(tab.key)
+                clearSelected()
+                setSearch('')
+              }}
+              className={cn(
+                'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                activeTab === tab.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {tab.label}
+              {tab.key === 'bin' && binInvoices.length > 0 && (
+                <span className="ml-1 rounded-full bg-destructive px-1.5 py-0.5 text-[10px] text-destructive-foreground">
+                  {binInvoices.length}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Filter + Search bar */}
+      {(activeTab === 'invoices' || activeTab === 'bin') && (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+          <div className="flex-1">
+            <FilterBar fields={filterFields} values={filterValues} onChange={handleFilterChange} />
+          </div>
+          <div className="flex items-center gap-2">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Search supplier or invoice #..."
+              className="w-full sm:w-64"
+            />
+            <ColumnToggle visibleColumns={visibleColumns} onChange={setVisibleColumns} />
+          </div>
+        </div>
+      )}
+
+      {/* Bulk action bar */}
+      {selectedInvoiceIds.length > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border bg-muted/50 px-4 py-2">
+          <span className="text-sm font-medium">{selectedInvoiceIds.length} selected</span>
+          <div className="flex-1" />
+          {activeTab === 'invoices' && (
+            <Button variant="destructive" size="sm" onClick={() => setDeleteIds(selectedInvoiceIds)}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          )}
+          {activeTab === 'bin' && (
+            <>
+              <Button variant="outline" size="sm" onClick={() => restoreMutation.mutate(selectedInvoiceIds)}>
+                <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                Restore
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => setPermanentDeleteIds(selectedInvoiceIds)}>
+                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                Permanent Delete
+              </Button>
+            </>
+          )}
+          <Button variant="ghost" size="sm" onClick={clearSelected}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {/* Tab content */}
+      {activeTab === 'invoices' || activeTab === 'bin' ? (
+        <InvoiceTable
+          invoices={displayedInvoices}
+          isLoading={activeTab === 'bin' ? binLoading : isLoading}
+          selectedIds={selectedInvoiceIds}
+          allSelected={allSelected}
+          someSelected={someSelected}
+          onSelectAll={handleSelectAll}
+          onToggleSelect={toggleInvoiceSelected}
+          onEdit={setEditInvoice}
+          onDelete={(id) => setDeleteIds([id])}
+          onRestore={(id) => restoreMutation.mutate([id])}
+          onPermanentDelete={(id) => setPermanentDeleteIds([id])}
+          expandedRow={expandedRow}
+          onToggleExpand={(id) => setExpandedRow(expandedRow === id ? null : id)}
+          isBin={activeTab === 'bin'}
+          visibleColumns={visibleColumns}
+        />
+      ) : activeTab === 'company' ? (
+        <SummaryTable data={companySummary} nameKey="company" label="Company" />
+      ) : activeTab === 'department' ? (
+        <SummaryTable data={departmentSummary} nameKey="department" label="Department" />
+      ) : activeTab === 'brand' ? (
+        <SummaryTable data={brandSummary} nameKey="brand" label="Brand" />
+      ) : activeTab === 'supplier' ? (
+        <SummaryTable data={supplierSummary} nameKey="supplier" label="Supplier" />
+      ) : null}
+
+      {/* Edit dialog */}
+      {editInvoice && (
+        <EditInvoiceDialog
+          invoice={editInvoice}
+          open={!!editInvoice}
+          onClose={() => setEditInvoice(null)}
+          statusOptions={statusOptions}
+          paymentOptions={paymentOptions}
+        />
+      )}
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={!!deleteIds}
+        onOpenChange={() => setDeleteIds(null)}
+        title="Delete Invoice(s)"
+        description={`Move ${deleteIds?.length ?? 0} invoice(s) to the recycle bin?`}
+        onConfirm={() => deleteIds && deleteMutation.mutate(deleteIds)}
+        destructive
+      />
+
+      {/* Permanent delete confirmation */}
+      <ConfirmDialog
+        open={!!permanentDeleteIds}
+        onOpenChange={() => setPermanentDeleteIds(null)}
+        title="Permanently Delete"
+        description={`This will permanently delete ${permanentDeleteIds?.length ?? 0} invoice(s) and remove associated Drive files. This cannot be undone.`}
+        onConfirm={() => permanentDeleteIds && permanentDeleteMutation.mutate(permanentDeleteIds)}
+        destructive
+      />
+    </div>
+  )
+}
+
+/* ──── Column Definitions ──── */
+
+interface ColumnDef {
+  key: string
+  label: string
+  headerClass?: string
+  render: (inv: Invoice) => React.ReactNode
+}
+
+const columnDefs: ColumnDef[] = [
+  {
+    key: 'status',
+    label: 'Status',
+    render: (inv) => <StatusBadge status={inv.status} />,
+  },
+  {
+    key: 'payment_status',
+    label: 'Payment',
+    render: (inv) => <StatusBadge status={inv.payment_status} />,
+  },
+  {
+    key: 'invoice_date',
+    label: 'Date',
+    render: (inv) => <span className="whitespace-nowrap text-sm">{formatDate(inv.invoice_date)}</span>,
+  },
+  {
+    key: 'supplier',
+    label: 'Supplier',
+    render: (inv) => <span className="block max-w-[200px] truncate text-sm">{inv.supplier}</span>,
+  },
+  {
+    key: 'invoice_number',
+    label: 'Invoice #',
+    render: (inv) => <span className="text-sm font-medium">{inv.invoice_number}</span>,
+  },
+  {
+    key: 'invoice_value',
+    label: 'Value',
+    headerClass: 'text-right',
+    render: (inv) => (
+      <div className="text-right">
+        <CurrencyDisplay value={inv.invoice_value} currency={inv.currency} />
+      </div>
+    ),
+  },
+  {
+    key: 'currency',
+    label: 'Currency',
+    render: (inv) => <span className="text-sm">{inv.currency}</span>,
+  },
+  {
+    key: 'drive_link',
+    label: 'Drive Link',
+    render: (inv) =>
+      inv.drive_link ? (
+        <a href={inv.drive_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs truncate block max-w-[120px]">
+          Link
+        </a>
+      ) : (
+        <span className="text-muted-foreground text-xs">-</span>
+      ),
+  },
+  {
+    key: 'company',
+    label: 'Company',
+    render: (inv) => <span className="text-sm">{inv.allocations?.[0]?.company ?? '-'}</span>,
+  },
+  {
+    key: 'department',
+    label: 'Department',
+    render: (inv) => <span className="text-sm">{inv.allocations?.[0]?.department ?? '-'}</span>,
+  },
+]
+
+const columnDefMap = new Map(columnDefs.map((c) => [c.key, c]))
+
+/* ──── Column Toggle + Reorder ──── */
+
+function ColumnToggle({
+  visibleColumns,
+  onChange,
+}: {
+  visibleColumns: string[]
+  onChange: (cols: string[]) => void
+}) {
+  const hiddenColumns = columnDefs.filter((c) => !visibleColumns.includes(c.key))
+
+  const moveUp = (idx: number) => {
+    if (idx <= 0) return
+    const next = [...visibleColumns]
+    ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
+    onChange(next)
+  }
+
+  const moveDown = (idx: number) => {
+    if (idx >= visibleColumns.length - 1) return
+    const next = [...visibleColumns]
+    ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
+    onChange(next)
+  }
+
+  const toggle = (key: string) => {
+    if (visibleColumns.includes(key)) {
+      onChange(visibleColumns.filter((c) => c !== key))
+    } else {
+      onChange([...visibleColumns, key])
+    }
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Toggle columns">
+          <Columns3 className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 p-3">
+        <p className="mb-2 text-xs font-medium text-muted-foreground">Columns &amp; Order</p>
+        <div className="space-y-0.5">
+          {visibleColumns.map((key, idx) => {
+            const col = columnDefMap.get(key)
+            if (!col) return null
+            return (
+              <div key={key} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent/50">
+                <GripVertical className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                <span className="flex-1 text-sm">{col.label}</span>
+                <button
+                  onClick={() => moveUp(idx)}
+                  disabled={idx === 0}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => moveDown(idx)}
+                  disabled={idx === visibleColumns.length - 1}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+                <button onClick={() => toggle(key)} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                  <EyeOff className="h-3 w-3" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+        {hiddenColumns.length > 0 && (
+          <>
+            <div className="my-2 border-t" />
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Hidden</p>
+            <div className="space-y-0.5">
+              {hiddenColumns.map((col) => (
+                <div key={col.key} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent/50">
+                  <span className="flex-1 text-sm text-muted-foreground">{col.label}</span>
+                  <button onClick={() => toggle(col.key)} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                    <Eye className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/* ──── Invoice Table ──── */
+
+function InvoiceTable({
+  invoices,
+  isLoading,
+  selectedIds,
+  allSelected,
+  someSelected,
+  onSelectAll,
+  onToggleSelect,
+  onEdit,
+  onDelete,
+  onRestore,
+  onPermanentDelete,
+  expandedRow,
+  onToggleExpand,
+  isBin,
+  visibleColumns,
+}: {
+  invoices: Invoice[]
+  isLoading: boolean
+  selectedIds: number[]
+  allSelected: boolean
+  someSelected: boolean
+  onSelectAll: () => void
+  onToggleSelect: (id: number) => void
+  onEdit: (inv: Invoice) => void
+  onDelete: (id: number) => void
+  onRestore: (id: number) => void
+  onPermanentDelete: (id: number) => void
+  expandedRow: number | null
+  onToggleExpand: (id: number) => void
+  isBin: boolean
+  visibleColumns: string[]
+}) {
+  const activeCols = visibleColumns.map((k) => columnDefMap.get(k)).filter(Boolean) as ColumnDef[]
+  const colCount = 2 + activeCols.length + 1 // checkbox + ID + visible cols + actions
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="space-y-3">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="h-10 animate-pulse rounded bg-muted" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (invoices.length === 0) {
+    return (
+      <EmptyState
+        title={isBin ? 'Recycle bin is empty' : 'No invoices found'}
+        description={isBin ? 'Deleted invoices will appear here.' : 'Try adjusting your filters or add a new invoice.'}
+      />
+    )
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+                    onCheckedChange={onSelectAll}
+                  />
+                </TableHead>
+                <TableHead className="w-14">ID</TableHead>
+                {activeCols.map((col) => (
+                  <TableHead key={col.key} className={col.headerClass}>
+                    {col.label}
+                  </TableHead>
+                ))}
+                <TableHead className="w-20">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invoices.map((inv) => {
+                const isSelected = selectedIds.includes(inv.id)
+                const isExpanded = expandedRow === inv.id
+                return (
+                  <InvoiceRow
+                    key={inv.id}
+                    invoice={inv}
+                    isSelected={isSelected}
+                    isExpanded={isExpanded}
+                    onToggleSelect={() => onToggleSelect(inv.id)}
+                    onToggleExpand={() => onToggleExpand(inv.id)}
+                    onEdit={() => onEdit(inv)}
+                    onDelete={() => onDelete(inv.id)}
+                    onRestore={() => onRestore(inv.id)}
+                    onPermanentDelete={() => onPermanentDelete(inv.id)}
+                    isBin={isBin}
+                    activeCols={activeCols}
+                    colCount={colCount}
+                  />
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="border-t px-4 py-2 text-xs text-muted-foreground">
+          {invoices.length} invoice{invoices.length !== 1 ? 's' : ''}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ──── Invoice Row + Allocation Expansion ──── */
+
+function InvoiceRow({
+  invoice: inv,
+  isSelected,
+  isExpanded,
+  onToggleSelect,
+  onToggleExpand,
+  onEdit,
+  onDelete,
+  onRestore,
+  onPermanentDelete,
+  isBin,
+  activeCols,
+  colCount,
+}: {
+  invoice: Invoice
+  isSelected: boolean
+  isExpanded: boolean
+  onToggleSelect: () => void
+  onToggleExpand: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onRestore: () => void
+  onPermanentDelete: () => void
+  isBin: boolean
+  activeCols: ColumnDef[]
+  colCount: number
+}) {
+  const hasAllocations = inv.allocations && inv.allocations.length > 0
+
+  return (
+    <>
+      <TableRow className={cn(isSelected && 'bg-muted/50')}>
+        <TableCell>
+          <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} />
+        </TableCell>
+        <TableCell>
+          <button onClick={onToggleExpand} className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+            {hasAllocations &&
+              (isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />)}
+            {inv.id}
+          </button>
+        </TableCell>
+        {activeCols.map((col) => (
+          <TableCell key={col.key}>{col.render(inv)}</TableCell>
+        ))}
+        <TableCell>
+          <div className="flex items-center gap-1">
+            {isBin ? (
+              <>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onRestore} title="Restore">
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={onPermanentDelete} title="Delete permanently">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onEdit} title="Edit">
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={onDelete} title="Delete">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        </TableCell>
+      </TableRow>
+      {isExpanded && hasAllocations && (
+        <TableRow className="bg-muted/30">
+          <TableCell colSpan={colCount} className="p-0">
+            <div className="px-12 py-3">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground">
+                    <th className="pb-1 text-left font-medium">Company</th>
+                    <th className="pb-1 text-left font-medium">Brand</th>
+                    <th className="pb-1 text-left font-medium">Department</th>
+                    <th className="pb-1 text-left font-medium">Subdepartment</th>
+                    <th className="pb-1 text-right font-medium">%</th>
+                    <th className="pb-1 text-right font-medium">Value</th>
+                    <th className="pb-1 text-left font-medium">Responsible</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inv.allocations!.map((alloc) => (
+                    <tr key={alloc.id} className="border-t border-border/50">
+                      <td className="py-1">{alloc.company}</td>
+                      <td className="py-1">{alloc.brand || '-'}</td>
+                      <td className="py-1">{alloc.department}</td>
+                      <td className="py-1">{alloc.subdepartment || '-'}</td>
+                      <td className="py-1 text-right">{alloc.allocation_percent}%</td>
+                      <td className="py-1 text-right">
+                        <CurrencyDisplay value={alloc.allocation_value} currency={inv.currency} />
+                      </td>
+                      <td className="py-1">{alloc.responsible || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  )
+}

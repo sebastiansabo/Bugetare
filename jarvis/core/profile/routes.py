@@ -8,16 +8,9 @@ from flask import render_template, jsonify, request
 from flask_login import login_required, current_user
 
 from . import profile_bp
-from database import (
-    get_user_invoices_by_responsible_name,
-    get_user_invoices_count,
-    get_user_invoices_summary,
-    get_user_activity,
-    get_user_activity_count,
-    get_user_event_bonuses,
-    get_user_event_bonuses_count,
-    get_user_event_bonuses_summary,
-)
+from core.profile.repositories import ProfileRepository
+
+_profile_repo = ProfileRepository()
 
 
 # ============== Page Route ==============
@@ -50,11 +43,11 @@ def api_profile_summary():
         }
 
         # Get invoice summary using user's email
-        invoices_summary = get_user_invoices_summary(current_user.email)
-        activity_count = get_user_activity_count(current_user.id)
+        invoices_summary = _profile_repo.get_user_invoices_summary(current_user.email)
+        activity_count = _profile_repo.get_user_activity_count(current_user.id)
 
         # Get HR events summary for this user
-        hr_events_summary = get_user_event_bonuses_summary(current_user.id)
+        hr_events_summary = _profile_repo.get_user_event_bonuses_summary(current_user.id)
 
         return jsonify({
             'user': user_info,
@@ -91,7 +84,7 @@ def api_profile_invoices():
         offset = (page - 1) * per_page
 
         # Get invoices using user's email (finds user, matches their name to allocation.responsible)
-        invoices = get_user_invoices_by_responsible_name(
+        invoices = _profile_repo.get_user_invoices_by_responsible_name(
             user_email=current_user.email,
             status=status if status else None,
             start_date=start_date if start_date else None,
@@ -101,7 +94,7 @@ def api_profile_invoices():
             offset=offset,
         )
 
-        total = get_user_invoices_count(
+        total = _profile_repo.get_user_invoices_count(
             user_email=current_user.email,
             status=status if status else None,
             start_date=start_date if start_date else None,
@@ -146,7 +139,7 @@ def api_profile_hr_events():
         month_int = int(month) if month else None
 
         # Get bonuses for current user
-        bonuses = get_user_event_bonuses(
+        bonuses = _profile_repo.get_user_event_bonuses(
             user_id=current_user.id,
             year=year_int,
             month=month_int,
@@ -155,7 +148,7 @@ def api_profile_hr_events():
             offset=offset,
         )
 
-        total = get_user_event_bonuses_count(
+        total = _profile_repo.get_user_event_bonuses_count(
             user_id=current_user.id,
             year=year_int,
             month=month_int,
@@ -210,14 +203,14 @@ def api_profile_activity():
 
         offset = (page - 1) * per_page
 
-        events = get_user_activity(
+        events = _profile_repo.get_user_activity(
             user_id=current_user.id,
             event_type=event_type if event_type else None,
             limit=per_page,
             offset=offset,
         )
 
-        total = get_user_activity_count(current_user.id)
+        total = _profile_repo.get_user_activity_count(current_user.id)
 
         return jsonify({
             'events': events,

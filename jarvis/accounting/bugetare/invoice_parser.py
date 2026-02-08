@@ -549,8 +549,8 @@ def get_patterns_from_templates() -> tuple[list, list, list]:
     Each pattern from templates is added to the beginning of the list (higher priority).
     """
     try:
-        from database import get_all_invoice_templates
-        templates = get_all_invoice_templates()
+        from accounting.templates.repositories import TemplateRepository
+        templates = TemplateRepository().get_all()
 
         number_patterns = []
         date_patterns = []

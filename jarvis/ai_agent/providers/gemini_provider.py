@@ -5,7 +5,7 @@ Google Gemini LLM provider implementation.
 """
 
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Generator, Tuple
 
 from core.utils.logging_config import get_logger
 from ..models import LLMResponse
@@ -186,3 +186,76 @@ class GeminiProvider(BaseProvider):
             Formatted messages
         """
         return messages
+
+    def generate_stream(
+        self,
+        model_name: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> Generator[Tuple[Optional[str], Optional[LLMResponse]], None, None]:
+        """Stream a response from Gemini, yielding text chunks."""
+        try:
+            import google.generativeai as genai
+        except ImportError:
+            raise LLMProviderError("google-generativeai package not installed")
+
+        key = api_key or os.environ.get('GOOGLE_AI_API_KEY')
+        if not key:
+            raise LLMAuthenticationError("GOOGLE_AI_API_KEY not found")
+
+        genai.configure(api_key=key)
+
+        system_instruction = kwargs.pop('system', None)
+        formatted_messages = self._format_for_gemini(messages)
+        temperature = max(0.0, min(1.0, temperature))
+
+        try:
+            generation_config = {
+                'temperature': temperature,
+                'max_output_tokens': max_tokens,
+            }
+
+            model_kwargs = {'model_name': model_name}
+            if system_instruction:
+                model_kwargs['system_instruction'] = system_instruction
+
+            model = genai.GenerativeModel(**model_kwargs)
+
+            chat = model.start_chat(history=formatted_messages[:-1] if len(formatted_messages) > 1 else [])
+            last_message = formatted_messages[-1]['parts'][0] if formatted_messages else ""
+
+            response = chat.send_message(last_message, generation_config=generation_config, stream=True)
+
+            full_content = ""
+            for chunk in response:
+                if chunk.text:
+                    full_content += chunk.text
+                    yield (chunk.text, None)
+
+            # Estimate token counts
+            input_tokens = sum(len(m.get('parts', [''])[0]) // 4 for m in formatted_messages)
+            output_tokens = len(full_content) // 4
+
+            if hasattr(response, 'usage_metadata') and response.usage_metadata:
+                input_tokens = getattr(response.usage_metadata, 'prompt_token_count', input_tokens)
+                output_tokens = getattr(response.usage_metadata, 'candidates_token_count', output_tokens)
+
+            yield (None, LLMResponse(
+                content=full_content,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model=model_name,
+                finish_reason='stop',
+            ))
+
+        except Exception as e:
+            error_str = str(e).lower()
+            if 'quota' in error_str or 'rate' in error_str:
+                raise LLMRateLimitError(f"Rate limit exceeded: {e}")
+            elif 'api key' in error_str or 'auth' in error_str:
+                raise LLMAuthenticationError(f"Authentication failed: {e}")
+            else:
+                raise LLMProviderError(f"Gemini streaming error: {e}")

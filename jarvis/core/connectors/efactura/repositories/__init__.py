@@ -8,9 +8,11 @@ Uses raw psycopg2 following JARVIS conventions.
 from .company_repo import CompanyConnectionRepository
 from .invoice_repo import InvoiceRepository
 from .sync_repo import SyncRepository
+from .oauth_repository import OAuthRepository
 
 __all__ = [
     'CompanyConnectionRepository',
     'InvoiceRepository',
     'SyncRepository',
+    'OAuthRepository',
 ]

@@ -52,6 +52,7 @@ class RAGSourceType(Enum):
     EMPLOYEE = "employee"
     DEPARTMENT = "department"
     EVENT = "event"
+    EFACTURA = "efactura"
 
 
 @dataclass

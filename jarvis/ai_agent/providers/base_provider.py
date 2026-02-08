@@ -5,7 +5,7 @@ Abstract base class for LLM providers.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Generator, Tuple
 
 from ..models import LLMResponse
 
@@ -42,6 +42,35 @@ class BaseProvider(ABC):
 
         Returns:
             LLMResponse with content and token counts
+        """
+        pass
+
+    @abstractmethod
+    def generate_stream(
+        self,
+        model_name: str,
+        messages: List[Dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.7,
+        api_key: Optional[str] = None,
+        **kwargs,
+    ) -> Generator[Tuple[Optional[str], Optional[LLMResponse]], None, None]:
+        """
+        Stream a response from the LLM.
+
+        Yields (text_chunk, None) for each token, then (None, LLMResponse) at end.
+
+        Args:
+            model_name: Model identifier
+            messages: List of message dicts with 'role' and 'content'
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            api_key: API key (optional, falls back to environment)
+            **kwargs: Provider-specific options
+
+        Yields:
+            Tuples of (text_chunk, None) during streaming,
+            then (None, LLMResponse) as the final item with token counts
         """
         pass
 

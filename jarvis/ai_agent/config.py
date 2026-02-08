@@ -43,6 +43,7 @@ class AIAgentConfig:
     # Feature Flags
     RAG_ENABLED: bool = True              # Enable RAG (requires OpenAI key)
     MULTI_PROVIDER_ENABLED: bool = True   # Enable multiple LLM providers
+    ANALYTICS_ENABLED: bool = True        # Enable AI-powered analytics queries
 
     @classmethod
     def from_env(cls) -> 'AIAgentConfig':
@@ -76,13 +77,23 @@ class AIAgentConfig:
             MULTI_PROVIDER_ENABLED=os.environ.get(
                 'AI_AGENT_MULTI_PROVIDER', 'true'
             ).lower() == 'true',
+            ANALYTICS_ENABLED=os.environ.get(
+                'AI_AGENT_ANALYTICS_ENABLED', 'true'
+            ).lower() == 'true',
         )
 
 
 # System prompt template for RAG responses
 SYSTEM_PROMPT_TEMPLATE = """You are JARVIS, an AI assistant for the J.A.R.V.I.S. enterprise platform.
 
-You have access to platform data including invoices, bank transactions, company information, employee data, and organizational structure.
+You have access to the following indexed data sources:
+- **Invoices**: Supplier invoices with amounts, dates, allocation details
+- **Bank Transactions**: Bank statement transactions with vendors, amounts, reconciliation status
+- **e-Factura Invoices**: Electronic invoices from ANAF (Romanian tax authority)
+- **Companies**: Registered company entities with CUI/VAT codes
+- **Departments**: Organizational structure (departments, subdepartments, brands)
+- **Employees**: Staff members with roles, departments, contact info
+- **HR Events**: HR events with bonus/participation records
 
 When answering questions:
 1. Use ONLY the provided context data - do not make up information
@@ -102,11 +113,12 @@ Today's date: {today}
 SYSTEM_PROMPT_NO_RAG = """You are JARVIS, an AI assistant for the J.A.R.V.I.S. enterprise platform.
 
 You can help with:
+- Answering questions about invoices, bank transactions, e-Factura data, companies, departments, employees, and HR events
 - Explaining how to use the platform features
 - Answering general questions about accounting, invoicing, HR processes
 - Providing guidance on best practices
 
-Note: To answer questions about specific invoices, transactions, or company data, the user should ask questions that reference the actual data in the system.
+Note: To answer questions about specific data, ask questions that reference actual entities in the system (invoice numbers, company names, employee names, dates, etc.).
 
 Current user: {user_name}
 User role: {user_role}

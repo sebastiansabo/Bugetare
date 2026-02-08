@@ -2008,10 +2008,10 @@ def oauth_callback():
         tokens = oauth_service.exchange_code_for_tokens(code, state)
 
         # Store tokens in database
-        from database import save_efactura_oauth_tokens
+        from .repositories.oauth_repository import OAuthRepository
 
         token_data = tokens.to_dict()
-        save_efactura_oauth_tokens(session_cif, token_data)
+        OAuthRepository().save_tokens(session_cif, token_data)
 
         # Auto-create company connection if it doesn't exist
         from .repositories.company_repo import CompanyConnectionRepository
@@ -2075,9 +2075,10 @@ def oauth_revoke():
         clean_cif = cif.upper().replace('RO', '').strip()
 
         # Get current tokens to revoke
-        from database import get_efactura_oauth_tokens, delete_efactura_oauth_tokens
+        from .repositories.oauth_repository import OAuthRepository
+        _oauth_repo = OAuthRepository()
 
-        tokens = get_efactura_oauth_tokens(clean_cif)
+        tokens = _oauth_repo.get_tokens(clean_cif)
 
         if tokens and tokens.get('refresh_token'):
             # Revoke token at ANAF
@@ -2085,7 +2086,7 @@ def oauth_revoke():
             oauth_service.revoke_token(tokens['refresh_token'])
 
         # Remove tokens via database function
-        deleted = delete_efactura_oauth_tokens(clean_cif)
+        deleted = _oauth_repo.delete_tokens(clean_cif)
 
         if deleted:
             logger.info(
@@ -2136,9 +2137,9 @@ def oauth_status():
         # Clean CIF
         clean_cif = cif.upper().replace('RO', '').strip()
 
-        from database import get_efactura_oauth_status
+        from .repositories.oauth_repository import OAuthRepository
 
-        status = get_efactura_oauth_status(clean_cif)
+        status = OAuthRepository().get_status(clean_cif)
 
         return jsonify({
             'success': True,
@@ -2177,9 +2178,10 @@ def oauth_refresh():
         # Clean CIF
         clean_cif = cif.upper().replace('RO', '').strip()
 
-        from database import get_efactura_oauth_tokens, save_efactura_oauth_tokens
+        from .repositories.oauth_repository import OAuthRepository
+        _oauth_repo = OAuthRepository()
 
-        tokens = get_efactura_oauth_tokens(clean_cif)
+        tokens = _oauth_repo.get_tokens(clean_cif)
 
         if not tokens or not tokens.get('refresh_token'):
             return jsonify({
@@ -2195,7 +2197,7 @@ def oauth_refresh():
         )
 
         # Save new tokens
-        save_efactura_oauth_tokens(clean_cif, new_tokens.to_dict())
+        _oauth_repo.save_tokens(clean_cif, new_tokens.to_dict())
 
         logger.info(
             "OAuth tokens refreshed manually",

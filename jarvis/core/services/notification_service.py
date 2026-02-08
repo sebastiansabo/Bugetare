@@ -7,14 +7,20 @@ from email.mime.multipart import MIMEMultipart
 from typing import Optional
 from core.utils.logging_config import get_logger
 
-from database import (
-    get_notification_settings,
-    get_responsables_by_department,
-    get_all_responsables,
-    log_notification,
-    update_notification_status,
-    get_department_cc_email,
-)
+from core.notifications.repositories import NotificationRepository
+from core.auth.repositories import UserRepository
+from core.organization.repositories import StructureRepository
+
+_notif = NotificationRepository()
+_user = UserRepository()
+_struct = StructureRepository()
+
+# Function aliases (preserve call sites)
+get_notification_settings = _notif.get_settings
+log_notification = _notif.log_notification
+update_notification_status = _notif.update_status
+get_managers_for_department = _user.get_managers_for_department
+get_department_cc_email = _struct.get_cc_email
 
 logger = get_logger('jarvis.notification')
 
@@ -388,7 +394,7 @@ def find_responsables_for_allocation(allocation: dict) -> list[dict]:
     logger.info(f"Finding responsables for allocation: company='{company}', department='{department}'")
     if department:
         # Pass company to filter responsables by both company AND department
-        responsables = get_responsables_by_department(department, company)
+        responsables = get_managers_for_department(department, company)
         logger.info(f"Found {len(responsables)} responsables for company='{company}', dept='{department}'")
         for r in responsables:
             if r.get('is_active', True) and r.get('notify_on_allocation', True):
@@ -408,7 +414,7 @@ def find_responsables_for_allocation(allocation: dict) -> list[dict]:
     reinvoice_department = allocation.get('reinvoice_department', '')
     if reinvoice_to and reinvoice_department:
         # Pass reinvoice company to filter by both company AND department
-        reinvoice_responsables = get_responsables_by_department(reinvoice_department, reinvoice_to)
+        reinvoice_responsables = get_managers_for_department(reinvoice_department, reinvoice_to)
         logger.debug(f"Found {len(reinvoice_responsables)} responsables for reinvoice company '{reinvoice_to}', department '{reinvoice_department}'")
         for r in reinvoice_responsables:
             if r.get('is_active', True) and r.get('notify_on_allocation', True):

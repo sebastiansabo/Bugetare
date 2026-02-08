@@ -1,0 +1,323 @@
+"""Profile Repository.
+
+Cross-domain aggregation queries for user profile data:
+invoices (by responsible), HR event bonuses, and activity log.
+"""
+from typing import Optional
+
+from database import get_db, get_cursor, release_db, dict_from_row
+
+
+class ProfileRepository:
+    """Read-only aggregation queries for the user profile page."""
+
+    # ------------------------------------------------------------------
+    # User invoices (by responsible)
+    # ------------------------------------------------------------------
+
+    def get_user_invoices_by_responsible_name(
+        self,
+        user_email: str,
+        status: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        search: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Get invoices where the user (by email) is listed as responsible in allocations."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
+            user_row = cursor.fetchone()
+            if not user_row:
+                return []
+
+            user_id = user_row['id']
+
+            query = '''
+                SELECT
+                    i.id, i.invoice_number, i.invoice_date, i.invoice_value,
+                    i.currency, i.supplier, i.status, i.drive_link, i.comment,
+                    i.created_at, i.updated_at, i.payment_status,
+                    a.company, a.brand, a.department, a.subdepartment,
+                    a.allocation_percent, a.allocation_value
+                FROM invoices i
+                INNER JOIN allocations a ON i.id = a.invoice_id
+                WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
+                AND i.deleted_at IS NULL
+            '''
+            params = [user_id, user_id]
+
+            if status:
+                query += ' AND i.status = %s'
+                params.append(status)
+            if start_date:
+                query += ' AND i.invoice_date >= %s'
+                params.append(start_date)
+            if end_date:
+                query += ' AND i.invoice_date <= %s'
+                params.append(end_date)
+            if search:
+                query += ' AND (i.invoice_number ILIKE %s OR i.supplier ILIKE %s)'
+                search_pattern = f'%{search}%'
+                params.extend([search_pattern, search_pattern])
+
+            query += ' ORDER BY i.invoice_date DESC LIMIT %s OFFSET %s'
+            params.extend([limit, offset])
+
+            cursor.execute(query, params)
+            return [dict_from_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)
+
+    def get_user_invoices_count(
+        self,
+        user_email: str,
+        status: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        search: Optional[str] = None,
+    ) -> int:
+        """Count invoices where the user (by email) is listed as responsible."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
+            user_row = cursor.fetchone()
+            if not user_row:
+                return 0
+
+            user_id = user_row['id']
+
+            query = '''
+                SELECT COUNT(DISTINCT i.id) as count
+                FROM invoices i
+                INNER JOIN allocations a ON i.id = a.invoice_id
+                WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
+                AND i.deleted_at IS NULL
+            '''
+            params = [user_id, user_id]
+
+            if status:
+                query += ' AND i.status = %s'
+                params.append(status)
+            if start_date:
+                query += ' AND i.invoice_date >= %s'
+                params.append(start_date)
+            if end_date:
+                query += ' AND i.invoice_date <= %s'
+                params.append(end_date)
+            if search:
+                query += ' AND (i.invoice_number ILIKE %s OR i.supplier ILIKE %s)'
+                search_pattern = f'%{search}%'
+                params.extend([search_pattern, search_pattern])
+
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+        finally:
+            release_db(conn)
+
+    def get_user_invoices_summary(self, user_email: str) -> dict:
+        """Get invoice summary stats for a user (by email)."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
+            user_row = cursor.fetchone()
+            if not user_row:
+                return {'total': 0, 'total_value': 0, 'by_status': {}}
+
+            user_id = user_row['id']
+
+            cursor.execute('''
+                SELECT i.status, COUNT(DISTINCT i.id) as count
+                FROM invoices i
+                INNER JOIN allocations a ON i.id = a.invoice_id
+                WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
+                GROUP BY i.status
+            ''', (user_id, user_id))
+
+            by_status = {}
+            for row in cursor.fetchall():
+                by_status[row['status'] or 'unknown'] = row['count']
+
+            cursor.execute('''
+                SELECT COUNT(DISTINCT i.id) as total, COALESCE(SUM(DISTINCT i.invoice_value), 0) as total_value
+                FROM invoices i
+                INNER JOIN allocations a ON i.id = a.invoice_id
+                WHERE (a.responsible_user_id = %s OR (a.responsible_user_id IS NULL AND LOWER(a.responsible) = (SELECT LOWER(name) FROM users WHERE id = %s)))
+            ''', (user_id, user_id))
+
+            totals = cursor.fetchone()
+
+            return {
+                'total': totals['total'] if totals else 0,
+                'total_value': float(totals['total_value']) if totals else 0,
+                'by_status': by_status,
+            }
+        finally:
+            release_db(conn)
+
+    # ------------------------------------------------------------------
+    # HR event bonuses
+    # ------------------------------------------------------------------
+
+    def get_user_event_bonuses(
+        self,
+        user_id: int,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        search: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Get HR event bonuses for a user."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            query = '''
+                SELECT
+                    eb.id, eb.year, eb.month, eb.bonus_days, eb.hours_free,
+                    eb.bonus_net, eb.details, eb.allocation_month,
+                    eb.participation_start, eb.participation_end,
+                    eb.created_at, eb.updated_at,
+                    e.name as event_name, e.start_date, e.end_date,
+                    e.company, e.brand
+                FROM hr.event_bonuses eb
+                INNER JOIN hr.events e ON eb.event_id = e.id
+                WHERE eb.user_id = %s
+            '''
+            params = [user_id]
+
+            if year:
+                query += ' AND eb.year = %s'
+                params.append(year)
+            if month:
+                query += ' AND eb.month = %s'
+                params.append(month)
+            if search:
+                query += ' AND (e.name ILIKE %s OR e.company ILIKE %s)'
+                search_pattern = f'%{search}%'
+                params.extend([search_pattern, search_pattern])
+
+            query += ' ORDER BY eb.year DESC, eb.month DESC LIMIT %s OFFSET %s'
+            params.extend([limit, offset])
+
+            cursor.execute(query, params)
+            return [dict_from_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)
+
+    def get_user_event_bonuses_summary(self, user_id: int) -> dict:
+        """Get summary of HR event bonuses for a user."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute('''
+                SELECT
+                    COUNT(*) as total_bonuses,
+                    COALESCE(SUM(eb.bonus_net), 0) as total_amount,
+                    COUNT(DISTINCT eb.event_id) as events_count
+                FROM hr.event_bonuses eb
+                WHERE eb.user_id = %s
+            ''', (user_id,))
+
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'total_bonuses': row['total_bonuses'],
+                    'total_amount': float(row['total_amount']),
+                    'events_count': row['events_count'],
+                }
+            return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
+        finally:
+            release_db(conn)
+
+    def get_user_event_bonuses_count(
+        self,
+        user_id: int,
+        year: Optional[int] = None,
+        month: Optional[int] = None,
+        search: Optional[str] = None,
+    ) -> int:
+        """Get count of HR event bonuses for a user with filters."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            query = '''
+                SELECT COUNT(*) as count
+                FROM hr.event_bonuses eb
+                INNER JOIN hr.events e ON eb.event_id = e.id
+                WHERE eb.user_id = %s
+            '''
+            params = [user_id]
+
+            if year:
+                query += ' AND eb.year = %s'
+                params.append(year)
+            if month:
+                query += ' AND eb.month = %s'
+                params.append(month)
+            if search:
+                query += ' AND (e.name ILIKE %s OR e.company ILIKE %s)'
+                search_pattern = f'%{search}%'
+                params.extend([search_pattern, search_pattern])
+
+            cursor.execute(query, params)
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+        finally:
+            release_db(conn)
+
+    # ------------------------------------------------------------------
+    # User activity log
+    # ------------------------------------------------------------------
+
+    def get_user_activity(
+        self,
+        user_id: int,
+        event_type: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Get activity log for a user."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            query = '''
+                SELECT id, event_type, details, ip_address, user_agent, created_at
+                FROM user_events
+                WHERE user_id = %s
+            '''
+            params = [user_id]
+
+            if event_type:
+                query += ' AND event_type = %s'
+                params.append(event_type)
+
+            query += ' ORDER BY created_at DESC LIMIT %s OFFSET %s'
+            params.extend([limit, offset])
+
+            cursor.execute(query, params)
+            return [dict_from_row(dict(row)) for row in cursor.fetchall()]
+        finally:
+            release_db(conn)
+
+    def get_user_activity_count(self, user_id: int) -> int:
+        """Count activity events for a user."""
+        conn = get_db()
+        cursor = get_cursor(conn)
+        try:
+            cursor.execute('''
+                SELECT COUNT(*) as count
+                FROM user_events
+                WHERE user_id = %s
+            ''', (user_id,))
+
+            row = cursor.fetchone()
+            return row['count'] if row else 0
+        finally:
+            release_db(conn)

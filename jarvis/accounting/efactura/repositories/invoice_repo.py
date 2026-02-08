@@ -44,9 +44,9 @@ class InvoiceRepository:
             Created Invoice with ID
         """
         conn = get_db()
-        cursor = get_cursor(conn)
-
         try:
+            cursor = get_cursor(conn)
+
             # Insert invoice
             cursor.execute("""
                 INSERT INTO efactura_invoices (
@@ -156,22 +156,27 @@ class InvoiceRepository:
             conn.rollback()
             logger.error(f"Failed to create invoice: {e}")
             raise
+        finally:
+            release_db(conn)
 
     def get_by_id(self, invoice_id: int) -> Optional[Invoice]:
         """Get invoice by ID."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT * FROM efactura_invoices
-            WHERE id = %s
-        """, (invoice_id,))
+            cursor.execute("""
+                SELECT * FROM efactura_invoices
+                WHERE id = %s
+            """, (invoice_id,))
 
-        row = cursor.fetchone()
-        if row is None:
-            return None
+            row = cursor.fetchone()
+            if row is None:
+                return None
 
-        return self._row_to_invoice(row)
+            return self._row_to_invoice(row)
+        finally:
+            release_db(conn)
 
     def get_by_message_id(
         self,
@@ -181,21 +186,24 @@ class InvoiceRepository:
     ) -> Optional[Invoice]:
         """Get invoice by ANAF message ID (for deduplication)."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT i.* FROM efactura_invoices i
-            JOIN efactura_invoice_refs r ON r.invoice_id = i.id
-            WHERE i.cif_owner = %s
-            AND i.direction = %s
-            AND r.message_id = %s
-        """, (cif_owner, direction.value, message_id))
+            cursor.execute("""
+                SELECT i.* FROM efactura_invoices i
+                JOIN efactura_invoice_refs r ON r.invoice_id = i.id
+                WHERE i.cif_owner = %s
+                AND i.direction = %s
+                AND r.message_id = %s
+            """, (cif_owner, direction.value, message_id))
 
-        row = cursor.fetchone()
-        if row is None:
-            return None
+            row = cursor.fetchone()
+            if row is None:
+                return None
 
-        return self._row_to_invoice(row)
+            return self._row_to_invoice(row)
+        finally:
+            release_db(conn)
 
     def exists_by_message_id(
         self,
@@ -205,18 +213,21 @@ class InvoiceRepository:
     ) -> bool:
         """Check if invoice exists (fast dedup check)."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT 1 FROM efactura_invoices i
-            JOIN efactura_invoice_refs r ON r.invoice_id = i.id
-            WHERE i.cif_owner = %s
-            AND i.direction = %s
-            AND r.message_id = %s
-            LIMIT 1
-        """, (cif_owner, direction.value, message_id))
+            cursor.execute("""
+                SELECT 1 FROM efactura_invoices i
+                JOIN efactura_invoice_refs r ON r.invoice_id = i.id
+                WHERE i.cif_owner = %s
+                AND i.direction = %s
+                AND r.message_id = %s
+                LIMIT 1
+            """, (cif_owner, direction.value, message_id))
 
-        return cursor.fetchone() is not None
+            return cursor.fetchone() is not None
+        finally:
+            release_db(conn)
 
     def list_invoices(
         self,
@@ -244,89 +255,131 @@ class InvoiceRepository:
             Tuple of (invoices, total_count)
         """
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        # Build WHERE clause
-        conditions = ['cif_owner = %(cif_owner)s']
-        params = {'cif_owner': cif_owner, 'limit': limit, 'offset': offset}
+            # Build WHERE clause
+            conditions = ['cif_owner = %(cif_owner)s']
+            params = {'cif_owner': cif_owner, 'limit': limit, 'offset': offset}
 
-        if direction is not None:
-            conditions.append('direction = %(direction)s')
-            params['direction'] = direction.value
+            if direction is not None:
+                conditions.append('direction = %(direction)s')
+                params['direction'] = direction.value
 
-        if start_date is not None:
-            conditions.append('issue_date >= %(start_date)s')
-            params['start_date'] = start_date
+            if start_date is not None:
+                conditions.append('issue_date >= %(start_date)s')
+                params['start_date'] = start_date
 
-        if end_date is not None:
-            conditions.append('issue_date <= %(end_date)s')
-            params['end_date'] = end_date
+            if end_date is not None:
+                conditions.append('issue_date <= %(end_date)s')
+                params['end_date'] = end_date
 
-        if partner_cif is not None:
-            conditions.append('partner_cif = %(partner_cif)s')
-            params['partner_cif'] = partner_cif
+            if partner_cif is not None:
+                conditions.append('partner_cif = %(partner_cif)s')
+                params['partner_cif'] = partner_cif
 
-        where_clause = ' AND '.join(conditions)
+            where_clause = ' AND '.join(conditions)
 
-        # Get total count
-        cursor.execute(f"""
-            SELECT COUNT(*) as total FROM efactura_invoices
-            WHERE {where_clause}
-        """, params)
-        total = cursor.fetchone()['total']
+            # Get total count
+            cursor.execute(f"""
+                SELECT COUNT(*) as total FROM efactura_invoices
+                WHERE {where_clause}
+            """, params)
+            total = cursor.fetchone()['total']
 
-        # Get invoices
-        cursor.execute(f"""
-            SELECT * FROM efactura_invoices
-            WHERE {where_clause}
-            ORDER BY issue_date DESC, id DESC
-            LIMIT %(limit)s OFFSET %(offset)s
-        """, params)
+            # Get invoices
+            cursor.execute(f"""
+                SELECT * FROM efactura_invoices
+                WHERE {where_clause}
+                ORDER BY issue_date DESC, id DESC
+                LIMIT %(limit)s OFFSET %(offset)s
+            """, params)
 
-        invoices = [self._row_to_invoice(row) for row in cursor.fetchall()]
+            invoices = [self._row_to_invoice(row) for row in cursor.fetchall()]
 
-        return invoices, total
+            return invoices, total
+        finally:
+            release_db(conn)
 
     def get_external_ref(self, invoice_id: int) -> Optional[InvoiceExternalRef]:
         """Get external reference for an invoice."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT * FROM efactura_invoice_refs
-            WHERE invoice_id = %s
-        """, (invoice_id,))
+            cursor.execute("""
+                SELECT * FROM efactura_invoice_refs
+                WHERE invoice_id = %s
+            """, (invoice_id,))
 
-        row = cursor.fetchone()
-        if row is None:
-            return None
+            row = cursor.fetchone()
+            if row is None:
+                return None
 
-        return InvoiceExternalRef(
-            id=row['id'],
-            invoice_id=row['invoice_id'],
-            external_system=row['external_system'],
-            message_id=row['message_id'],
-            upload_id=row.get('upload_id'),
-            download_id=row.get('download_id'),
-            xml_hash=row.get('xml_hash'),
-            signature_hash=row.get('signature_hash'),
-            raw_response_hash=row.get('raw_response_hash'),
-            created_at=row['created_at'],
-        )
+            return InvoiceExternalRef(
+                id=row['id'],
+                invoice_id=row['invoice_id'],
+                external_system=row['external_system'],
+                message_id=row['message_id'],
+                upload_id=row.get('upload_id'),
+                download_id=row.get('download_id'),
+                xml_hash=row.get('xml_hash'),
+                signature_hash=row.get('signature_hash'),
+                raw_response_hash=row.get('raw_response_hash'),
+                created_at=row['created_at'],
+            )
+        finally:
+            release_db(conn)
 
     def get_artifacts(self, invoice_id: int) -> List[InvoiceArtifact]:
         """Get artifacts for an invoice."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        cursor.execute("""
-            SELECT * FROM efactura_invoice_artifacts
-            WHERE invoice_id = %s
-            ORDER BY artifact_type
-        """, (invoice_id,))
+            cursor.execute("""
+                SELECT * FROM efactura_invoice_artifacts
+                WHERE invoice_id = %s
+                ORDER BY artifact_type
+            """, (invoice_id,))
 
-        return [
-            InvoiceArtifact(
+            return [
+                InvoiceArtifact(
+                    id=row['id'],
+                    invoice_id=row['invoice_id'],
+                    artifact_type=ArtifactType(row['artifact_type']),
+                    storage_uri=row['storage_uri'],
+                    original_filename=row.get('original_filename'),
+                    mime_type=row.get('mime_type'),
+                    checksum=row.get('checksum'),
+                    size_bytes=row.get('size_bytes', 0),
+                    created_at=row['created_at'],
+                )
+                for row in cursor.fetchall()
+            ]
+        finally:
+            release_db(conn)
+
+    def get_artifact_by_type(
+        self,
+        invoice_id: int,
+        artifact_type: ArtifactType,
+    ) -> Optional[InvoiceArtifact]:
+        """Get specific artifact type for an invoice."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+
+            cursor.execute("""
+                SELECT * FROM efactura_invoice_artifacts
+                WHERE invoice_id = %s AND artifact_type = %s
+            """, (invoice_id, artifact_type.value))
+
+            row = cursor.fetchone()
+            if row is None:
+                return None
+
+            return InvoiceArtifact(
                 id=row['id'],
                 invoice_id=row['invoice_id'],
                 artifact_type=ArtifactType(row['artifact_type']),
@@ -337,38 +390,8 @@ class InvoiceRepository:
                 size_bytes=row.get('size_bytes', 0),
                 created_at=row['created_at'],
             )
-            for row in cursor.fetchall()
-        ]
-
-    def get_artifact_by_type(
-        self,
-        invoice_id: int,
-        artifact_type: ArtifactType,
-    ) -> Optional[InvoiceArtifact]:
-        """Get specific artifact type for an invoice."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        cursor.execute("""
-            SELECT * FROM efactura_invoice_artifacts
-            WHERE invoice_id = %s AND artifact_type = %s
-        """, (invoice_id, artifact_type.value))
-
-        row = cursor.fetchone()
-        if row is None:
-            return None
-
-        return InvoiceArtifact(
-            id=row['id'],
-            invoice_id=row['invoice_id'],
-            artifact_type=ArtifactType(row['artifact_type']),
-            storage_uri=row['storage_uri'],
-            original_filename=row.get('original_filename'),
-            mime_type=row.get('mime_type'),
-            checksum=row.get('checksum'),
-            size_bytes=row.get('size_bytes', 0),
-            created_at=row['created_at'],
-        )
+        finally:
+            release_db(conn)
 
     def update_artifact_uri(
         self,
@@ -377,9 +400,9 @@ class InvoiceRepository:
     ):
         """Update artifact storage URI after upload."""
         conn = get_db()
-        cursor = get_cursor(conn)
-
         try:
+            cursor = get_cursor(conn)
+
             cursor.execute("""
                 UPDATE efactura_invoice_artifacts
                 SET storage_uri = %s
@@ -392,6 +415,8 @@ class InvoiceRepository:
             conn.rollback()
             logger.error(f"Failed to update artifact URI: {e}")
             raise
+        finally:
+            release_db(conn)
 
     def get_summary(
         self,
@@ -401,47 +426,50 @@ class InvoiceRepository:
     ) -> Dict[str, Any]:
         """Get invoice summary statistics."""
         conn = get_db()
-        cursor = get_cursor(conn)
+        try:
+            cursor = get_cursor(conn)
 
-        params = {'cif_owner': cif_owner}
-        date_filter = ''
+            params = {'cif_owner': cif_owner}
+            date_filter = ''
 
-        if start_date:
-            date_filter += ' AND issue_date >= %(start_date)s'
-            params['start_date'] = start_date
-        if end_date:
-            date_filter += ' AND issue_date <= %(end_date)s'
-            params['end_date'] = end_date
+            if start_date:
+                date_filter += ' AND issue_date >= %(start_date)s'
+                params['start_date'] = start_date
+            if end_date:
+                date_filter += ' AND issue_date <= %(end_date)s'
+                params['end_date'] = end_date
 
-        cursor.execute(f"""
-            SELECT
-                direction,
-                COUNT(*) as count,
-                SUM(total_amount) as total_amount,
-                SUM(total_vat) as total_vat,
-                MIN(issue_date) as earliest_date,
-                MAX(issue_date) as latest_date
-            FROM efactura_invoices
-            WHERE cif_owner = %(cif_owner)s {date_filter}
-            GROUP BY direction
-        """, params)
+            cursor.execute(f"""
+                SELECT
+                    direction,
+                    COUNT(*) as count,
+                    SUM(total_amount) as total_amount,
+                    SUM(total_vat) as total_vat,
+                    MIN(issue_date) as earliest_date,
+                    MAX(issue_date) as latest_date
+                FROM efactura_invoices
+                WHERE cif_owner = %(cif_owner)s {date_filter}
+                GROUP BY direction
+            """, params)
 
-        summary = {
-            'received': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
-            'sent': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
-        }
-
-        for row in cursor.fetchall():
-            direction = row['direction']
-            summary[direction] = {
-                'count': row['count'],
-                'total': Decimal(str(row['total_amount'] or 0)),
-                'vat': Decimal(str(row['total_vat'] or 0)),
-                'earliest_date': row['earliest_date'],
-                'latest_date': row['latest_date'],
+            summary = {
+                'received': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
+                'sent': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
             }
 
-        return summary
+            for row in cursor.fetchall():
+                direction = row['direction']
+                summary[direction] = {
+                    'count': row['count'],
+                    'total': Decimal(str(row['total_amount'] or 0)),
+                    'vat': Decimal(str(row['total_vat'] or 0)),
+                    'earliest_date': row['earliest_date'],
+                    'latest_date': row['latest_date'],
+                }
+
+            return summary
+        finally:
+            release_db(conn)
 
     def _row_to_invoice(self, row: Dict[str, Any]) -> Invoice:
         """Convert database row to Invoice model."""

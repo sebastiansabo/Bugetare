@@ -25,6 +25,8 @@ from ..repositories import (
 )
 from ..providers import BaseProvider, ClaudeProvider, OpenAIProvider, GroqProvider, GeminiProvider
 from .rag_service import RAGService
+from .analytics_service import AnalyticsService
+from .query_parser import parse_query
 
 logger = get_logger('jarvis.ai_agent.service')
 
@@ -58,6 +60,9 @@ class AIAgentService:
         # Initialize RAG service
         self.rag_service = RAGService(config)
 
+        # Initialize analytics service
+        self.analytics_service = AnalyticsService()
+
         # Initialize providers
         self._providers: Dict[str, BaseProvider] = {
             'claude': ClaudeProvider(),
@@ -66,7 +71,37 @@ class AIAgentService:
             'gemini': GeminiProvider(),
         }
 
+        self._settings_cache: Optional[Dict[str, str]] = None
+        self._settings_cache_time: float = 0
+
         logger.info("AIAgentService initialized with RAG support and multi-provider")
+
+    def _load_runtime_settings(self) -> None:
+        """Load AI settings from DB and apply to config. Cached for 60s."""
+        now = time.time()
+        if self._settings_cache and (now - self._settings_cache_time) < 60:
+            return
+
+        try:
+            from core.notifications.repositories.notification_repository import NotificationRepository
+            repo = NotificationRepository()
+            all_settings = repo.get_settings()
+
+            if all_settings.get('ai_rag_enabled') is not None:
+                self.config.RAG_ENABLED = all_settings['ai_rag_enabled'] != 'false'
+            if all_settings.get('ai_analytics_enabled') is not None:
+                self.config.ANALYTICS_ENABLED = all_settings['ai_analytics_enabled'] != 'false'
+            if all_settings.get('ai_rag_top_k') is not None:
+                self.config.RAG_TOP_K = int(all_settings['ai_rag_top_k'])
+            if all_settings.get('ai_temperature') is not None:
+                self.config.DEFAULT_TEMPERATURE = float(all_settings['ai_temperature'])
+            if all_settings.get('ai_max_tokens') is not None:
+                self.config.DEFAULT_MAX_TOKENS = int(all_settings['ai_max_tokens'])
+
+            self._settings_cache = all_settings
+            self._settings_cache_time = now
+        except Exception as e:
+            logger.warning(f"Failed to load runtime AI settings: {e}")
 
     def get_provider(self, provider_name: str) -> BaseProvider:
         """
@@ -229,6 +264,9 @@ class AIAgentService:
         """
         start_time = time.time()
 
+        # Load runtime settings from DB
+        self._load_runtime_settings()
+
         try:
             # 1. Get and validate conversation
             conversation = self.conversation_repo.get_by_id(conversation_id)
@@ -278,6 +316,9 @@ class AIAgentService:
                 except Exception as e:
                     logger.warning(f"RAG retrieval failed: {e}")
 
+            # 4b. Analytics context
+            analytics_context = self._get_analytics_context(user_message)
+
             # 5. Build context messages
             context_messages = self._build_context_messages(
                 conversation_id=conversation_id,
@@ -287,8 +328,11 @@ class AIAgentService:
             # 6. Get provider and generate response
             provider = self.get_provider(model_config.provider.value)
 
-            # Build system prompt with RAG context
-            system_prompt = self._build_system_prompt(rag_context=rag_context)
+            # Build system prompt with RAG + analytics context
+            system_prompt = self._build_system_prompt(
+                rag_context=rag_context,
+                analytics_context=analytics_context,
+            )
 
             llm_response = provider.generate(
                 model_name=model_config.model_name,
@@ -372,6 +416,164 @@ class AIAgentService:
         except Exception as e:
             logger.error(f"Chat failed: {e}", exc_info=True)
             return ServiceResult(success=False, error=str(e))
+
+    def chat_stream(
+        self,
+        conversation_id: int,
+        user_id: int,
+        user_message: str,
+        model_config_id: Optional[int] = None,
+    ):
+        """
+        Stream a chat response via SSE events.
+
+        Yields SSE-formatted strings: token events during streaming,
+        then a done event with metadata after completion.
+        """
+        import json
+        start_time = time.time()
+
+        # Load runtime settings from DB
+        self._load_runtime_settings()
+
+        try:
+            # Steps 1-5: same as chat()
+            conversation = self.conversation_repo.get_by_id(conversation_id)
+            if not conversation:
+                yield f"event: error\ndata: {json.dumps({'error': 'Conversation not found'})}\n\n"
+                return
+
+            if conversation.user_id != user_id:
+                yield f"event: error\ndata: {json.dumps({'error': 'Conversation not found'})}\n\n"
+                return
+
+            config_id = model_config_id or conversation.model_config_id
+            model_config = None
+            if config_id:
+                model_config = self.model_config_repo.get_by_id(config_id)
+            if not model_config:
+                model_config = self.model_config_repo.get_default()
+            if not model_config:
+                yield f"event: error\ndata: {json.dumps({'error': 'No model configuration available'})}\n\n"
+                return
+
+            # Save user message
+            user_msg = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content=user_message,
+                model_config_id=model_config.id,
+            )
+            self.message_repo.create(user_msg)
+
+            # RAG context
+            rag_sources = []
+            rag_context = None
+            if self.config.RAG_ENABLED:
+                try:
+                    rag_sources = self.rag_service.search(
+                        query=user_message,
+                        limit=self.config.RAG_TOP_K,
+                        company_id=None,
+                    )
+                    if rag_sources:
+                        rag_context = self.rag_service.format_context(
+                            rag_sources,
+                            max_tokens=self.config.MAX_CONTEXT_TOKENS // 2,
+                        )
+                except Exception as e:
+                    logger.warning(f"RAG retrieval failed: {e}")
+
+            # Analytics context
+            analytics_context = self._get_analytics_context(user_message)
+
+            # Build context
+            context_messages = self._build_context_messages(
+                conversation_id=conversation_id,
+                current_message=user_message,
+            )
+
+            provider = self.get_provider(model_config.provider.value)
+            system_prompt = self._build_system_prompt(
+                rag_context=rag_context,
+                analytics_context=analytics_context,
+            )
+
+            # Stream tokens
+            llm_response = None
+            for text_chunk, final_response in provider.generate_stream(
+                model_name=model_config.model_name,
+                messages=context_messages,
+                max_tokens=model_config.max_tokens,
+                temperature=float(model_config.default_temperature),
+                system=system_prompt,
+            ):
+                if text_chunk is not None:
+                    yield f"event: token\ndata: {json.dumps({'content': text_chunk})}\n\n"
+                if final_response is not None:
+                    llm_response = final_response
+
+            if not llm_response:
+                yield f"event: error\ndata: {json.dumps({'error': 'No response from LLM'})}\n\n"
+                return
+
+            # Post-stream: save message, update stats
+            cost = self._calculate_cost(
+                model_config=model_config,
+                input_tokens=llm_response.input_tokens,
+                output_tokens=llm_response.output_tokens,
+            )
+            response_time_ms = int((time.time() - start_time) * 1000)
+
+            rag_sources_data = [
+                {
+                    'doc_id': src.doc_id,
+                    'score': src.score,
+                    'snippet': src.snippet[:200],
+                    'source_type': src.source_type,
+                    'source_id': src.source_id,
+                }
+                for src in rag_sources
+            ]
+
+            assistant_msg = Message(
+                conversation_id=conversation_id,
+                role=MessageRole.ASSISTANT,
+                content=llm_response.content,
+                input_tokens=llm_response.input_tokens,
+                output_tokens=llm_response.output_tokens,
+                cost=cost,
+                model_config_id=model_config.id,
+                response_time_ms=response_time_ms,
+                rag_sources=rag_sources_data,
+            )
+            saved_msg = self.message_repo.create(assistant_msg)
+
+            total_tokens = llm_response.input_tokens + llm_response.output_tokens
+            self.conversation_repo.update_stats(
+                conversation_id=conversation_id,
+                tokens=total_tokens,
+                cost=cost,
+                messages=2,
+            )
+
+            if conversation.message_count == 0:
+                self._auto_title_conversation(conversation_id, user_message)
+
+            # Final done event
+            yield f"event: done\ndata: {json.dumps({'message_id': saved_msg.id, 'tokens_used': total_tokens, 'cost': str(cost), 'response_time_ms': response_time_ms, 'rag_sources': [{'doc_id': s.doc_id, 'score': s.score, 'snippet': s.snippet, 'source_type': s.source_type} for s in rag_sources]})}\n\n"
+
+            logger.info(
+                f"Chat stream completed: conv={conversation_id}, "
+                f"tokens={total_tokens}, cost={cost}, time={response_time_ms}ms"
+            )
+
+        except LLMProviderError as e:
+            logger.error(f"LLM provider error during stream: {e}")
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
+        except Exception as e:
+            logger.error(f"Chat stream failed: {e}", exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
 
     def archive_conversation(
         self,
@@ -497,15 +699,78 @@ class AIAgentService:
 
         return context
 
+    def _get_analytics_context(self, user_message: str) -> Optional[str]:
+        """Run analytics queries if the user message has analytical intent."""
+        if not self.config.ANALYTICS_ENABLED:
+            return None
+
+        try:
+            known_entities = self.analytics_service.get_entity_names()
+            parsed = parse_query(user_message, known_entities)
+
+            if not parsed.is_analytics:
+                return None
+
+            results = []
+            filters = parsed.filters
+
+            for query_type in parsed.query_types:
+                if query_type == 'monthly_trend':
+                    results.append(self.analytics_service.get_monthly_trend(
+                        company=filters.get('company'),
+                        department=filters.get('department'),
+                        brand=filters.get('brand'),
+                        supplier=filters.get('supplier'),
+                        start_date=filters.get('start_date'),
+                        end_date=filters.get('end_date'),
+                    ))
+                elif query_type == 'top_suppliers':
+                    results.append(self.analytics_service.get_top_suppliers(
+                        limit=parsed.top_n or 10,
+                        company=filters.get('company'),
+                        department=filters.get('department'),
+                        brand=filters.get('brand'),
+                        start_date=filters.get('start_date'),
+                        end_date=filters.get('end_date'),
+                    ))
+                elif query_type == 'transaction_summary':
+                    results.append(self.analytics_service.get_transaction_summary(
+                        company_cui=filters.get('company_cui'),
+                        supplier=filters.get('supplier'),
+                        date_from=filters.get('start_date'),
+                        date_to=filters.get('end_date'),
+                    ))
+                elif query_type == 'invoice_summary':
+                    results.append(self.analytics_service.get_invoice_summary(
+                        group_by=parsed.group_by or 'company',
+                        company=filters.get('company'),
+                        department=filters.get('department'),
+                        brand=filters.get('brand'),
+                        supplier=filters.get('supplier'),
+                        start_date=filters.get('start_date'),
+                        end_date=filters.get('end_date'),
+                    ))
+
+            context = self.analytics_service.format_as_context(results)
+            if context:
+                logger.debug(f"Analytics context: {len(parsed.query_types)} queries, {len(context)} chars")
+            return context or None
+
+        except Exception as e:
+            logger.warning(f"Analytics context failed: {e}")
+            return None
+
     def _build_system_prompt(
         self,
         rag_context: Optional[str] = None,
+        analytics_context: Optional[str] = None,
     ) -> str:
         """
         Build system prompt for LLM.
 
         Args:
             rag_context: Optional RAG context to include
+            analytics_context: Optional analytics data to include
 
         Returns:
             Complete system prompt
@@ -518,20 +783,27 @@ Guidelines:
 - Be helpful, accurate, and concise
 - If you don't have specific data, say so clearly
 - When referencing data from context, cite the source
-- Use Romanian language conventions for dates and numbers when appropriate
-- Format currency values with appropriate symbols (RON, EUR, USD)"""
+- Format currency values as "1.234,56 RON" or "1.234,56 EUR" (Romanian convention)
+- Use DD.MM.YYYY date format when displaying dates
+- When presenting financial data, use markdown tables with totals
+- For trends, describe the direction (increasing, decreasing, or stable)"""
+
+        sections = [base_prompt]
+
+        if analytics_context:
+            sections.append(f"""ANALYTICS DATA (live aggregations from JARVIS database):
+{analytics_context}
+
+Present this data clearly using markdown tables. Include totals where appropriate.""")
 
         if rag_context:
-            return f"""{base_prompt}
+            sections.append(f"""CONTEXT FROM JARVIS DATABASE:
+{rag_context}""")
 
-CONTEXT FROM JARVIS DATABASE:
-{rag_context}
+        if not analytics_context and not rag_context:
+            sections.append("Note: No specific context was retrieved for this query. For detailed data questions, try asking about specific invoices, suppliers, or dates.")
 
-Use the above context to answer questions. If the context doesn't contain relevant information, say so and provide general guidance."""
-
-        return f"""{base_prompt}
-
-Note: No specific context was retrieved for this query. For detailed data questions, try asking about specific invoices, suppliers, or dates."""
+        return '\n\n'.join(sections)
 
     def _calculate_cost(
         self,

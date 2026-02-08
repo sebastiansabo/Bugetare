@@ -7,11 +7,8 @@ from flask_login import login_required, current_user
 from . import events_bp
 from .utils import can_edit_bonus, get_lock_status
 
-# Import permission checking from main database
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from database import check_permission_v2
+from core.roles.repositories import PermissionRepository
+check_permission_v2 = PermissionRepository().check_permission_v2
 from .database import (
     get_all_hr_employees, get_hr_employee, save_hr_employee,
     update_hr_employee, delete_hr_employee, search_hr_employees,
@@ -549,10 +546,10 @@ def api_get_lock_status():
 @hr_required
 def api_get_hr_settings():
     """API: Get HR module settings."""
-    from database import get_notification_settings
+    from core.notifications.repositories import NotificationRepository
     from .utils import DEFAULT_LOCK_DAY
 
-    settings = get_notification_settings()
+    settings = NotificationRepository().get_settings()
     lock_day = settings.get('hr_bonus_lock_day')
 
     return jsonify({
@@ -577,7 +574,7 @@ def api_update_hr_settings():
     else:
         return jsonify({'success': False, 'error': 'Permission denied'}), 403
 
-    from database import save_notification_setting
+    from core.notifications.repositories import NotificationRepository
 
     data = request.get_json()
     if not data:
@@ -589,7 +586,7 @@ def api_update_hr_settings():
         # Validate: must be between 1 and 28
         if not isinstance(lock_day, int) or lock_day < 1 or lock_day > 28:
             return jsonify({'success': False, 'error': 'Lock day must be between 1 and 28'}), 400
-        save_notification_setting('hr_bonus_lock_day', str(lock_day))
+        NotificationRepository().save_setting('hr_bonus_lock_day', str(lock_day))
 
     return jsonify({'success': True})
 

@@ -350,8 +350,8 @@ class StatementsService:
             )
 
         # Verify invoice exists
-        from database import get_invoice_with_allocations
-        invoice = get_invoice_with_allocations(invoice_id)
+        from accounting.invoices.repositories import InvoiceRepository
+        invoice = InvoiceRepository().get_with_allocations(invoice_id)
         if not invoice:
             return ServiceResult(success=False, error='Invoice not found')
 

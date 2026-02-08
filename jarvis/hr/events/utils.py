@@ -12,8 +12,8 @@ def get_lock_day() -> int:
     Falls back to DEFAULT_LOCK_DAY if not configured.
     """
     try:
-        from database import get_notification_settings
-        settings = get_notification_settings()
+        from core.notifications.repositories import NotificationRepository
+        settings = NotificationRepository().get_settings()
         lock_day = settings.get('hr_bonus_lock_day')
         if lock_day:
             return int(lock_day)
