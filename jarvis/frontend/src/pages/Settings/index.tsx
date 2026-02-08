@@ -63,7 +63,7 @@ export default function Settings() {
   const { pathname } = useLocation()
   const basePath = splat ? pathname.replace(new RegExp(`/${splat}$`), '') : pathname
   return (
-    <div className="p-6">
+    <div>
       <PageHeader title="Settings" description="Manage users, roles, themes, and system configuration." />
 
       <div className="mt-6 flex flex-col gap-6 lg:flex-row">

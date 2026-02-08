@@ -9,7 +9,7 @@ export default function AiAgent() {
   const { isSidebarOpen, setSidebarOpen, toggleSidebar } = useAiAgentStore()
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] md:h-screen">
+    <div className="-m-6 flex h-[calc(100vh-3.5rem)] md:h-[calc(100vh)]">
       {/* Desktop conversation sidebar */}
       <div className="hidden w-72 border-r md:block">
         <ConversationList />

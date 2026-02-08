@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState, useRef, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { invoicesApi } from '@/api/invoices'
 import { toast } from 'sonner'
 import type { Invoice } from '@/types/invoices'
+import { AllocationEditor, type AllocationEditorRef, allocationsToRows, rowsToApiPayload } from './AllocationEditor'
 
 interface SelectOption {
   value: string
@@ -26,6 +27,7 @@ interface EditInvoiceDialogProps {
 
 export function EditInvoiceDialog({ invoice, open, onClose, statusOptions, paymentOptions }: EditInvoiceDialogProps) {
   const queryClient = useQueryClient()
+  const allocRef = useRef<AllocationEditorRef>(null)
   const [supplier, setSupplier] = useState(invoice.supplier)
   const [invoiceNumber, setInvoiceNumber] = useState(invoice.invoice_number)
   const [invoiceDate, setInvoiceDate] = useState(invoice.invoice_date)
@@ -38,37 +40,57 @@ export function EditInvoiceDialog({ invoice, open, onClose, statusOptions, payme
   const [netValue, setNetValue] = useState(invoice.net_value != null ? String(invoice.net_value) : '')
   const [comment, setComment] = useState(invoice.comment || '')
   const [driveLink, setDriveLink] = useState(invoice.drive_link || '')
+  const [saving, setSaving] = useState(false)
 
-  const updateMutation = useMutation({
-    mutationFn: (data: Partial<Invoice>) => invoicesApi.updateInvoice(invoice.id, data),
-    onSuccess: () => {
+  const effectiveValue = useMemo(() => {
+    const gross = parseFloat(invoiceValue) || 0
+    if (subtractVat && vatRate) {
+      return gross / (1 + parseFloat(vatRate) / 100)
+    }
+    return gross
+  }, [invoiceValue, subtractVat, vatRate])
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      // Save metadata
+      await invoicesApi.updateInvoice(invoice.id, {
+        supplier,
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceDate,
+        invoice_value: parseFloat(invoiceValue),
+        currency,
+        status,
+        payment_status: paymentStatus,
+        subtract_vat: subtractVat,
+        vat_rate: vatRate ? parseFloat(vatRate) : null,
+        net_value: netValue ? parseFloat(netValue) : null,
+        comment: comment || null,
+        drive_link: driveLink || null,
+      })
+
+      // Save allocations if editor has valid data
+      if (allocRef.current?.isValid()) {
+        const company = allocRef.current.getCompany()
+        const rows = allocRef.current.getRows()
+        await invoicesApi.updateAllocations(invoice.id, {
+          allocations: rowsToApiPayload(company, rows),
+        })
+      }
+
       queryClient.invalidateQueries({ queryKey: ['invoices'] })
       toast.success('Invoice updated')
       onClose()
-    },
-    onError: () => toast.error('Failed to update invoice'),
-  })
-
-  const handleSave = () => {
-    updateMutation.mutate({
-      supplier,
-      invoice_number: invoiceNumber,
-      invoice_date: invoiceDate,
-      invoice_value: parseFloat(invoiceValue),
-      currency,
-      status,
-      payment_status: paymentStatus,
-      subtract_vat: subtractVat,
-      vat_rate: vatRate ? parseFloat(vatRate) : null,
-      net_value: netValue ? parseFloat(netValue) : null,
-      comment: comment || null,
-      drive_link: driveLink || null,
-    })
+    } catch {
+      toast.error('Failed to update invoice')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Invoice #{invoice.id}</DialogTitle>
           <DialogDescription>
@@ -158,13 +180,26 @@ export function EditInvoiceDialog({ invoice, open, onClose, statusOptions, payme
             <Label className="text-xs">Comment</Label>
             <Textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} />
           </div>
+
+          {/* Allocations */}
+          <div className="border-t pt-4">
+            <Label className="text-xs font-medium mb-2 block">Allocations</Label>
+            <AllocationEditor
+              ref={allocRef}
+              initialCompany={invoice.allocations?.[0]?.company}
+              initialRows={invoice.allocations ? allocationsToRows(invoice.allocations) : undefined}
+              effectiveValue={effectiveValue}
+              currency={currency}
+              compact
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={updateMutation.isPending}>
-            {updateMutation.isPending ? 'Saving...' : 'Save'}
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>

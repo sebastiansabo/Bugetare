@@ -7,10 +7,22 @@ import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Toaster } from '@/components/ui/sonner'
+import { cn } from '@/lib/utils'
 
 export default function Layout() {
   const { user, isLoading } = useAuth()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem('sidebar-collapsed') === 'true' } catch { return false }
+  })
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev
+      try { localStorage.setItem('sidebar-collapsed', String(next)) } catch {}
+      return next
+    })
+  }
 
   if (isLoading) {
     return (
@@ -31,8 +43,13 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-background">
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 border-r md:block">
-        <Sidebar />
+      <aside
+        className={cn(
+          'hidden border-r transition-[width] duration-200 ease-in-out md:block',
+          collapsed ? 'w-16' : 'w-64',
+        )}
+      >
+        <Sidebar collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
 
       {/* Mobile sidebar */}
@@ -57,7 +74,7 @@ export default function Layout() {
           <span className="ml-2 text-lg font-semibold">JARVIS</span>
         </header>
 
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto p-6">
           <Outlet />
         </main>
       </div>

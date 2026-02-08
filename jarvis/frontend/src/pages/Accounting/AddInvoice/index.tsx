@@ -6,12 +6,8 @@ import {
   FileText,
   Wand2,
   Plus,
-  Trash2,
-  Lock,
-  Unlock,
   Loader2,
   ArrowLeft,
-  MessageSquare,
   X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,32 +26,7 @@ import { settingsApi } from '@/api/settings'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import type { ParseResult, SubmitInvoiceInput } from '@/types/invoices'
-
-/* ──── Types ──── */
-
-interface AllocationRow {
-  id: string
-  brand: string
-  department: string
-  subdepartment: string
-  percent: number
-  value: number
-  locked: boolean
-  comment: string
-}
-
-function newRow(): AllocationRow {
-  return {
-    id: crypto.randomUUID(),
-    brand: '',
-    department: '',
-    subdepartment: '',
-    percent: 100,
-    value: 0,
-    locked: false,
-    comment: '',
-  }
-}
+import { type AllocationRow, newRow, AllocationRowComponent } from '../AllocationEditor'
 
 /* ──── Main Component ──── */
 
@@ -337,6 +308,15 @@ export default function AddInvoice() {
         allocation: r.percent / 100,
         locked: r.locked,
         comment: r.comment || undefined,
+        reinvoice_destinations: r.reinvoiceDestinations
+          .filter((rd) => rd.company && rd.department)
+          .map((rd) => ({
+            company: rd.company,
+            brand: rd.brand || undefined,
+            department: rd.department,
+            subdepartment: rd.subdepartment || undefined,
+            percent: rd.percentage,
+          })),
       })),
     }
 
@@ -705,9 +685,11 @@ export default function AddInvoice() {
                       key={row.id}
                       row={row}
                       company={company}
+                      allCompanies={companies as string[]}
                       brands={brands}
                       departments={departments}
                       effectiveValue={effectiveValue}
+                      currency={currency}
                       onUpdate={(updates) => updateRow(row.id, updates)}
                       onRemove={() => removeRow(row.id)}
                       canRemove={rows.length > 1}
@@ -772,195 +754,3 @@ export default function AddInvoice() {
   )
 }
 
-/* ──── Allocation Row ──── */
-
-function AllocationRowComponent({
-  row,
-  company,
-  brands,
-  departments,
-  effectiveValue,
-  onUpdate,
-  onRemove,
-  canRemove,
-}: {
-  row: AllocationRow
-  company: string
-  brands: string[]
-  departments: string[]
-  effectiveValue: number
-  onUpdate: (updates: Partial<AllocationRow>) => void
-  onRemove: () => void
-  canRemove: boolean
-}) {
-  const [showComment, setShowComment] = useState(!!row.comment)
-
-  const { data: subdepartments = [] } = useQuery({
-    queryKey: ['subdepartments', company, row.department],
-    queryFn: () => organizationApi.getSubdepartments(company, row.department),
-    enabled: !!row.department,
-  })
-
-  const { data: managerData } = useQuery({
-    queryKey: ['manager', company, row.department, row.brand],
-    queryFn: () =>
-      organizationApi.getManager({
-        company,
-        department: row.department,
-        brand: row.brand || undefined,
-      }),
-    enabled: !!row.department,
-  })
-
-  const hasBrands = brands.length > 0
-
-  return (
-    <div className="rounded-lg border p-2 space-y-2">
-      <div className="grid grid-cols-12 gap-2 items-center">
-        {hasBrands && (
-          <div className="col-span-2">
-            <Select
-              value={row.brand || '__none__'}
-              onValueChange={(v) => onUpdate({ brand: v === '__none__' ? '' : v })}
-            >
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Brand" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">N/A</SelectItem>
-                {brands.map((b) => (
-                  <SelectItem key={b} value={b}>
-                    {b}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-        <div className={hasBrands ? 'col-span-3' : 'col-span-4'}>
-          <Select
-            value={row.department || '__none__'}
-            onValueChange={(v) =>
-              onUpdate({
-                department: v === '__none__' ? '' : v,
-                subdepartment: '',
-              })
-            }
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="Select..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Select...</SelectItem>
-              {departments.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {d}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="col-span-2">
-          <Select
-            value={row.subdepartment || '__none__'}
-            onValueChange={(v) => onUpdate({ subdepartment: v === '__none__' ? '' : v })}
-            disabled={subdepartments.length === 0}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue placeholder="N/A" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">N/A</SelectItem>
-              {subdepartments.map((sd) => (
-                <SelectItem key={sd} value={sd}>
-                  {sd}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="col-span-1">
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            step={0.01}
-            className="h-8 text-xs text-right"
-            value={row.percent.toFixed(2)}
-            onChange={(e) => {
-              const p = parseFloat(e.target.value) || 0
-              onUpdate({ percent: p, value: effectiveValue * (p / 100) })
-            }}
-          />
-        </div>
-        <div className="col-span-2">
-          <Input
-            type="number"
-            step={0.01}
-            className="h-8 text-xs text-right"
-            value={row.value.toFixed(2)}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value) || 0
-              onUpdate({
-                value: v,
-                percent: effectiveValue > 0 ? (v / effectiveValue) * 100 : 0,
-              })
-            }}
-          />
-        </div>
-        <div className={cn('flex items-center gap-1 justify-end', hasBrands ? 'col-span-2' : 'col-span-3')}>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setShowComment(!showComment)}
-            title="Add comment"
-          >
-            <MessageSquare className={cn('h-3.5 w-3.5', row.comment && 'text-primary')} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => onUpdate({ locked: !row.locked })}
-            title={row.locked ? 'Unlock' : 'Lock'}
-          >
-            {row.locked ? (
-              <Lock className="h-3.5 w-3.5 text-amber-500" />
-            ) : (
-              <Unlock className="h-3.5 w-3.5" />
-            )}
-          </Button>
-          {canRemove && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive"
-              onClick={onRemove}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-          )}
-        </div>
-      </div>
-      {/* Manager + Comment row */}
-      <div className="flex items-center gap-3 px-1">
-        {managerData?.manager && (
-          <span className="text-xs text-muted-foreground">
-            Manager: {managerData.manager}
-          </span>
-        )}
-      </div>
-      {showComment && (
-        <div className="px-1">
-          <Input
-            className="h-7 text-xs"
-            placeholder="Row comment..."
-            value={row.comment}
-            onChange={(e) => onUpdate({ comment: e.target.value })}
-          />
-        </div>
-      )}
-    </div>
-  )
-}

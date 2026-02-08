@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,7 @@ import type { Role, PermissionMatrix, RolePermission } from '@/types/roles'
 export default function RolesTab() {
   const queryClient = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
+  const [editRole, setEditRole] = useState<Role | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
 
   const { data: roles = [], isLoading: rolesLoading } = useQuery({
@@ -38,6 +39,17 @@ export default function RolesTab() {
       toast.success('Role created')
     },
     onError: () => toast.error('Failed to create role'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Role> }) => rolesApi.updateRole(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'roles'] })
+      queryClient.invalidateQueries({ queryKey: ['settings', 'permissionMatrix'] })
+      setEditRole(null)
+      toast.success('Role updated')
+    },
+    onError: () => toast.error('Failed to update role'),
   })
 
   const deleteMutation = useMutation({
@@ -88,7 +100,7 @@ export default function RolesTab() {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
-                  <TableHead className="w-20">Actions</TableHead>
+                  <TableHead className="w-24">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -97,14 +109,19 @@ export default function RolesTab() {
                     <TableCell className="font-medium">{role.name}</TableCell>
                     <TableCell className="text-muted-foreground">{role.description || '-'}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive"
-                        onClick={() => setDeleteId(role.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setEditRole(role)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          onClick={() => setDeleteId(role.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -117,12 +134,19 @@ export default function RolesTab() {
       {/* Permission Matrix */}
       {matrix && <PermissionMatrixView matrix={matrix} roles={roles} onToggle={permMutation.mutate} />}
 
-      {/* Add Role Dialog */}
-      <AddRoleDialog
-        open={showAdd}
-        onClose={() => setShowAdd(false)}
-        onSave={(data) => createMutation.mutate(data)}
-        isPending={createMutation.isPending}
+      {/* Role Form Dialog (create + edit) */}
+      <RoleFormDialog
+        open={showAdd || !!editRole}
+        role={editRole}
+        onClose={() => { setShowAdd(false); setEditRole(null) }}
+        onSave={(data) => {
+          if (editRole) {
+            updateMutation.mutate({ id: editRole.id, data })
+          } else {
+            createMutation.mutate(data)
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
       />
 
       <ConfirmDialog
@@ -213,30 +237,26 @@ function PermissionMatrixView({
   )
 }
 
-function AddRoleDialog({
-  open,
-  onClose,
-  onSave,
-  isPending,
-}: {
-  open: boolean
-  onClose: () => void
-  onSave: (data: Partial<Role>) => void
-  isPending: boolean
+function RoleFormDialog({ open, role, onClose, onSave, isPending }: {
+  open: boolean; role: Role | null; onClose: () => void
+  onSave: (data: Partial<Role>) => void; isPending: boolean
 }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
 
+  const resetForm = () => {
+    if (role) {
+      setName(role.name); setDescription(role.description || '')
+    } else {
+      setName(''); setDescription('')
+    }
+  }
+
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(o) => {
-        if (!o) onClose()
-      }}
-    >
-      <DialogContent className="sm:max-w-sm">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-sm" onOpenAutoFocus={resetForm}>
         <DialogHeader>
-          <DialogTitle>Add Role</DialogTitle>
+          <DialogTitle>{role ? 'Edit Role' : 'Add Role'}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
@@ -249,11 +269,9 @@ function AddRoleDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={isPending || !name} onClick={() => onSave({ name, description })}>
-            {isPending ? 'Creating...' : 'Create'}
+            {isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>

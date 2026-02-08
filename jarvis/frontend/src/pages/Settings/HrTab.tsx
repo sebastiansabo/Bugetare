@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Save } from 'lucide-react'
+import { Plus, Trash2, Pencil, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -84,6 +84,7 @@ function BonusLockSection() {
 function BonusTypesSection() {
   const queryClient = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
+  const [editType, setEditType] = useState<BonusType | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
 
   const { data: bonusTypes = [], isLoading } = useQuery({
@@ -99,6 +100,16 @@ function BonusTypesSection() {
       toast.success('Bonus type created')
     },
     onError: () => toast.error('Failed to create bonus type'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<BonusType> }) => hrApi.updateBonusType(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'bonusTypes'] })
+      setEditType(null)
+      toast.success('Bonus type updated')
+    },
+    onError: () => toast.error('Failed to update bonus type'),
   })
 
   const deleteMutation = useMutation({
@@ -143,7 +154,7 @@ function BonusTypesSection() {
                 <TableHead>Days/Amount</TableHead>
                 <TableHead>Description</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-20">Actions</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -159,9 +170,14 @@ function BonusTypesSection() {
                     <StatusBadge status={bt.is_active ? 'active' : 'archived'} />
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(bt.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setEditType(bt)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(bt.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -170,11 +186,18 @@ function BonusTypesSection() {
         )}
       </CardContent>
 
-      <AddBonusTypeDialog
-        open={showAdd}
-        onClose={() => setShowAdd(false)}
-        onSave={(data) => createMutation.mutate(data)}
-        isPending={createMutation.isPending}
+      <BonusTypeFormDialog
+        open={showAdd || !!editType}
+        bonusType={editType}
+        onClose={() => { setShowAdd(false); setEditType(null) }}
+        onSave={(data) => {
+          if (editType) {
+            updateMutation.mutate({ id: editType.id, data })
+          } else {
+            createMutation.mutate(data)
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
       />
 
       <ConfirmDialog
@@ -189,24 +212,30 @@ function BonusTypesSection() {
   )
 }
 
-function AddBonusTypeDialog({
-  open,
-  onClose,
-  onSave,
-  isPending,
-}: {
-  open: boolean
-  onClose: () => void
-  onSave: (data: Partial<BonusType>) => void
-  isPending: boolean
+function BonusTypeFormDialog({ open, bonusType, onClose, onSave, isPending }: {
+  open: boolean; bonusType: BonusType | null; onClose: () => void
+  onSave: (data: Partial<BonusType>) => void; isPending: boolean
 }) {
   const [form, setForm] = useState({ name: '', amount: '', days_per_amount: '', description: '' })
 
+  const resetForm = () => {
+    if (bonusType) {
+      setForm({
+        name: bonusType.name,
+        amount: String(bonusType.amount),
+        days_per_amount: bonusType.days_per_amount ? String(bonusType.days_per_amount) : '',
+        description: bonusType.description || '',
+      })
+    } else {
+      setForm({ name: '', amount: '', days_per_amount: '', description: '' })
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-sm">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-sm" onOpenAutoFocus={resetForm}>
         <DialogHeader>
-          <DialogTitle>Add Bonus Type</DialogTitle>
+          <DialogTitle>{bonusType ? 'Edit Bonus Type' : 'Add Bonus Type'}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">
@@ -242,11 +271,11 @@ function AddBonusTypeDialog({
                 amount: Number(form.amount),
                 days_per_amount: form.days_per_amount ? Number(form.days_per_amount) : undefined,
                 description: form.description || undefined,
-                is_active: true,
+                is_active: bonusType?.is_active ?? true,
               })
             }
           >
-            {isPending ? 'Creating...' : 'Create'}
+            {isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -38,7 +38,15 @@ export interface Allocation {
   reinvoice_department: string | null
   reinvoice_subdepartment: string | null
   reinvoice_brand: string | null
-  reinvoice_destinations: unknown[]
+  reinvoice_destinations: {
+    id: number
+    company: string
+    brand: string | null
+    department: string
+    subdepartment: string | null
+    percentage: number
+    value: number
+  }[]
 }
 
 export interface InvoiceSummary {

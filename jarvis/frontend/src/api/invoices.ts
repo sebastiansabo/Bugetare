@@ -30,7 +30,7 @@ export const invoicesApi = {
   getDeletedInvoices: () => api.get<Invoice[]>('/api/db/invoices/bin'),
 
   // Allocations
-  updateAllocations: (invoiceId: number, data: { allocations: Partial<Invoice['allocations']>; send_notification?: boolean }) =>
+  updateAllocations: (invoiceId: number, data: { allocations: Record<string, unknown>[]; send_notification?: boolean }) =>
     api.put<{ success: boolean }>(`/api/db/invoices/${invoiceId}/allocations`, data),
   updateAllocationComment: (allocationId: number, comment: string) =>
     api.put<{ success: boolean }>(`/api/allocations/${allocationId}/comment`, { comment }),

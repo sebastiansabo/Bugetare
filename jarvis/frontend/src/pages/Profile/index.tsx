@@ -48,7 +48,7 @@ export default function Profile() {
   const user = summary?.user
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <PageHeader title="My Profile" description="Your account overview and activity." />
 
       {/* User Info Card */}

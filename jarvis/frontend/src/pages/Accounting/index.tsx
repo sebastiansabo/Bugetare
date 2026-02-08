@@ -41,6 +41,7 @@ import { toast } from 'sonner'
 import type { Invoice, InvoiceFilters } from '@/types/invoices'
 import { EditInvoiceDialog } from './EditInvoiceDialog'
 import { SummaryTable } from './SummaryTable'
+import { AllocationEditor, allocationsToRows, rowsToApiPayload } from './AllocationEditor'
 
 type TabKey = 'invoices' | 'company' | 'department' | 'brand' | 'supplier' | 'bin'
 
@@ -219,7 +220,6 @@ export default function Accounting() {
     { key: 'company', label: 'Company', type: 'select', options: companyOptions },
     { key: 'department', label: 'Department', type: 'select', options: departmentOptions },
     { key: 'status', label: 'Status', type: 'select', options: statusOptions },
-    { key: 'payment_status', label: 'Payment', type: 'select', options: paymentOptions },
     { key: 'start_date', label: 'Start Date', type: 'date' },
     { key: 'end_date', label: 'End Date', type: 'date' },
   ]
@@ -228,7 +228,6 @@ export default function Accounting() {
     company: filters.company ?? '',
     department: filters.department ?? '',
     status: filters.status ?? '',
-    payment_status: filters.payment_status ?? '',
     start_date: filters.start_date ?? '',
     end_date: filters.end_date ?? '',
   }
@@ -326,16 +325,14 @@ export default function Accounting() {
 
       {/* Filter + Search bar */}
       {(activeTab === 'invoices' || activeTab === 'bin') && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-          <div className="flex-1">
-            <FilterBar fields={filterFields} values={filterValues} onChange={handleFilterChange} />
-          </div>
-          <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterBar fields={filterFields} values={filterValues} onChange={handleFilterChange} />
+          <div className="ml-auto flex items-center gap-2">
             <SearchInput
               value={search}
               onChange={setSearch}
               placeholder="Search supplier or invoice #..."
-              className="w-full sm:w-64"
+              className="w-48"
             />
             <ColumnToggle visibleColumns={visibleColumns} onChange={setVisibleColumns} />
           </div>
@@ -470,19 +467,28 @@ const columnDefs: ColumnDef[] = [
     render: (inv) => <span className="text-sm font-medium">{inv.invoice_number}</span>,
   },
   {
+    key: 'net_value',
+    label: 'Net Value',
+    headerClass: 'text-right',
+    render: (inv) => (
+      <div className="text-right">
+        {inv.net_value != null ? (
+          <CurrencyDisplay value={inv.net_value} currency={inv.currency} />
+        ) : (
+          <span className="text-muted-foreground text-xs">-</span>
+        )}
+      </div>
+    ),
+  },
+  {
     key: 'invoice_value',
-    label: 'Value',
+    label: 'Total',
     headerClass: 'text-right',
     render: (inv) => (
       <div className="text-right">
         <CurrencyDisplay value={inv.invoice_value} currency={inv.currency} />
       </div>
     ),
-  },
-  {
-    key: 'currency',
-    label: 'Currency',
-    render: (inv) => <span className="text-sm">{inv.currency}</span>,
   },
   {
     key: 'drive_link',
@@ -747,25 +753,42 @@ function InvoiceRow({
   activeCols: ColumnDef[]
   colCount: number
 }) {
+  const queryClient = useQueryClient()
   const hasAllocations = inv.allocations && inv.allocations.length > 0
+  const [editingAllocations, setEditingAllocations] = useState(false)
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: { company: string; rows: import('./AllocationEditor').AllocationRow[] }) =>
+      invoicesApi.updateAllocations(inv.id, {
+        allocations: rowsToApiPayload(payload.company, payload.rows),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invoices'] })
+      setEditingAllocations(false)
+      toast.success('Allocations updated')
+    },
+    onError: () => toast.error('Failed to update allocations'),
+  })
+
+  const effectiveValue = inv.net_value ?? inv.invoice_value
 
   return (
     <>
-      <TableRow className={cn(isSelected && 'bg-muted/50')}>
-        <TableCell>
+      <TableRow className={cn('cursor-pointer hover:bg-muted/40', isSelected && 'bg-muted/50')} onClick={onToggleExpand}>
+        <TableCell onClick={(e) => e.stopPropagation()}>
           <Checkbox checked={isSelected} onCheckedChange={onToggleSelect} />
         </TableCell>
         <TableCell>
-          <button onClick={onToggleExpand} className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+          <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
             {hasAllocations &&
               (isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />)}
             {inv.id}
-          </button>
+          </span>
         </TableCell>
         {activeCols.map((col) => (
           <TableCell key={col.key}>{col.render(inv)}</TableCell>
         ))}
-        <TableCell>
+        <TableCell onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1">
             {isBin ? (
               <>
@@ -789,38 +812,62 @@ function InvoiceRow({
           </div>
         </TableCell>
       </TableRow>
-      {isExpanded && hasAllocations && (
+      {isExpanded && (hasAllocations || editingAllocations) && (
         <TableRow className="bg-muted/30">
           <TableCell colSpan={colCount} className="p-0">
-            <div className="px-12 py-3">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-muted-foreground">
-                    <th className="pb-1 text-left font-medium">Company</th>
-                    <th className="pb-1 text-left font-medium">Brand</th>
-                    <th className="pb-1 text-left font-medium">Department</th>
-                    <th className="pb-1 text-left font-medium">Subdepartment</th>
-                    <th className="pb-1 text-right font-medium">%</th>
-                    <th className="pb-1 text-right font-medium">Value</th>
-                    <th className="pb-1 text-left font-medium">Responsible</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inv.allocations!.map((alloc) => (
-                    <tr key={alloc.id} className="border-t border-border/50">
-                      <td className="py-1">{alloc.company}</td>
-                      <td className="py-1">{alloc.brand || '-'}</td>
-                      <td className="py-1">{alloc.department}</td>
-                      <td className="py-1">{alloc.subdepartment || '-'}</td>
-                      <td className="py-1 text-right">{alloc.allocation_percent}%</td>
-                      <td className="py-1 text-right">
-                        <CurrencyDisplay value={alloc.allocation_value} currency={inv.currency} />
-                      </td>
-                      <td className="py-1">{alloc.responsible || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="px-8 py-3">
+              {editingAllocations ? (
+                <AllocationEditor
+                  initialCompany={inv.allocations?.[0]?.company}
+                  initialRows={inv.allocations ? allocationsToRows(inv.allocations) : undefined}
+                  effectiveValue={effectiveValue}
+                  currency={inv.currency}
+                  onSave={(company, rows) => saveMutation.mutate({ company, rows })}
+                  onCancel={() => setEditingAllocations(false)}
+                  isSaving={saveMutation.isPending}
+                  compact
+                />
+              ) : (
+                <>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">Allocations</span>
+                    {!isBin && (
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setEditingAllocations(true)}>
+                        <Pencil className="mr-1 h-3 w-3" />
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-muted-foreground">
+                        <th className="pb-1 text-left font-medium">Company</th>
+                        <th className="pb-1 text-left font-medium">Brand</th>
+                        <th className="pb-1 text-left font-medium">Department</th>
+                        <th className="pb-1 text-left font-medium">Subdepartment</th>
+                        <th className="pb-1 text-right font-medium">%</th>
+                        <th className="pb-1 text-right font-medium">Value</th>
+                        <th className="pb-1 text-left font-medium">Responsible</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inv.allocations!.map((alloc) => (
+                        <tr key={alloc.id} className="border-t border-border/50">
+                          <td className="py-1">{alloc.company}</td>
+                          <td className="py-1">{alloc.brand || '-'}</td>
+                          <td className="py-1">{alloc.department}</td>
+                          <td className="py-1">{alloc.subdepartment || '-'}</td>
+                          <td className="py-1 text-right">{alloc.allocation_percent}%</td>
+                          <td className="py-1 text-right">
+                            <CurrencyDisplay value={alloc.allocation_value} currency={inv.currency} />
+                          </td>
+                          <td className="py-1">{alloc.responsible || '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
             </div>
           </TableCell>
         </TableRow>

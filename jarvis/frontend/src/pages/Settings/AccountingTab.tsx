@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { EmptyState } from '@/components/shared/EmptyState'
@@ -25,9 +26,8 @@ export default function AccountingTab() {
 
 function VatRatesSection() {
   const queryClient = useQueryClient()
-  const [name, setName] = useState('')
-  const [rate, setRate] = useState('')
-  const [isDefault, setIsDefault] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+  const [editRate, setEditRate] = useState<VatRate | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
 
   const { data: vatRates = [], isLoading } = useQuery({
@@ -39,12 +39,20 @@ function VatRatesSection() {
     mutationFn: (data: Partial<VatRate>) => settingsApi.createVatRate(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'vatRates'] })
-      setName('')
-      setRate('')
-      setIsDefault(false)
+      setShowAdd(false)
       toast.success('VAT rate added')
     },
     onError: () => toast.error('Failed to add VAT rate'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<VatRate> }) => settingsApi.updateVatRate(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'vatRates'] })
+      setEditRate(null)
+      toast.success('VAT rate updated')
+    },
+    onError: () => toast.error('Failed to update VAT rate'),
   })
 
   const deleteMutation = useMutation({
@@ -60,7 +68,13 @@ function VatRatesSection() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>VAT Rates</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle>VAT Rates</CardTitle>
+          <Button size="sm" onClick={() => setShowAdd(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add Rate
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -70,7 +84,7 @@ function VatRatesSection() {
             ))}
           </div>
         ) : vatRates.length === 0 ? (
-          <EmptyState title="No VAT rates" description="Add your first VAT rate below." />
+          <EmptyState title="No VAT rates" description="Add your first VAT rate." />
         ) : (
           <Table>
             <TableHeader>
@@ -79,7 +93,7 @@ function VatRatesSection() {
                 <TableHead>Rate (%)</TableHead>
                 <TableHead>Default</TableHead>
                 <TableHead>Active</TableHead>
-                <TableHead className="w-20">Actions</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -90,40 +104,35 @@ function VatRatesSection() {
                   <TableCell>{vr.is_default ? 'Yes' : '-'}</TableCell>
                   <TableCell>{vr.is_active ? 'Yes' : 'No'}</TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(vr.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setEditRate(vr)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(vr.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-
-        {/* Add Form */}
-        <div className="mt-4 flex items-end gap-3 rounded-lg border p-3">
-          <div className="grid gap-1">
-            <Label className="text-xs">Name</Label>
-            <Input className="h-8 w-32" value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-xs">Rate (%)</Label>
-            <Input className="h-8 w-24" type="number" value={rate} onChange={(e) => setRate(e.target.value)} />
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Switch checked={isDefault} onCheckedChange={setIsDefault} />
-            <Label className="text-xs">Default</Label>
-          </div>
-          <Button
-            size="sm"
-            disabled={!name || !rate || createMutation.isPending}
-            onClick={() => createMutation.mutate({ name, rate: Number(rate), is_default: isDefault, is_active: true })}
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Add
-          </Button>
-        </div>
       </CardContent>
+
+      <VatRateFormDialog
+        open={showAdd || !!editRate}
+        rate={editRate}
+        onClose={() => { setShowAdd(false); setEditRate(null) }}
+        onSave={(data) => {
+          if (editRate) {
+            updateMutation.mutate({ id: editRate.id, data })
+          } else {
+            createMutation.mutate(data)
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
+      />
 
       <ConfirmDialog
         open={!!deleteId}
@@ -137,11 +146,60 @@ function VatRatesSection() {
   )
 }
 
+function VatRateFormDialog({ open, rate, onClose, onSave, isPending }: {
+  open: boolean; rate: VatRate | null; onClose: () => void
+  onSave: (data: Partial<VatRate>) => void; isPending: boolean
+}) {
+  const [name, setName] = useState('')
+  const [rateVal, setRateVal] = useState('')
+  const [isDefault, setIsDefault] = useState(false)
+
+  const resetForm = () => {
+    if (rate) {
+      setName(rate.name); setRateVal(String(rate.rate)); setIsDefault(rate.is_default)
+    } else {
+      setName(''); setRateVal(''); setIsDefault(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-sm" onOpenAutoFocus={resetForm}>
+        <DialogHeader>
+          <DialogTitle>{rate ? 'Edit VAT Rate' : 'Add VAT Rate'}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Rate (%)</Label>
+            <Input type="number" value={rateVal} onChange={(e) => setRateVal(e.target.value)} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch checked={isDefault} onCheckedChange={setIsDefault} />
+            <Label>Default</Label>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={!name || !rateVal || isPending}
+            onClick={() => onSave({ name, rate: Number(rateVal), is_default: isDefault, is_active: rate?.is_active ?? true })}
+          >
+            {isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function DropdownSection({ type, title }: { type: string; title: string }) {
   const queryClient = useQueryClient()
-  const [value, setValue] = useState('')
-  const [label, setLabel] = useState('')
-  const [color, setColor] = useState('#3b82f6')
+  const [showAdd, setShowAdd] = useState(false)
+  const [editOption, setEditOption] = useState<DropdownOption | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
 
   const { data: options = [], isLoading } = useQuery({
@@ -153,11 +211,20 @@ function DropdownSection({ type, title }: { type: string; title: string }) {
     mutationFn: (data: Partial<DropdownOption>) => settingsApi.addDropdownOption(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'dropdownOptions', type] })
-      setValue('')
-      setLabel('')
+      setShowAdd(false)
       toast.success('Option added')
     },
     onError: () => toast.error('Failed to add option'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<DropdownOption> }) => settingsApi.updateDropdownOption(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'dropdownOptions', type] })
+      setEditOption(null)
+      toast.success('Option updated')
+    },
+    onError: () => toast.error('Failed to update option'),
   })
 
   const deleteMutation = useMutation({
@@ -173,8 +240,16 @@ function DropdownSection({ type, title }: { type: string; title: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>Manage {type.replace('_', ' ')} options for invoices.</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>{title}</CardTitle>
+            <CardDescription>Manage {type.replace('_', ' ')} options for invoices.</CardDescription>
+          </div>
+          <Button size="sm" onClick={() => setShowAdd(true)}>
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add Option
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -184,7 +259,7 @@ function DropdownSection({ type, title }: { type: string; title: string }) {
             ))}
           </div>
         ) : options.length === 0 ? (
-          <EmptyState title="No options" description="Add your first option below." />
+          <EmptyState title="No options" description="Add your first option." />
         ) : (
           <Table>
             <TableHeader>
@@ -195,7 +270,7 @@ function DropdownSection({ type, title }: { type: string; title: string }) {
                 <TableHead>Order</TableHead>
                 <TableHead>Notify</TableHead>
                 <TableHead>Active</TableHead>
-                <TableHead className="w-20">Actions</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -215,49 +290,37 @@ function DropdownSection({ type, title }: { type: string; title: string }) {
                   <TableCell>{opt.notify_on_status ? 'Yes' : '-'}</TableCell>
                   <TableCell>{opt.is_active ? 'Yes' : 'No'}</TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(opt.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setEditOption(opt)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(opt.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-
-        {/* Add Form */}
-        <div className="mt-4 flex items-end gap-3 rounded-lg border p-3">
-          <div className="grid gap-1">
-            <Label className="text-xs">Value</Label>
-            <Input className="h-8 w-28" value={value} onChange={(e) => setValue(e.target.value)} />
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-xs">Label</Label>
-            <Input className="h-8 w-28" value={label} onChange={(e) => setLabel(e.target.value)} />
-          </div>
-          <div className="grid gap-1">
-            <Label className="text-xs">Color</Label>
-            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded border" />
-          </div>
-          <Button
-            size="sm"
-            disabled={!value || !label || createMutation.isPending}
-            onClick={() =>
-              createMutation.mutate({
-                dropdown_type: type,
-                value,
-                label,
-                color,
-                is_active: true,
-                sort_order: options.length,
-              })
-            }
-          >
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            Add
-          </Button>
-        </div>
       </CardContent>
+
+      <DropdownFormDialog
+        open={showAdd || !!editOption}
+        option={editOption}
+        dropdownType={type}
+        optionCount={options.length}
+        onClose={() => { setShowAdd(false); setEditOption(null) }}
+        onSave={(data) => {
+          if (editOption) {
+            updateMutation.mutate({ id: editOption.id, data })
+          } else {
+            createMutation.mutate(data)
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
+      />
 
       <ConfirmDialog
         open={!!deleteId}
@@ -268,5 +331,65 @@ function DropdownSection({ type, title }: { type: string; title: string }) {
         destructive
       />
     </Card>
+  )
+}
+
+function DropdownFormDialog({ open, option, dropdownType, optionCount, onClose, onSave, isPending }: {
+  open: boolean; option: DropdownOption | null; dropdownType: string; optionCount: number
+  onClose: () => void; onSave: (data: Partial<DropdownOption>) => void; isPending: boolean
+}) {
+  const [value, setValue] = useState('')
+  const [label, setLabel] = useState('')
+  const [color, setColor] = useState('#3b82f6')
+
+  const resetForm = () => {
+    if (option) {
+      setValue(option.value); setLabel(option.label); setColor(option.color || '#3b82f6')
+    } else {
+      setValue(''); setLabel(''); setColor('#3b82f6')
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-sm" onOpenAutoFocus={resetForm}>
+        <DialogHeader>
+          <DialogTitle>{option ? 'Edit Option' : 'Add Option'}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Value</Label>
+            <Input value={value} onChange={(e) => setValue(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Label</Label>
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Color</Label>
+            <div className="flex gap-2">
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded border" />
+              <Input value={color} onChange={(e) => setColor(e.target.value)} className="h-8" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={!value || !label || isPending}
+            onClick={() => onSave({
+              dropdown_type: dropdownType,
+              value,
+              label,
+              color,
+              is_active: option?.is_active ?? true,
+              sort_order: option?.sort_order ?? optionCount,
+            })}
+          >
+            {isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

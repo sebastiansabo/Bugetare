@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -57,10 +57,8 @@ export default function TagsTab() {
 function TagGroupsSection() {
   const queryClient = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
+  const [editGroup, setEditGroup] = useState<TagGroup | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [color, setColor] = useState('#3b82f6')
 
   const { data: groups = [], isLoading } = useQuery({
     queryKey: ['settings', 'tagGroups'],
@@ -72,11 +70,19 @@ function TagGroupsSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'tagGroups'] })
       setShowAdd(false)
-      setName('')
-      setDescription('')
       toast.success('Tag group created')
     },
     onError: () => toast.error('Failed to create tag group'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<TagGroup> }) => tagsApiLocal.updateGroup(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'tagGroups'] })
+      setEditGroup(null)
+      toast.success('Tag group updated')
+    },
+    onError: () => toast.error('Failed to update tag group'),
   })
 
   const deleteMutation = useMutation({
@@ -121,7 +127,7 @@ function TagGroupsSection() {
                 <TableHead>Description</TableHead>
                 <TableHead>Order</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-20">Actions</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -137,9 +143,14 @@ function TagGroupsSection() {
                     <StatusBadge status={g.is_active ? 'active' : 'archived'} />
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(g.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setEditGroup(g)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(g.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -148,39 +159,19 @@ function TagGroupsSection() {
         )}
       </CardContent>
 
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add Tag Group</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Description</Label>
-              <Input value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Color</Label>
-              <div className="flex gap-2">
-                <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded border" />
-                <Input value={color} onChange={(e) => setColor(e.target.value)} className="h-8" />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
-            <Button
-              disabled={!name || createMutation.isPending}
-              onClick={() => createMutation.mutate({ name, description, color, is_active: true })}
-            >
-              {createMutation.isPending ? 'Creating...' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TagGroupFormDialog
+        open={showAdd || !!editGroup}
+        group={editGroup}
+        onClose={() => { setShowAdd(false); setEditGroup(null) }}
+        onSave={(data) => {
+          if (editGroup) {
+            updateMutation.mutate({ id: editGroup.id, data })
+          } else {
+            createMutation.mutate(data)
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
+      />
 
       <ConfirmDialog
         open={!!deleteId}
@@ -194,12 +185,61 @@ function TagGroupsSection() {
   )
 }
 
+function TagGroupFormDialog({ open, group, onClose, onSave, isPending }: {
+  open: boolean; group: TagGroup | null; onClose: () => void
+  onSave: (data: Partial<TagGroup>) => void; isPending: boolean
+}) {
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [color, setColor] = useState('#3b82f6')
+
+  const resetForm = () => {
+    if (group) {
+      setName(group.name); setDescription(group.description || ''); setColor(group.color || '#3b82f6')
+    } else {
+      setName(''); setDescription(''); setColor('#3b82f6')
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-sm" onOpenAutoFocus={resetForm}>
+        <DialogHeader>
+          <DialogTitle>{group ? 'Edit Tag Group' : 'Add Tag Group'}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Description</Label>
+            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Color</Label>
+            <div className="flex gap-2">
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded border" />
+              <Input value={color} onChange={(e) => setColor(e.target.value)} className="h-8" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!name || isPending} onClick={() => onSave({ name, description, color, is_active: group?.is_active ?? true })}>
+            {isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function TagsSection() {
   const queryClient = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
+  const [editTag, setEditTag] = useState<Tag | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [name, setName] = useState('')
-  const [color, setColor] = useState('#3b82f6')
 
   const { data: tags = [], isLoading } = useQuery({
     queryKey: ['settings', 'tags'],
@@ -211,10 +251,19 @@ function TagsSection() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'tags'] })
       setShowAdd(false)
-      setName('')
       toast.success('Tag created')
     },
     onError: () => toast.error('Failed to create tag'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<Tag> }) => tagsApiLocal.updateTag(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'tags'] })
+      setEditTag(null)
+      toast.success('Tag updated')
+    },
+    onError: () => toast.error('Failed to update tag'),
   })
 
   const deleteMutation = useMutation({
@@ -259,7 +308,7 @@ function TagsSection() {
                 <TableHead>Group</TableHead>
                 <TableHead>Scope</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="w-20">Actions</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -275,9 +324,14 @@ function TagsSection() {
                     <StatusBadge status={t.is_active ? 'active' : 'archived'} />
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(t.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setEditTag(t)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(t.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -286,35 +340,19 @@ function TagsSection() {
         )}
       </CardContent>
 
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add Tag</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Name</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>Color</Label>
-              <div className="flex gap-2">
-                <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded border" />
-                <Input value={color} onChange={(e) => setColor(e.target.value)} className="h-8" />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
-            <Button
-              disabled={!name || createMutation.isPending}
-              onClick={() => createMutation.mutate({ name, color, is_global: true })}
-            >
-              {createMutation.isPending ? 'Creating...' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <TagFormDialog
+        open={showAdd || !!editTag}
+        tag={editTag}
+        onClose={() => { setShowAdd(false); setEditTag(null) }}
+        onSave={(data) => {
+          if (editTag) {
+            updateMutation.mutate({ id: editTag.id, data })
+          } else {
+            createMutation.mutate(data)
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
+      />
 
       <ConfirmDialog
         open={!!deleteId}
@@ -325,5 +363,50 @@ function TagsSection() {
         destructive
       />
     </Card>
+  )
+}
+
+function TagFormDialog({ open, tag, onClose, onSave, isPending }: {
+  open: boolean; tag: Tag | null; onClose: () => void
+  onSave: (data: Partial<Tag>) => void; isPending: boolean
+}) {
+  const [name, setName] = useState('')
+  const [color, setColor] = useState('#3b82f6')
+
+  const resetForm = () => {
+    if (tag) {
+      setName(tag.name); setColor(tag.color || '#3b82f6')
+    } else {
+      setName(''); setColor('#3b82f6')
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-sm" onOpenAutoFocus={resetForm}>
+        <DialogHeader>
+          <DialogTitle>{tag ? 'Edit Tag' : 'Add Tag'}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>Color</Label>
+            <div className="flex gap-2">
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-8 w-8 cursor-pointer rounded border" />
+              <Input value={color} onChange={(e) => setColor(e.target.value)} className="h-8" />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button disabled={!name || isPending} onClick={() => onSave({ name, color, is_global: tag?.is_global ?? true })}>
+            {isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

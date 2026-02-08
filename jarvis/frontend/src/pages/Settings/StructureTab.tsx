@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Building2, Layers, GitBranch } from 'lucide-react'
+import { Plus, Trash2, Pencil, Building2, Layers, GitBranch } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -68,20 +68,27 @@ function CompaniesSection({ companies }: { companies: CompanyWithBrands[] }) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [editCompany, setEditCompany] = useState<CompanyWithBrands | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
-  const [newCompany, setNewCompany] = useState('')
-  const [newVat, setNewVat] = useState('')
 
   const createMutation = useMutation({
     mutationFn: (data: { company: string; vat?: string }) => organizationApi.createCompanyConfig(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settings', 'companiesConfig'] })
       setShowAdd(false)
-      setNewCompany('')
-      setNewVat('')
       toast.success('Company created')
     },
     onError: () => toast.error('Failed to create company'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<CompanyWithBrands> }) => organizationApi.updateCompanyConfig(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'companiesConfig'] })
+      setEditCompany(null)
+      toast.success('Company updated')
+    },
+    onError: () => toast.error('Failed to update company'),
   })
 
   const deleteMutation = useMutation({
@@ -121,7 +128,7 @@ function CompaniesSection({ companies }: { companies: CompanyWithBrands[] }) {
                 <TableHead>Company</TableHead>
                 <TableHead>VAT</TableHead>
                 <TableHead>Brands</TableHead>
-                <TableHead className="w-20">Actions</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -133,9 +140,14 @@ function CompaniesSection({ companies }: { companies: CompanyWithBrands[] }) {
                     {c.brands || '-'}
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(c.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setEditCompany(c)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(c.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -144,32 +156,19 @@ function CompaniesSection({ companies }: { companies: CompanyWithBrands[] }) {
         )}
       </CardContent>
 
-      <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Add Company</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label>Company Name</Label>
-              <Input value={newCompany} onChange={(e) => setNewCompany(e.target.value)} />
-            </div>
-            <div className="grid gap-2">
-              <Label>VAT Number</Label>
-              <Input value={newVat} onChange={(e) => setNewVat(e.target.value)} placeholder="Optional" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
-            <Button
-              disabled={!newCompany || createMutation.isPending}
-              onClick={() => createMutation.mutate({ company: newCompany, vat: newVat || undefined })}
-            >
-              {createMutation.isPending ? 'Creating...' : 'Create'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CompanyFormDialog
+        open={showAdd || !!editCompany}
+        company={editCompany}
+        onClose={() => { setShowAdd(false); setEditCompany(null) }}
+        onSave={(data) => {
+          if (editCompany) {
+            updateMutation.mutate({ id: editCompany.id, data })
+          } else {
+            createMutation.mutate(data as { company: string; vat?: string })
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
+      />
 
       <ConfirmDialog
         open={!!deleteId}
@@ -183,10 +182,56 @@ function CompaniesSection({ companies }: { companies: CompanyWithBrands[] }) {
   )
 }
 
+function CompanyFormDialog({ open, company, onClose, onSave, isPending }: {
+  open: boolean; company: CompanyWithBrands | null; onClose: () => void
+  onSave: (data: Partial<CompanyWithBrands>) => void; isPending: boolean
+}) {
+  const [name, setName] = useState('')
+  const [vat, setVat] = useState('')
+
+  const resetForm = () => {
+    if (company) {
+      setName(company.company); setVat(company.vat || '')
+    } else {
+      setName(''); setVat('')
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-sm" onOpenAutoFocus={resetForm}>
+        <DialogHeader>
+          <DialogTitle>{company ? 'Edit Company' : 'Add Company'}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Company Name</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="grid gap-2">
+            <Label>VAT Number</Label>
+            <Input value={vat} onChange={(e) => setVat(e.target.value)} placeholder="Optional" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={!name || isPending}
+            onClick={() => onSave({ company: name, vat: vat || undefined })}
+          >
+            {isPending ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function StructuresSection({ structures }: { structures: DepartmentStructure[] }) {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
+  const [editStructure, setEditStructure] = useState<DepartmentStructure | null>(null)
   const [deleteId, setDeleteId] = useState<number | null>(null)
 
   const deleteMutation = useMutation({
@@ -207,6 +252,16 @@ function StructuresSection({ structures }: { structures: DepartmentStructure[] }
       toast.success('Structure created')
     },
     onError: () => toast.error('Failed to create structure'),
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<DepartmentStructure> }) => organizationApi.updateDepartmentStructure(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'departmentStructures'] })
+      setEditStructure(null)
+      toast.success('Structure updated')
+    },
+    onError: () => toast.error('Failed to update structure'),
   })
 
   const filtered = structures.filter(
@@ -241,7 +296,7 @@ function StructuresSection({ structures }: { structures: DepartmentStructure[] }
                 <TableHead>Department</TableHead>
                 <TableHead>Subdepartment</TableHead>
                 <TableHead>Manager</TableHead>
-                <TableHead className="w-20">Actions</TableHead>
+                <TableHead className="w-24">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -253,9 +308,14 @@ function StructuresSection({ structures }: { structures: DepartmentStructure[] }
                   <TableCell className="text-muted-foreground">{s.subdepartment || '-'}</TableCell>
                   <TableCell className="text-muted-foreground">{s.manager || '-'}</TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(s.id)}>
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => setEditStructure(s)}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteId(s.id)}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -264,11 +324,18 @@ function StructuresSection({ structures }: { structures: DepartmentStructure[] }
         )}
       </CardContent>
 
-      <AddStructureDialog
-        open={showAdd}
-        onClose={() => setShowAdd(false)}
-        onSave={(data) => createMutation.mutate(data)}
-        isPending={createMutation.isPending}
+      <StructureFormDialog
+        open={showAdd || !!editStructure}
+        structure={editStructure}
+        onClose={() => { setShowAdd(false); setEditStructure(null) }}
+        onSave={(data) => {
+          if (editStructure) {
+            updateMutation.mutate({ id: editStructure.id, data })
+          } else {
+            createMutation.mutate(data)
+          }
+        }}
+        isPending={createMutation.isPending || updateMutation.isPending}
       />
 
       <ConfirmDialog
@@ -283,24 +350,31 @@ function StructuresSection({ structures }: { structures: DepartmentStructure[] }
   )
 }
 
-function AddStructureDialog({
-  open,
-  onClose,
-  onSave,
-  isPending,
-}: {
-  open: boolean
-  onClose: () => void
-  onSave: (data: Record<string, unknown>) => void
-  isPending: boolean
+function StructureFormDialog({ open, structure, onClose, onSave, isPending }: {
+  open: boolean; structure: DepartmentStructure | null; onClose: () => void
+  onSave: (data: Record<string, unknown>) => void; isPending: boolean
 }) {
   const [form, setForm] = useState({ company: '', brand: '', department: '', subdepartment: '', manager: '' })
 
+  const resetForm = () => {
+    if (structure) {
+      setForm({
+        company: structure.company || '',
+        brand: structure.brand || '',
+        department: structure.department || '',
+        subdepartment: structure.subdepartment || '',
+        manager: structure.manager || '',
+      })
+    } else {
+      setForm({ company: '', brand: '', department: '', subdepartment: '', manager: '' })
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
+      <DialogContent className="sm:max-w-md" onOpenAutoFocus={resetForm}>
         <DialogHeader>
-          <DialogTitle>Add Structure Mapping</DialogTitle>
+          <DialogTitle>{structure ? 'Edit Structure Mapping' : 'Add Structure Mapping'}</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-2 gap-4">
@@ -334,7 +408,7 @@ function AddStructureDialog({
             disabled={!form.company || !form.department || isPending}
             onClick={() => onSave(form)}
           >
-            {isPending ? 'Creating...' : 'Create'}
+            {isPending ? 'Saving...' : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>
