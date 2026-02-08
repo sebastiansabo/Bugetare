@@ -1,3 +1,17 @@
+# Stage 1: Build React frontend
+FROM node:22-slim AS frontend-build
+
+WORKDIR /frontend
+
+# Copy package files first for caching
+COPY jarvis/frontend/package.json jarvis/frontend/package-lock.json ./
+RUN npm ci
+
+# Copy frontend source and build
+COPY jarvis/frontend/ ./
+RUN npm run build
+
+# Stage 2: Python application
 FROM python:3.11-slim
 
 # Install poppler for PDF processing
@@ -14,6 +28,10 @@ RUN pip install gunicorn
 
 # Copy application code
 COPY jarvis/ ./jarvis/
+
+# Copy built frontend from Stage 1
+# Vite outDir is '../static/react' relative to /frontend, so output lands at /static/react/
+COPY --from=frontend-build /static/react/ ./jarvis/static/react/
 
 # Create directories
 RUN mkdir -p Invoices
