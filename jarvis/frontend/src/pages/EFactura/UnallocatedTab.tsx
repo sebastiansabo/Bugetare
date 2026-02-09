@@ -6,6 +6,10 @@ import {
   RotateCcw,
   CheckCircle,
   FileStack,
+  Pencil,
+  Eye,
+  FileText,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +22,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { SearchInput } from '@/components/shared/SearchInput'
@@ -26,12 +37,23 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { efacturaApi } from '@/api/efactura'
 import type { EFacturaInvoice, EFacturaInvoiceFilters } from '@/types/efactura'
 
+type InvoiceRow = EFacturaInvoice & { _hidden?: boolean }
+
 export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) {
   const qc = useQueryClient()
   const [filters, setFilters] = useState<EFacturaInvoiceFilters>({ page: 1, limit: 50 })
   const [search, setSearch] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [confirmAction, setConfirmAction] = useState<{ action: string; ids: number[] } | null>(null)
+  const [viewInvoice, setViewInvoice] = useState<InvoiceRow | null>(null)
+  const [editInvoice, setEditInvoice] = useState<InvoiceRow | null>(null)
+  const [overrides, setOverrides] = useState({
+    type_override: '',
+    department_override: '',
+    subdepartment_override: '',
+    department_override_2: '',
+    subdepartment_override_2: '',
+  })
 
   const updateFilter = (key: string, value: string | number | boolean | undefined) => {
     setFilters((f) => ({ ...f, [key]: value || undefined, page: 1 }))
@@ -76,10 +98,27 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
     onSuccess: invalidateAll,
   })
 
+  const deleteMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      if (ids.length === 1) await efacturaApi.deleteInvoice(ids[0])
+      else await efacturaApi.bulkDelete(ids)
+    },
+    onSuccess: invalidateAll,
+  })
+
+  const updateOverridesMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Record<string, string | null> }) =>
+      efacturaApi.updateOverrides(id, data),
+    onSuccess: () => {
+      invalidateAll()
+      setEditInvoice(null)
+    },
+  })
+
   // ── Derived state ────────────────────────────────────────
   const unallocInvoices = unallocData?.invoices ?? []
   const hiddenInvoices = showHidden ? (hiddenData?.invoices ?? []) : []
-  const invoices: (EFacturaInvoice & { _hidden?: boolean })[] = [
+  const invoices: InvoiceRow[] = [
     ...unallocInvoices.map((i) => ({ ...i, _hidden: false })),
     ...hiddenInvoices.map((i) => ({ ...i, _hidden: true })),
   ]
@@ -112,7 +151,28 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
       case 'send': sendToModuleMut.mutate(ids); break
       case 'hide': bulkHideMut.mutate(ids); break
       case 'restore-hidden': bulkRestoreHiddenMut.mutate(ids); break
+      case 'delete': deleteMut.mutate(ids); break
     }
+  }
+
+  const openEdit = (inv: InvoiceRow) => {
+    setOverrides({
+      type_override: inv.type_override ?? '',
+      department_override: inv.department_override ?? '',
+      subdepartment_override: inv.subdepartment_override ?? '',
+      department_override_2: inv.department_override_2 ?? '',
+      subdepartment_override_2: inv.subdepartment_override_2 ?? '',
+    })
+    setEditInvoice(inv)
+  }
+
+  const saveOverrides = () => {
+    if (!editInvoice) return
+    const data: Record<string, string | null> = {}
+    for (const [k, v] of Object.entries(overrides)) {
+      data[k] = v || null
+    }
+    updateOverridesMut.mutate({ id: editInvoice.id, data })
   }
 
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ro-RO') : '—'
@@ -206,6 +266,12 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
                 ids: selectedInvoices.filter((i) => !i._hidden).map((i) => i.id),
               })}>
                 <EyeOff className="mr-1 h-3 w-3" /> Hide
+              </Button>
+              <Button size="sm" variant="outline" className="text-destructive" onClick={() => setConfirmAction({
+                action: 'delete',
+                ids: selectedInvoices.filter((i) => !i._hidden).map((i) => i.id),
+              })}>
+                <Trash2 className="mr-1 h-3 w-3" /> Delete
               </Button>
             </>
           )}
@@ -315,7 +381,7 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
                       <StatusBadge status={inv.status} />
                     </td>
                     <td className="p-2">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex justify-end gap-0.5">
                         {inv._hidden ? (
                           <Button
                             size="icon"
@@ -331,11 +397,38 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
                             <Button
                               size="icon"
                               variant="ghost"
-                              className="h-7 w-7 text-primary"
+                              className="h-7 w-7 text-green-600 dark:text-green-400"
                               title="Send to Module"
                               onClick={() => setConfirmAction({ action: 'send', ids: [inv.id] })}
                             >
                               <Send className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-amber-600 dark:text-amber-400"
+                              title="Edit Type/Dept"
+                              onClick={() => openEdit(inv)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-blue-600 dark:text-blue-400"
+                              title="View Details"
+                              onClick={() => setViewInvoice(inv)}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-red-600 dark:text-red-400"
+                              title="Export PDF"
+                              onClick={() => window.open(efacturaApi.getInvoicePdfUrl(inv.id), '_blank')}
+                            >
+                              <FileText className="h-3.5 w-3.5" />
                             </Button>
                             <Button
                               size="icon"
@@ -345,6 +438,15 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
                               onClick={() => setConfirmAction({ action: 'hide', ids: [inv.id] })}
                             >
                               <EyeOff className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-destructive"
+                              title="Delete"
+                              onClick={() => setConfirmAction({ action: 'delete', ids: [inv.id] })}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </>
                         )}
@@ -391,12 +493,168 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
         title={
           confirmAction?.action === 'send' ? 'Send to Invoice Module'
           : confirmAction?.action === 'hide' ? 'Hide Invoices'
+          : confirmAction?.action === 'delete' ? 'Delete Invoices'
           : 'Restore from Hidden'
         }
-        description={`This will affect ${confirmAction?.ids.length ?? 0} invoice(s).`}
+        description={
+          confirmAction?.action === 'delete'
+            ? `This will move ${confirmAction.ids.length} invoice(s) to the bin.`
+            : `This will affect ${confirmAction?.ids.length ?? 0} invoice(s).`
+        }
         onConfirm={executeAction}
-        destructive={false}
+        destructive={confirmAction?.action === 'delete'}
       />
+
+      {/* View Details Dialog */}
+      <Dialog open={!!viewInvoice} onOpenChange={() => setViewInvoice(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Invoice Details</DialogTitle>
+          </DialogHeader>
+          {viewInvoice && (
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <div className="text-muted-foreground">Partner</div>
+              <div className="font-medium">{viewInvoice.partner_name}</div>
+
+              <div className="text-muted-foreground">Partner CIF</div>
+              <div>{viewInvoice.partner_cif || '—'}</div>
+
+              <div className="text-muted-foreground">Invoice #</div>
+              <div className="font-mono">
+                {viewInvoice.invoice_series ? `${viewInvoice.invoice_series}-` : ''}
+                {viewInvoice.invoice_number}
+              </div>
+
+              <div className="text-muted-foreground">Issue Date</div>
+              <div>{fmtDate(viewInvoice.issue_date)}</div>
+
+              <div className="text-muted-foreground">Due Date</div>
+              <div>{fmtDate(viewInvoice.due_date ?? null)}</div>
+
+              <div className="text-muted-foreground">Direction</div>
+              <div><StatusBadge status={viewInvoice.direction} /></div>
+
+              <div className="text-muted-foreground">Status</div>
+              <div><StatusBadge status={viewInvoice.status} /></div>
+
+              <div className="col-span-2 mt-2 border-t pt-2" />
+
+              <div className="text-muted-foreground">Total Amount</div>
+              <div className="font-medium"><CurrencyDisplay value={viewInvoice.total_amount} currency={viewInvoice.currency} /></div>
+
+              <div className="text-muted-foreground">VAT</div>
+              <div><CurrencyDisplay value={viewInvoice.total_vat} currency={viewInvoice.currency} /></div>
+
+              <div className="text-muted-foreground">Without VAT</div>
+              <div><CurrencyDisplay value={viewInvoice.total_without_vat} currency={viewInvoice.currency} /></div>
+
+              <div className="col-span-2 mt-2 border-t pt-2" />
+
+              <div className="text-muted-foreground">Company (CIF)</div>
+              <div>{viewInvoice.cif_owner}</div>
+
+              <div className="text-muted-foreground">Type Override</div>
+              <div>{viewInvoice.type_override || '—'}</div>
+
+              <div className="text-muted-foreground">Mapped Type(s)</div>
+              <div>{viewInvoice.mapped_type_names?.join(', ') || '—'}</div>
+
+              <div className="text-muted-foreground">Mapped Supplier</div>
+              <div>{viewInvoice.mapped_supplier_name || '—'}</div>
+
+              <div className="text-muted-foreground">Mapped Brand</div>
+              <div>{viewInvoice.mapped_brand || '—'}</div>
+
+              <div className="text-muted-foreground">Mapped Dept</div>
+              <div>{viewInvoice.mapped_department || '—'}</div>
+
+              <div className="text-muted-foreground">Mapped Subdept</div>
+              <div>{viewInvoice.mapped_subdepartment || '—'}</div>
+
+              <div className="text-muted-foreground">Kod Konto</div>
+              <div>{viewInvoice.mapped_kod_konto || '—'}</div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => viewInvoice && window.open(efacturaApi.getInvoicePdfUrl(viewInvoice.id), '_blank')}
+            >
+              <FileText className="mr-1.5 h-3.5 w-3.5" /> Export PDF
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Overrides Dialog */}
+      <Dialog open={!!editInvoice} onOpenChange={() => setEditInvoice(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Type / Department</DialogTitle>
+          </DialogHeader>
+          {editInvoice && (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {editInvoice.partner_name} — {editInvoice.invoice_series ? `${editInvoice.invoice_series}-` : ''}{editInvoice.invoice_number}
+              </p>
+
+              <div className="space-y-1">
+                <Label className="text-xs">Type Override</Label>
+                <Input
+                  value={overrides.type_override}
+                  onChange={(e) => setOverrides((o) => ({ ...o, type_override: e.target.value }))}
+                  placeholder="e.g. Service, Parts, Marketing..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Department</Label>
+                  <Input
+                    value={overrides.department_override}
+                    onChange={(e) => setOverrides((o) => ({ ...o, department_override: e.target.value }))}
+                    placeholder="Department"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Subdepartment</Label>
+                  <Input
+                    value={overrides.subdepartment_override}
+                    onChange={(e) => setOverrides((o) => ({ ...o, subdepartment_override: e.target.value }))}
+                    placeholder="Subdepartment"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Department 2</Label>
+                  <Input
+                    value={overrides.department_override_2}
+                    onChange={(e) => setOverrides((o) => ({ ...o, department_override_2: e.target.value }))}
+                    placeholder="Department 2"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Subdepartment 2</Label>
+                  <Input
+                    value={overrides.subdepartment_override_2}
+                    onChange={(e) => setOverrides((o) => ({ ...o, subdepartment_override_2: e.target.value }))}
+                    placeholder="Subdepartment 2"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditInvoice(null)}>Cancel</Button>
+            <Button onClick={saveOverrides} disabled={updateOverridesMut.isPending}>
+              {updateOverridesMut.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

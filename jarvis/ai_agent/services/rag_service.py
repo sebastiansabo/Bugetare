@@ -290,14 +290,15 @@ class RAGService:
 
             # Get invoices not yet indexed or with changed content
             cursor.execute("""
-                SELECT i.id, i.company_id
+                SELECT i.id
                 FROM invoices i
                 LEFT JOIN ai_agent.rag_documents r
                     ON r.source_type = 'invoice'
                     AND r.source_id = i.id
                     AND r.is_active = TRUE
-                WHERE r.id IS NULL
-                   OR r.updated_at < i.updated_at
+                WHERE (r.id IS NULL
+                   OR r.updated_at < i.updated_at)
+                  AND i.deleted_at IS NULL
                 ORDER BY i.updated_at DESC
                 LIMIT %s
             """, (limit,))
@@ -307,7 +308,7 @@ class RAGService:
 
             indexed = 0
             for inv in invoices:
-                result = self.index_invoice(inv['id'], inv['company_id'])
+                result = self.index_invoice(inv['id'])
                 if result.success:
                     indexed += 1
 
@@ -341,10 +342,15 @@ class RAGService:
 
         try:
             cursor.execute("""
-                SELECT i.*, c.id as company_id
+                SELECT i.*,
+                       a.company as allocated_company,
+                       a.brand as allocated_brand,
+                       a.department as allocated_department,
+                       a.subdepartment as allocated_subdepartment
                 FROM invoices i
-                LEFT JOIN companies c ON c.company = i.dedicated_to
+                LEFT JOIN allocations a ON a.invoice_id = i.id
                 WHERE i.id = %s
+                LIMIT 1
             """, (invoice_id,))
 
             return cursor.fetchone()
@@ -370,8 +376,17 @@ class RAGService:
             currency = invoice_data.get('currency', 'RON')
             parts.append(f"Amount: {invoice_data['invoice_value']} {currency}")
 
-        if invoice_data.get('dedicated_to'):
-            parts.append(f"Company: {invoice_data['dedicated_to']}")
+        if invoice_data.get('allocated_company'):
+            parts.append(f"Company: {invoice_data['allocated_company']}")
+
+        if invoice_data.get('allocated_brand'):
+            parts.append(f"Brand: {invoice_data['allocated_brand']}")
+
+        if invoice_data.get('allocated_department'):
+            parts.append(f"Department: {invoice_data['allocated_department']}")
+
+        if invoice_data.get('allocated_subdepartment'):
+            parts.append(f"Subdepartment: {invoice_data['allocated_subdepartment']}")
 
         if invoice_data.get('type'):
             parts.append(f"Type: {invoice_data['type']}")

@@ -25,6 +25,18 @@ def cleanup_old_unallocated_invoices():
         logger.error(f"Cleanup task failed: {e}")
 
 
+def reindex_rag_documents():
+    """Reindex all RAG document sources for the AI agent."""
+    try:
+        from ai_agent.services.rag_service import RAGService
+        svc = RAGService()
+        result = svc.index_all_sources()
+        total = result.data.get('total', 0) if result.success else 0
+        logger.info(f"RAG reindex complete: {total} documents indexed")
+    except Exception as e:
+        logger.error(f"RAG reindex task failed: {e}")
+
+
 def start_scheduler():
     """Start the background scheduler with all cleanup jobs."""
     if scheduler.running:
@@ -35,6 +47,15 @@ def start_scheduler():
         'interval',
         hours=6,
         id='cleanup_old_unallocated',
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        reindex_rag_documents,
+        'cron',
+        hour=0,
+        minute=0,
+        id='rag_reindex_daily',
         replace_existing=True,
     )
 
