@@ -268,22 +268,12 @@ class ModelConfigRepository:
         cursor = get_cursor(conn)
 
         try:
-            # Get the provider
-            cursor.execute("""
-                SELECT provider FROM ai_agent.model_configs WHERE id = %s
-            """, (config_id,))
-            row = cursor.fetchone()
-            if not row:
-                return False
-
-            provider = row['provider']
-
-            # Clear existing default for this provider
+            # Clear ALL existing defaults (only one global default allowed)
             cursor.execute("""
                 UPDATE ai_agent.model_configs
                 SET is_default = FALSE, updated_at = NOW()
-                WHERE provider = %s AND is_default = TRUE
-            """, (provider,))
+                WHERE is_default = TRUE
+            """)
 
             # Set new default
             cursor.execute("""

@@ -809,7 +809,7 @@ class RAGService:
             cursor = get_cursor(conn)
             cursor.execute("""
                 SELECT * FROM efactura_invoices
-                WHERE id = %s AND deleted_at IS NULL AND ignored = FALSE
+                WHERE id = %s AND deleted_at IS NULL
             """, (ef_id,))
             return cursor.fetchone()
         finally:
@@ -839,6 +839,15 @@ class RAGService:
             parts.append(f"Status: {data['status']}")
         if data.get('cif_owner'):
             parts.append(f"Owner CIF: {data['cif_owner']}")
+
+        # Allocation status
+        if data.get('jarvis_invoice_id'):
+            parts.append("Allocation: Allocated (sent to invoice module)")
+        elif data.get('ignored'):
+            parts.append("Allocation: Hidden")
+        else:
+            parts.append("Allocation: Unallocated")
+
         return "\n".join(parts)
 
     def index_efactura(self, ef_id: int) -> ServiceResult:
@@ -870,7 +879,8 @@ class RAGService:
                     SELECT e.id FROM efactura_invoices e
                     LEFT JOIN ai_agent.rag_documents r
                         ON r.source_type = 'efactura' AND r.source_id = e.id AND r.is_active = TRUE
-                    WHERE e.deleted_at IS NULL AND e.ignored = FALSE AND r.id IS NULL
+                    WHERE e.deleted_at IS NULL
+                      AND (r.id IS NULL OR r.updated_at < e.updated_at)
                     LIMIT %s
                 """, (limit,))
                 rows = cursor.fetchall()

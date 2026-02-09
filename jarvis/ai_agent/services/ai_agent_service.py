@@ -740,6 +740,8 @@ class AIAgentService:
                         date_from=filters.get('start_date'),
                         date_to=filters.get('end_date'),
                     ))
+                elif query_type == 'efactura_summary':
+                    results.append(self.analytics_service.get_efactura_summary())
                 elif query_type == 'invoice_summary':
                     results.append(self.analytics_service.get_invoice_summary(
                         group_by=parsed.group_by or 'company',

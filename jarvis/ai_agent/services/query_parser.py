@@ -34,6 +34,13 @@ TOP_SUPPLIER_KEYWORDS = {'top supplier', 'top vendors', 'biggest supplier', 'lar
 # Transaction/bank keywords
 TRANSACTION_KEYWORDS = {'bank', 'transaction', 'transactions', 'statement', 'statements', 'pending', 'reconcil'}
 
+# e-Factura keywords
+EFACTURA_KEYWORDS = {
+    'efactura', 'e-factura', 'factura electronica', 'anaf',
+    'unallocated', 'nealocate', 'nealocata', 'hidden', 'ascunse',
+    'allocated', 'alocate', 'alocata',
+}
+
 # Group-by keywords
 GROUP_BY_KEYWORDS = {
     'company': ['by company', 'per company', 'each company', 'companies'],
@@ -121,6 +128,10 @@ def _has_analytics_intent(msg_lower: str) -> bool:
     for keyword in ANALYTICS_KEYWORDS:
         if keyword in msg_lower:
             return True
+    # e-Factura queries are always analytics
+    for keyword in EFACTURA_KEYWORDS:
+        if keyword in msg_lower:
+            return True
     return False
 
 
@@ -141,6 +152,10 @@ def _detect_query_types(msg_lower: str) -> List[str]:
     # Check for transaction/bank
     if any(kw in msg_lower for kw in TRANSACTION_KEYWORDS):
         types.append('transaction_summary')
+
+    # Check for e-Factura
+    if any(kw in msg_lower for kw in EFACTURA_KEYWORDS):
+        types.append('efactura_summary')
 
     # Default: invoice summary (if no specific type detected, or always include)
     if not types or any(kw in msg_lower for kw in ['invoice', 'spend', 'cost', 'total', 'budget', 'expense']):

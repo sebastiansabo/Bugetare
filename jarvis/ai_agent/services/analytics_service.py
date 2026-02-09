@@ -297,6 +297,60 @@ class AnalyticsService:
         finally:
             release_db(conn)
 
+    def get_efactura_summary(self) -> Dict[str, Any]:
+        """Get e-Factura invoice summary: unallocated, hidden, allocated counts and totals."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+
+            # Overall counts by allocation status
+            cursor.execute('''
+                SELECT
+                    COUNT(*) FILTER (WHERE jarvis_invoice_id IS NULL AND ignored = FALSE) as unallocated_count,
+                    COALESCE(SUM(total_amount) FILTER (WHERE jarvis_invoice_id IS NULL AND ignored = FALSE), 0) as unallocated_total,
+                    COUNT(*) FILTER (WHERE ignored = TRUE) as hidden_count,
+                    COALESCE(SUM(total_amount) FILTER (WHERE ignored = TRUE), 0) as hidden_total,
+                    COUNT(*) FILTER (WHERE jarvis_invoice_id IS NOT NULL) as allocated_count,
+                    COALESCE(SUM(total_amount) FILTER (WHERE jarvis_invoice_id IS NOT NULL), 0) as allocated_total,
+                    COUNT(*) as total_count,
+                    COALESCE(SUM(total_amount), 0) as total_amount
+                FROM efactura_invoices
+                WHERE deleted_at IS NULL
+            ''')
+            overview = dict(cursor.fetchone())
+
+            # Unallocated by company (cif_owner)
+            cursor.execute('''
+                SELECT cif_owner, COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total
+                FROM efactura_invoices
+                WHERE deleted_at IS NULL AND jarvis_invoice_id IS NULL AND ignored = FALSE
+                GROUP BY cif_owner
+                ORDER BY count DESC
+            ''')
+            by_company = [dict(row) for row in cursor.fetchall()]
+
+            # Unallocated by direction
+            cursor.execute('''
+                SELECT direction, COUNT(*) as count, COALESCE(SUM(total_amount), 0) as total
+                FROM efactura_invoices
+                WHERE deleted_at IS NULL AND jarvis_invoice_id IS NULL AND ignored = FALSE
+                GROUP BY direction
+                ORDER BY direction
+            ''')
+            by_direction = [dict(row) for row in cursor.fetchall()]
+
+            return {
+                'type': 'efactura_summary',
+                'overview': overview,
+                'unallocated_by_company': by_company,
+                'unallocated_by_direction': by_direction,
+            }
+        except Exception as e:
+            logger.error(f"e-Factura summary query failed: {e}")
+            return {'type': 'efactura_summary', 'overview': {}, 'error': str(e)}
+        finally:
+            release_db(conn)
+
     def get_entity_names(self) -> Dict[str, List[str]]:
         """Get known entity names for query matching. Cached for 5 minutes."""
         global _entity_cache
@@ -394,6 +448,8 @@ class AnalyticsService:
             return self._format_top_suppliers(rows, filter_desc)
         elif result_type == 'transaction_summary':
             return self._format_transaction_summary(result, filter_desc)
+        elif result_type == 'efactura_summary':
+            return self._format_efactura_summary(result)
 
         return ''
 
@@ -518,6 +574,49 @@ class AnalyticsService:
             sections.append("**Top Transaction Suppliers**\n" + '\n'.join(lines))
 
         return '\n\n'.join(sections) if sections else f"**Bank Transaction Summary{filter_desc}**: No data found."
+
+    def _format_efactura_summary(self, result: Dict) -> str:
+        overview = result.get('overview', {})
+        by_company = result.get('unallocated_by_company', [])
+        by_direction = result.get('unallocated_by_direction', [])
+
+        if result.get('error'):
+            return f"*e-Factura query error: {result['error']}*"
+
+        sections = []
+
+        # Overview
+        lines = [
+            '| Status | Count | Total Amount |',
+            '|---|---:|---:|',
+            f"| Unallocated | {overview.get('unallocated_count', 0)} | {self._fmt_num(overview.get('unallocated_total', 0))} |",
+            f"| Hidden | {overview.get('hidden_count', 0)} | {self._fmt_num(overview.get('hidden_total', 0))} |",
+            f"| Allocated | {overview.get('allocated_count', 0)} | {self._fmt_num(overview.get('allocated_total', 0))} |",
+            f"| **TOTAL** | **{overview.get('total_count', 0)}** | **{self._fmt_num(overview.get('total_amount', 0))}** |",
+        ]
+        sections.append("**e-Factura Overview**\n" + '\n'.join(lines))
+
+        # By company
+        if by_company:
+            lines = [
+                '| Company (CIF) | Unallocated Count | Total Amount |',
+                '|---|---:|---:|',
+            ]
+            for r in by_company:
+                lines.append(f"| {r.get('cif_owner', '')} | {r.get('count', 0)} | {self._fmt_num(r.get('total', 0))} |")
+            sections.append("**Unallocated by Company**\n" + '\n'.join(lines))
+
+        # By direction
+        if by_direction:
+            lines = [
+                '| Direction | Count | Total Amount |',
+                '|---|---:|---:|',
+            ]
+            for r in by_direction:
+                lines.append(f"| {r.get('direction', '')} | {r.get('count', 0)} | {self._fmt_num(r.get('total', 0))} |")
+            sections.append("**Unallocated by Direction**\n" + '\n'.join(lines))
+
+        return '\n\n'.join(sections) if sections else "**e-Factura Summary**: No data found."
 
     @staticmethod
     def _fmt_num(value) -> str:
