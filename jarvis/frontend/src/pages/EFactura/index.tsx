@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
 import { efacturaApi } from '@/api/efactura'
@@ -35,6 +37,7 @@ function TabLoader() {
 
 export default function EFactura() {
   const [syncOpen, setSyncOpen] = useState(false)
+  const [showHidden, setShowHidden] = useState(false)
 
   const { data: unallocatedCount, isLoading: unallocLoading } = useQuery({
     queryKey: ['efactura-unallocated-count'],
@@ -87,7 +90,7 @@ export default function EFactura() {
       </div>
 
       {/* Tab nav */}
-      <nav className="flex gap-1 overflow-x-auto border-b">
+      <nav className="flex items-center gap-1 overflow-x-auto border-b">
         {tabs.map((tab) => (
           <NavLink
             key={tab.to}
@@ -110,13 +113,19 @@ export default function EFactura() {
             )}
           </NavLink>
         ))}
+        <div className="ml-auto flex items-center gap-2 pb-0.5">
+          <Switch id="show-hidden" checked={showHidden} onCheckedChange={setShowHidden} />
+          <Label htmlFor="show-hidden" className="text-xs cursor-pointer text-muted-foreground">
+            Show Hidden ({hiddenCount ?? 0})
+          </Label>
+        </div>
       </nav>
 
       {/* Tab content */}
       <Suspense fallback={<TabLoader />}>
         <Routes>
           <Route index element={<Navigate to="unallocated" replace />} />
-          <Route path="unallocated" element={<UnallocatedTab />} />
+          <Route path="unallocated" element={<UnallocatedTab showHidden={showHidden} />} />
           <Route path="mappings" element={<MappingsTab />} />
           {/* Redirect removed/old routes */}
           <Route path="fetch" element={<Navigate to="/app/efactura/unallocated" replace />} />

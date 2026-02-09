@@ -10,7 +10,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -27,9 +26,8 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { efacturaApi } from '@/api/efactura'
 import type { EFacturaInvoice, EFacturaInvoiceFilters } from '@/types/efactura'
 
-export default function UnallocatedTab() {
+export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) {
   const qc = useQueryClient()
-  const [showHidden, setShowHidden] = useState(false)
   const [filters, setFilters] = useState<EFacturaInvoiceFilters>({ page: 1, limit: 50 })
   const [search, setSearch] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -52,10 +50,6 @@ export default function UnallocatedTab() {
     enabled: showHidden,
   })
 
-  const { data: hiddenCount } = useQuery({
-    queryKey: ['efactura-hidden-count'],
-    queryFn: () => efacturaApi.getHiddenCount(),
-  })
 
   // ── Mutations ─────────────────────────────────────────────
   const invalidateAll = () => {
@@ -125,16 +119,6 @@ export default function UnallocatedTab() {
 
   return (
     <div className="space-y-4">
-      {/* Show Hidden toggle */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2">
-          <Switch checked={showHidden} onCheckedChange={(v) => { setShowHidden(v); setSelectedIds(new Set()) }} />
-          <Label className="text-sm cursor-pointer" onClick={() => { setShowHidden(!showHidden); setSelectedIds(new Set()) }}>
-            Show Hidden ({hiddenCount ?? 0})
-          </Label>
-        </div>
-      </div>
-
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3">
         {companies.length > 0 && (
