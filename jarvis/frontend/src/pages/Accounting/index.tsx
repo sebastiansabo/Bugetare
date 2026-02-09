@@ -24,6 +24,13 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { StatCard } from '@/components/shared/StatCard'
 import { StatusBadge } from '@/components/shared/StatusBadge'
@@ -189,6 +196,53 @@ export default function Accounting() {
     },
     onError: () => toast.error('Failed to permanently delete'),
   })
+
+  const updateFieldMutation = useMutation({
+    mutationFn: ({ id, field, value }: { id: number; field: string; value: string }) =>
+      invoicesApi.updateInvoice(id, { [field]: value }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+    onError: () => toast.error('Failed to update'),
+  })
+
+  // Build active columns with inline dropdowns for status/payment
+  const activeCols = useMemo(() => {
+    const overrides: Record<string, (inv: Invoice) => React.ReactNode> = {
+      status: (inv) => (
+        <Select
+          value={inv.status}
+          onValueChange={(v) => updateFieldMutation.mutate({ id: inv.id, field: 'status', value: v })}
+        >
+          <SelectTrigger className="h-7 w-[130px] text-xs border-none bg-transparent shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {statusOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+      payment_status: (inv) => (
+        <Select
+          value={inv.payment_status}
+          onValueChange={(v) => updateFieldMutation.mutate({ id: inv.id, field: 'payment_status', value: v })}
+        >
+          <SelectTrigger className="h-7 w-[130px] text-xs border-none bg-transparent shadow-none">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {paymentOptions.map((o) => (
+              <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ),
+    }
+    return visibleColumns
+      .map((k) => columnDefMap.get(k))
+      .filter(Boolean)
+      .map((col) => (col && overrides[col.key] ? { ...col, render: overrides[col.key] } : col)) as ColumnDef[]
+  }, [visibleColumns, statusOptions, paymentOptions])
 
   // Derived data
   const displayedInvoices = useMemo(() => {
@@ -385,7 +439,7 @@ export default function Accounting() {
           expandedRow={expandedRow}
           onToggleExpand={(id) => setExpandedRow(expandedRow === id ? null : id)}
           isBin={activeTab === 'bin'}
-          visibleColumns={visibleColumns}
+          activeCols={activeCols}
         />
       ) : activeTab === 'company' ? (
         <SummaryTable data={companySummary} nameKey="company" label="Company" />
@@ -625,7 +679,7 @@ function InvoiceTable({
   expandedRow,
   onToggleExpand,
   isBin,
-  visibleColumns,
+  activeCols,
 }: {
   invoices: Invoice[]
   isLoading: boolean
@@ -641,9 +695,8 @@ function InvoiceTable({
   expandedRow: number | null
   onToggleExpand: (id: number) => void
   isBin: boolean
-  visibleColumns: string[]
+  activeCols: ColumnDef[]
 }) {
-  const activeCols = visibleColumns.map((k) => columnDefMap.get(k)).filter(Boolean) as ColumnDef[]
   const colCount = 2 + activeCols.length + 1 // checkbox + ID + visible cols + actions
 
   if (isLoading) {
@@ -786,7 +839,12 @@ function InvoiceRow({
           </span>
         </TableCell>
         {activeCols.map((col) => (
-          <TableCell key={col.key}>{col.render(inv)}</TableCell>
+          <TableCell
+            key={col.key}
+            onClick={col.key === 'status' || col.key === 'payment_status' ? (e) => e.stopPropagation() : undefined}
+          >
+            {col.render(inv)}
+          </TableCell>
         ))}
         <TableCell onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1">
