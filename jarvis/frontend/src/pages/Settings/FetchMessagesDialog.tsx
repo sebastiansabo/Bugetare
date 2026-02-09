@@ -97,7 +97,7 @@ export function FetchMessagesDialog({ open, onOpenChange, cif, displayName }: Fe
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl w-[90vw] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Fetch Messages — {displayName} ({cif})</DialogTitle>
         </DialogHeader>
