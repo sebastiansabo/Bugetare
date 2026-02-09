@@ -1723,9 +1723,25 @@ def create_schema(conn, cursor):
         )
     ''')
 
-    # e-Factura partner types - defines supplier types (Service, Merchandise, etc.)
+    # Migration: rename efactura_partner_types → efactura_supplier_types
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS efactura_partner_types (
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name = 'efactura_partner_types'
+            ) AND NOT EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_name = 'efactura_supplier_types'
+            ) THEN
+                ALTER TABLE efactura_partner_types RENAME TO efactura_supplier_types;
+            END IF;
+        END $$;
+    ''')
+
+    # e-Factura supplier types - defines supplier types (Service, Merchandise, etc.)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS efactura_supplier_types (
             id SERIAL PRIMARY KEY,
             name VARCHAR(100) NOT NULL UNIQUE,
             description TEXT,
@@ -1747,7 +1763,7 @@ def create_schema(conn, cursor):
             supplier_note TEXT,
             supplier_vat VARCHAR(50),
             kod_konto VARCHAR(50),
-            type_id INTEGER REFERENCES efactura_partner_types(id),
+            type_id INTEGER REFERENCES efactura_supplier_types(id),
             is_active BOOLEAN NOT NULL DEFAULT TRUE,
             created_at TIMESTAMP NOT NULL DEFAULT NOW(),
             updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -1776,7 +1792,7 @@ def create_schema(conn, cursor):
                 SELECT 1 FROM information_schema.columns
                 WHERE table_name = 'efactura_supplier_mappings' AND column_name = 'type_id'
             ) THEN
-                ALTER TABLE efactura_supplier_mappings ADD COLUMN type_id INTEGER REFERENCES efactura_partner_types(id);
+                ALTER TABLE efactura_supplier_mappings ADD COLUMN type_id INTEGER REFERENCES efactura_supplier_types(id);
             END IF;
         END $$;
     ''')
@@ -1814,7 +1830,7 @@ def create_schema(conn, cursor):
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS efactura_supplier_mapping_types (
                 mapping_id INTEGER NOT NULL REFERENCES efactura_supplier_mappings(id) ON DELETE CASCADE,
-                type_id INTEGER NOT NULL REFERENCES efactura_partner_types(id) ON DELETE CASCADE,
+                type_id INTEGER NOT NULL REFERENCES efactura_supplier_types(id) ON DELETE CASCADE,
                 created_at TIMESTAMP NOT NULL DEFAULT NOW(),
                 PRIMARY KEY (mapping_id, type_id)
             )
@@ -1837,11 +1853,11 @@ def create_schema(conn, cursor):
         conn.rollback()
 
     # Seed default partner types if table is empty
-    cursor.execute('SELECT COUNT(*) FROM efactura_partner_types')
+    cursor.execute('SELECT COUNT(*) FROM efactura_supplier_types')
     result = cursor.fetchone()
     if result['count'] == 0:
         cursor.execute('''
-            INSERT INTO efactura_partner_types (name, description) VALUES
+            INSERT INTO efactura_supplier_types (name, description) VALUES
             ('Service', 'Service-based suppliers (consultancy, IT, maintenance, etc.)'),
             ('Merchandise', 'Product/goods suppliers (inventory, parts, materials, etc.)')
         ''')
@@ -1852,9 +1868,9 @@ def create_schema(conn, cursor):
         BEGIN
             IF NOT EXISTS (
                 SELECT 1 FROM information_schema.columns
-                WHERE table_name = 'efactura_partner_types' AND column_name = 'hide_in_filter'
+                WHERE table_name = 'efactura_supplier_types' AND column_name = 'hide_in_filter'
             ) THEN
-                ALTER TABLE efactura_partner_types ADD COLUMN hide_in_filter BOOLEAN NOT NULL DEFAULT TRUE;
+                ALTER TABLE efactura_supplier_types ADD COLUMN hide_in_filter BOOLEAN NOT NULL DEFAULT TRUE;
             END IF;
         END $$;
     ''')

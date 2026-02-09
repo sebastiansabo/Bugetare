@@ -14,11 +14,11 @@ import type {
   ANAFStatus,
   ImportResult,
   SupplierMapping,
-  PartnerType,
+  SupplierType,
   OAuthStatus,
   DuplicateInvoice,
   CompanyLookup,
-  DistinctPartner,
+  DistinctSupplier,
   ErrorStats,
 } from '@/types/efactura'
 
@@ -275,9 +275,9 @@ export const efacturaApi = {
     )
     return res.mapping
   },
-  getDistinctPartners: async () => {
-    const res = await api.get<{ success: boolean; partners: DistinctPartner[]; count: number }>(
-      `${BASE}/partners/distinct`,
+  getDistinctSuppliers: async () => {
+    const res = await api.get<{ success: boolean; partners: DistinctSupplier[]; count: number }>(
+      `${BASE}/suppliers/distinct`,
     )
     return res.partners
   },
@@ -286,23 +286,23 @@ export const efacturaApi = {
   bulkSetMappingType: (ids: number[], typeName: string | null) =>
     api.post<{ success: boolean; updated: number }>(`${BASE}/mappings/bulk-set-type`, { ids, type_name: typeName }),
 
-  // ── Partner Types ─────────────────────────────────────────
-  getPartnerTypes: async (activeOnly = true) => {
-    const res = await api.get<{ success: boolean; types: PartnerType[]; count: number }>(
-      `${BASE}/partner-types${buildQs({ active_only: activeOnly, include_inactive: !activeOnly })}`,
+  // ── Supplier Types ─────────────────────────────────────────
+  getSupplierTypes: async (activeOnly = true) => {
+    const res = await api.get<{ success: boolean; types: SupplierType[]; count: number }>(
+      `${BASE}/supplier-types${buildQs({ active_only: activeOnly, include_inactive: !activeOnly })}`,
     )
     return res.types
   },
-  getPartnerType: async (id: number) => {
-    const res = await api.get<{ success: boolean; type: PartnerType }>(`${BASE}/partner-types/${id}`)
+  getSupplierType: async (id: number) => {
+    const res = await api.get<{ success: boolean; type: SupplierType }>(`${BASE}/supplier-types/${id}`)
     return res.type
   },
-  createPartnerType: (data: { name: string; description?: string; hide_in_filter?: boolean }) =>
-    api.post<{ success: boolean; id: number }>(`${BASE}/partner-types`, data),
-  updatePartnerType: (id: number, data: Partial<PartnerType>) =>
-    api.put<{ success: boolean }>(`${BASE}/partner-types/${id}`, data),
-  deletePartnerType: (id: number) =>
-    api.delete<{ success: boolean }>(`${BASE}/partner-types/${id}`),
+  createSupplierType: (data: { name: string; description?: string; hide_in_filter?: boolean }) =>
+    api.post<{ success: boolean; id: number }>(`${BASE}/supplier-types`, data),
+  updateSupplierType: (id: number, data: Partial<SupplierType>) =>
+    api.put<{ success: boolean }>(`${BASE}/supplier-types/${id}`, data),
+  deleteSupplierType: (id: number) =>
+    api.delete<{ success: boolean }>(`${BASE}/supplier-types/${id}`),
 
   // ── Cleanup ──────────────────────────────────────────────
   cleanupOldUnallocated: (cif: string, days = 15) =>

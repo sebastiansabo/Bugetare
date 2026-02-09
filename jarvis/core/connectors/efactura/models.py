@@ -67,7 +67,7 @@ class Invoice:
     company_id: Optional[int] = None  # FK to companies table (auto-matched)
     direction: InvoiceDirection = InvoiceDirection.RECEIVED
 
-    # Partner info
+    # Supplier / counterparty info
     partner_cif: str = ""
     partner_name: str = ""
 

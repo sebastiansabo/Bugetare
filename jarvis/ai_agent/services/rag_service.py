@@ -136,7 +136,7 @@ class RAGService:
         'employee': [('name', 'Employee'), ('department', 'Department'), ('company', 'Company'), ('role', 'Role')],
         'event': [('name', 'Event'), ('company', 'Company'), ('start_date', 'Start'), ('end_date', 'End')],
         'efactura': [
-            ('invoice_number', 'Invoice'), ('partner_name', 'Partner'), ('amount', 'Amount'),
+            ('invoice_number', 'Invoice'), ('partner_name', 'Supplier'), ('amount', 'Amount'),
             ('currency', 'Currency'), ('date', 'Date'), ('direction', 'Direction'),
         ],
     }
@@ -823,9 +823,9 @@ class RAGService:
             num = data.get('invoice_number')
             parts.append(f"e-Factura Invoice: {series}{num}" if series else f"e-Factura Invoice: {num}")
         if data.get('partner_name'):
-            parts.append(f"Partner: {data['partner_name']}")
+            parts.append(f"Supplier: {data['partner_name']}")
         if data.get('partner_cif'):
-            parts.append(f"Partner CIF: {data['partner_cif']}")
+            parts.append(f"Supplier CIF: {data['partner_cif']}")
         if data.get('direction'):
             parts.append(f"Direction: {data['direction']}")
         if data.get('total_amount') is not None:

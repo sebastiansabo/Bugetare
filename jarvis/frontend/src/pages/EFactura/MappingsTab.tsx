@@ -23,7 +23,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { efacturaApi } from '@/api/efactura'
-import type { SupplierMapping, PartnerType } from '@/types/efactura'
+import type { SupplierMapping, SupplierType } from '@/types/efactura'
 
 type ViewMode = 'mappings' | 'types'
 
@@ -32,12 +32,12 @@ function MappingFormDialog({
   open,
   onOpenChange,
   mapping,
-  partnerTypes,
+  supplierTypes,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
   mapping: SupplierMapping | null
-  partnerTypes: PartnerType[]
+  supplierTypes: SupplierType[]
 }) {
   const qc = useQueryClient()
   const [form, setForm] = useState({
@@ -85,18 +85,18 @@ function MappingFormDialog({
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Partner Name *</Label>
+              <Label className="text-xs">Supplier Name (e-Factura) *</Label>
               <Input value={form.partner_name} onChange={(e) => set('partner_name', e.target.value)} />
             </div>
             <div className="space-y-1">
-              <Label className="text-xs">Partner CIF</Label>
+              <Label className="text-xs">Supplier CIF</Label>
               <Input value={form.partner_cif} onChange={(e) => set('partner_cif', e.target.value)} />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Supplier Name *</Label>
+              <Label className="text-xs">Mapped Name *</Label>
               <Input value={form.supplier_name} onChange={(e) => set('supplier_name', e.target.value)} />
             </div>
             <div className="space-y-1">
@@ -133,11 +133,11 @@ function MappingFormDialog({
           </div>
 
           {/* Type checkboxes */}
-          {partnerTypes.length > 0 && (
+          {supplierTypes.length > 0 && (
             <div className="space-y-1">
-              <Label className="text-xs">Partner Types</Label>
+              <Label className="text-xs">Supplier Types</Label>
               <div className="flex flex-wrap gap-2">
-                {partnerTypes.map((pt) => (
+                {supplierTypes.map((pt) => (
                   <label
                     key={pt.id}
                     className={`cursor-pointer rounded border px-2.5 py-1 text-xs font-medium transition-colors ${
@@ -174,41 +174,41 @@ function MappingFormDialog({
   )
 }
 
-// ── Partner Type Form ──────────────────────────────────────
+// ── Supplier Type Form ──────────────────────────────────────
 function TypeFormDialog({
   open,
   onOpenChange,
-  partnerType,
+  supplierType,
 }: {
   open: boolean
   onOpenChange: (v: boolean) => void
-  partnerType: PartnerType | null
+  supplierType: SupplierType | null
 }) {
   const qc = useQueryClient()
   const [form, setForm] = useState({
-    name: partnerType?.name ?? '',
-    description: partnerType?.description ?? '',
-    hide_in_filter: partnerType?.hide_in_filter ?? true,
+    name: supplierType?.name ?? '',
+    description: supplierType?.description ?? '',
+    hide_in_filter: supplierType?.hide_in_filter ?? true,
   })
 
   const createMut = useMutation({
-    mutationFn: () => efacturaApi.createPartnerType(form),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['efactura-partner-types'] }); onOpenChange(false) },
+    mutationFn: () => efacturaApi.createSupplierType(form),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['efactura-supplier-types'] }); onOpenChange(false) },
   })
 
   const updateMut = useMutation({
-    mutationFn: () => efacturaApi.updatePartnerType(partnerType!.id, form),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['efactura-partner-types'] }); onOpenChange(false) },
+    mutationFn: () => efacturaApi.updateSupplierType(supplierType!.id, form),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['efactura-supplier-types'] }); onOpenChange(false) },
   })
 
-  const isEdit = !!partnerType
+  const isEdit = !!supplierType
   const isPending = createMut.isPending || updateMut.isPending
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit Partner Type' : 'Add Partner Type'}</DialogTitle>
+          <DialogTitle>{isEdit ? 'Edit Supplier Type' : 'Add Supplier Type'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1">
@@ -248,7 +248,7 @@ export default function MappingsTab() {
   const [search, setSearch] = useState('')
   const [showInactive, setShowInactive] = useState(false)
   const [editMapping, setEditMapping] = useState<SupplierMapping | null | undefined>(undefined) // undefined = closed
-  const [editType, setEditType] = useState<PartnerType | null | undefined>(undefined)
+  const [editType, setEditType] = useState<SupplierType | null | undefined>(undefined)
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'mapping' | 'type'; id: number } | null>(null)
 
   const { data: mappings = [], isLoading: mappingsLoading } = useQuery({
@@ -256,9 +256,9 @@ export default function MappingsTab() {
     queryFn: () => efacturaApi.getMappings(!showInactive),
   })
 
-  const { data: partnerTypes = [], isLoading: typesLoading } = useQuery({
-    queryKey: ['efactura-partner-types', showInactive],
-    queryFn: () => efacturaApi.getPartnerTypes(!showInactive),
+  const { data: supplierTypes = [], isLoading: typesLoading } = useQuery({
+    queryKey: ['efactura-supplier-types', showInactive],
+    queryFn: () => efacturaApi.getSupplierTypes(!showInactive),
   })
 
   const deleteMappingMut = useMutation({
@@ -267,8 +267,8 @@ export default function MappingsTab() {
   })
 
   const deleteTypeMut = useMutation({
-    mutationFn: (id: number) => efacturaApi.deletePartnerType(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['efactura-partner-types'] }); setDeleteTarget(null) },
+    mutationFn: (id: number) => efacturaApi.deleteSupplierType(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['efactura-supplier-types'] }); setDeleteTarget(null) },
   })
 
   const filteredMappings = mappings.filter((m) => {
@@ -282,7 +282,7 @@ export default function MappingsTab() {
     )
   })
 
-  const filteredTypes = partnerTypes.filter((t) => {
+  const filteredTypes = supplierTypes.filter((t) => {
     if (!search) return true
     return t.name.toLowerCase().includes(search.toLowerCase())
   })
@@ -305,7 +305,7 @@ export default function MappingsTab() {
             size="sm"
             onClick={() => { setViewMode('types'); setSearch('') }}
           >
-            Partner Types ({partnerTypes.length})
+            Supplier Types ({supplierTypes.length})
           </Button>
         </div>
 
@@ -351,9 +351,9 @@ export default function MappingsTab() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="p-2 text-left">Partner Name</th>
+                  <th className="p-2 text-left">Supplier (e-Factura)</th>
                   <th className="p-2 text-left">CIF</th>
-                  <th className="p-2 text-left">Supplier</th>
+                  <th className="p-2 text-left">Mapped Name</th>
                   <th className="p-2 text-left">Types</th>
                   <th className="p-2 text-left">Kod Konto</th>
                   <th className="p-2 text-left">Dept</th>
@@ -414,8 +414,8 @@ export default function MappingsTab() {
         ) : filteredTypes.length === 0 ? (
           <EmptyState
             icon={<Tags className="h-10 w-10" />}
-            title="No partner types"
-            description="Create partner types to categorize suppliers"
+            title="No supplier types"
+            description="Create supplier types to categorize suppliers"
             action={
               <Button onClick={() => setEditType(null)}>
                 <Plus className="mr-1 h-4 w-4" /> Add Type
@@ -479,7 +479,7 @@ export default function MappingsTab() {
           open
           onOpenChange={() => setEditMapping(undefined)}
           mapping={editMapping}
-          partnerTypes={partnerTypes}
+          supplierTypes={supplierTypes}
         />
       )}
 
@@ -488,7 +488,7 @@ export default function MappingsTab() {
         <TypeFormDialog
           open
           onOpenChange={() => setEditType(undefined)}
-          partnerType={editType}
+          supplierType={editType}
         />
       )}
 
@@ -496,7 +496,7 @@ export default function MappingsTab() {
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={() => setDeleteTarget(null)}
-        title={deleteTarget?.type === 'mapping' ? 'Delete Mapping' : 'Delete Partner Type'}
+        title={deleteTarget?.type === 'mapping' ? 'Delete Mapping' : 'Delete Supplier Type'}
         description="Are you sure? This action cannot be undone."
         onConfirm={() => {
           if (!deleteTarget) return

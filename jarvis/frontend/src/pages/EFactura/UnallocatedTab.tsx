@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Send,
@@ -10,6 +10,10 @@ import {
   Eye,
   FileText,
   Trash2,
+  Columns3,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,16 +33,266 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { StatusBadge } from '@/components/shared/StatusBadge'
 import { SearchInput } from '@/components/shared/SearchInput'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { efacturaApi } from '@/api/efactura'
+import { organizationApi } from '@/api/organization'
 import type { EFacturaInvoice, EFacturaInvoiceFilters } from '@/types/efactura'
 
 type InvoiceRow = EFacturaInvoice & { _hidden?: boolean }
 
+// ── Column definitions ──────────────────────────────────────
+interface ColumnDef {
+  key: string
+  label: string
+  align?: 'left' | 'right'
+  render: (inv: InvoiceRow) => React.ReactNode
+}
+
+const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ro-RO') : '—'
+
+const columnDefs: ColumnDef[] = [
+  {
+    key: 'supplier',
+    label: 'Supplier',
+    render: (inv) => (
+      <>
+        <div className="font-medium">
+          {inv.partner_name}
+          {inv._hidden && (
+            <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+              hidden
+            </span>
+          )}
+        </div>
+        {inv.partner_cif && <div className="text-xs text-muted-foreground">{inv.partner_cif}</div>}
+      </>
+    ),
+  },
+  {
+    key: 'invoice_number',
+    label: 'Invoice #',
+    render: (inv) => (
+      <span className="font-mono text-xs">
+        {inv.invoice_series ? `${inv.invoice_series}-` : ''}
+        {inv.invoice_number}
+      </span>
+    ),
+  },
+  {
+    key: 'date',
+    label: 'Date',
+    render: (inv) => <span className="text-muted-foreground">{fmtDate(inv.issue_date)}</span>,
+  },
+  {
+    key: 'due_date',
+    label: 'Due Date',
+    render: (inv) => <span className="text-muted-foreground">{fmtDate(inv.due_date ?? null)}</span>,
+  },
+  {
+    key: 'direction',
+    label: 'Direction',
+    render: (inv) => <StatusBadge status={inv.direction} />,
+  },
+  {
+    key: 'amount',
+    label: 'Amount',
+    align: 'right',
+    render: (inv) => <CurrencyDisplay value={inv.total_amount} currency={inv.currency} />,
+  },
+  {
+    key: 'vat',
+    label: 'VAT',
+    align: 'right',
+    render: (inv) => <CurrencyDisplay value={inv.total_vat} currency={inv.currency} />,
+  },
+  {
+    key: 'without_vat',
+    label: 'Without VAT',
+    align: 'right',
+    render: (inv) => <CurrencyDisplay value={inv.total_without_vat} currency={inv.currency} />,
+  },
+  {
+    key: 'company',
+    label: 'Company',
+    render: (inv) => <span className="text-xs text-muted-foreground">{inv.cif_owner}</span>,
+  },
+  {
+    key: 'type',
+    label: 'Type',
+    render: (inv) => <>{inv.type_override || inv.mapped_type_names?.join(', ') || '—'}</>,
+  },
+  {
+    key: 'department',
+    label: 'Department',
+    render: (inv) => <>{inv.department_override || inv.mapped_department || '—'}</>,
+  },
+  {
+    key: 'subdepartment',
+    label: 'Subdepartment',
+    render: (inv) => <>{inv.subdepartment_override || inv.mapped_subdepartment || '—'}</>,
+  },
+  {
+    key: 'mapped_supplier',
+    label: 'Mapped Supplier',
+    render: (inv) => <>{inv.mapped_supplier_name || '—'}</>,
+  },
+  {
+    key: 'mapped_brand',
+    label: 'Brand',
+    render: (inv) => <>{inv.mapped_brand || '—'}</>,
+  },
+  {
+    key: 'kod_konto',
+    label: 'Kod Konto',
+    render: (inv) => <span className="font-mono text-xs">{inv.mapped_kod_konto || '—'}</span>,
+  },
+  {
+    key: 'status',
+    label: 'Status',
+    render: (inv) => <StatusBadge status={inv.status} />,
+  },
+]
+
+const columnDefMap = new Map(columnDefs.map((c) => [c.key, c]))
+
+const defaultColumns = [
+  'supplier', 'invoice_number', 'date', 'direction', 'amount', 'company', 'type', 'status',
+]
+
+const STORAGE_KEY = 'efactura-unallocated-columns'
+
+function loadColumns(): string[] {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    if (stored) {
+      const parsed = JSON.parse(stored) as string[]
+      const valid = parsed.filter((k) => columnDefMap.has(k))
+      if (valid.length > 0) return valid
+    }
+  } catch { /* ignore */ }
+  return defaultColumns
+}
+
+function saveColumns(cols: string[]) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cols)) } catch { /* ignore */ }
+}
+
+// ── Column Toggle Popover ───────────────────────────────────
+function ColumnToggle({
+  visibleColumns,
+  onChange,
+}: {
+  visibleColumns: string[]
+  onChange: (cols: string[]) => void
+}) {
+  const hiddenColumns = columnDefs.filter((c) => !visibleColumns.includes(c.key))
+
+  const moveUp = (idx: number) => {
+    if (idx <= 0) return
+    const next = [...visibleColumns]
+    ;[next[idx - 1], next[idx]] = [next[idx], next[idx - 1]]
+    onChange(next)
+  }
+
+  const moveDown = (idx: number) => {
+    if (idx >= visibleColumns.length - 1) return
+    const next = [...visibleColumns]
+    ;[next[idx], next[idx + 1]] = [next[idx + 1], next[idx]]
+    onChange(next)
+  }
+
+  const toggle = (key: string) => {
+    if (visibleColumns.includes(key)) {
+      onChange(visibleColumns.filter((c) => c !== key))
+    } else {
+      onChange([...visibleColumns, key])
+    }
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" title="Configure columns">
+          <Columns3 className="h-4 w-4" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-56 p-3">
+        <p className="mb-2 text-xs font-medium text-muted-foreground">Columns &amp; Order</p>
+
+        <div className="space-y-0.5">
+          {visibleColumns.map((key, idx) => {
+            const col = columnDefMap.get(key)
+            if (!col) return null
+            return (
+              <div key={key} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent/50">
+                <GripVertical className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                <span className="flex-1 text-sm">{col.label}</span>
+                <button
+                  onClick={() => moveUp(idx)}
+                  disabled={idx === 0}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                >
+                  <ChevronUp className="h-3 w-3" />
+                </button>
+                <button
+                  onClick={() => moveDown(idx)}
+                  disabled={idx === visibleColumns.length - 1}
+                  className="rounded p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25"
+                >
+                  <ChevronDown className="h-3 w-3" />
+                </button>
+                <button onClick={() => toggle(key)} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                  <EyeOff className="h-3 w-3" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+
+        {hiddenColumns.length > 0 && (
+          <>
+            <div className="my-2 border-t" />
+            <p className="mb-1 text-xs font-medium text-muted-foreground">Hidden</p>
+            <div className="space-y-0.5">
+              {hiddenColumns.map((col) => (
+                <div key={col.key} className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent/50">
+                  <span className="flex-1 text-sm text-muted-foreground">{col.label}</span>
+                  <button onClick={() => toggle(col.key)} className="rounded p-0.5 text-muted-foreground hover:text-foreground">
+                    <Eye className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {visibleColumns.length !== defaultColumns.length ||
+          visibleColumns.some((k, i) => k !== defaultColumns[i]) ? (
+          <>
+            <div className="my-2 border-t" />
+            <button
+              onClick={() => onChange(defaultColumns)}
+              className="w-full rounded px-2 py-1 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            >
+              Reset to default
+            </button>
+          </>
+        ) : null}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ── Main Component ──────────────────────────────────────────
 export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) {
   const qc = useQueryClient()
   const [filters, setFilters] = useState<EFacturaInvoiceFilters>({ page: 1, limit: 50 })
@@ -54,6 +308,19 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
     department_override_2: '',
     subdepartment_override_2: '',
   })
+  const [visibleColumns, setVisibleColumnsRaw] = useState<string[]>(loadColumns)
+
+  const setVisibleColumns = (cols: string[]) => {
+    setVisibleColumnsRaw(cols)
+    saveColumns(cols)
+  }
+
+  const activeCols = useMemo(
+    () => visibleColumns.map((k) => columnDefMap.get(k)).filter(Boolean) as ColumnDef[],
+    [visibleColumns],
+  )
+  // +2 for checkbox + actions columns
+  const totalColSpan = activeCols.length + 2
 
   const updateFilter = (key: string, value: string | number | boolean | undefined) => {
     setFilters((f) => ({ ...f, [key]: value || undefined, page: 1 }))
@@ -72,6 +339,29 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
     enabled: showHidden,
   })
 
+  // Department dropdowns for Edit Overrides dialog
+  const companies = unallocData?.companies ?? []
+  const editCompanyName = editInvoice
+    ? companies.find((c) => c.id === editInvoice.company_id)?.name
+    : undefined
+
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments', editCompanyName],
+    queryFn: () => organizationApi.getDepartments(editCompanyName!),
+    enabled: !!editCompanyName,
+  })
+
+  const { data: subdepartments1 = [] } = useQuery({
+    queryKey: ['subdepartments', editCompanyName, overrides.department_override],
+    queryFn: () => organizationApi.getSubdepartments(editCompanyName!, overrides.department_override),
+    enabled: !!editCompanyName && !!overrides.department_override,
+  })
+
+  const { data: subdepartments2 = [] } = useQuery({
+    queryKey: ['subdepartments', editCompanyName, overrides.department_override_2],
+    queryFn: () => organizationApi.getSubdepartments(editCompanyName!, overrides.department_override_2),
+    enabled: !!editCompanyName && !!overrides.department_override_2,
+  })
 
   // ── Mutations ─────────────────────────────────────────────
   const invalidateAll = () => {
@@ -124,7 +414,6 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
   ]
   const isLoading = unallocLoading || (showHidden && hiddenLoading)
   const pagination = unallocData?.pagination
-  const companies = unallocData?.companies ?? []
 
   const toggleSelect = (id: number) => {
     setSelectedIds((prev) => {
@@ -174,8 +463,6 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
     }
     updateOverridesMut.mutate({ id: editInvoice.id, data })
   }
-
-  const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('ro-RO') : '—'
 
   return (
     <div className="space-y-4">
@@ -243,9 +530,13 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
         <SearchInput
           value={search}
           onChange={setSearch}
-          placeholder="Search partner, invoice#..."
+          placeholder="Search supplier, invoice#..."
           className="w-[200px]"
         />
+
+        <div className="ml-auto">
+          <ColumnToggle visibleColumns={visibleColumns} onChange={setVisibleColumns} />
+        </div>
       </div>
 
       {/* Bulk actions */}
@@ -319,14 +610,11 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
                     onCheckedChange={toggleAll}
                   />
                 </th>
-                <th className="p-2 text-left">Partner</th>
-                <th className="p-2 text-left">Invoice #</th>
-                <th className="p-2 text-left">Date</th>
-                <th className="p-2 text-left">Direction</th>
-                <th className="p-2 text-right">Amount</th>
-                <th className="p-2 text-left">Company</th>
-                <th className="p-2 text-left">Type</th>
-                <th className="p-2 text-left">Status</th>
+                {activeCols.map((col) => (
+                  <th key={col.key} className={`p-2 ${col.align === 'right' ? 'text-right' : 'text-left'}`}>
+                    {col.label}
+                  </th>
+                ))}
                 <th className="p-2 text-right">Actions</th>
               </tr>
             </thead>
@@ -334,125 +622,101 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
               {/* Hidden separator */}
               {showHidden && unallocInvoices.length > 0 && hiddenInvoices.length > 0 && (
                 <tr>
-                  <td colSpan={10} className="bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                  <td colSpan={totalColSpan} className="bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
                     <EyeOff className="mr-1 inline h-3 w-3" />
                     Hidden invoices ({hiddenInvoices.length})
                   </td>
                 </tr>
               )}
               {invoices.map((inv) => (
-                  <tr
-                    key={inv.id}
-                    className={`border-b hover:bg-muted/30 ${inv._hidden ? 'opacity-60' : ''}`}
-                  >
-                    <td className="p-2">
-                      <Checkbox
-                        checked={selectedIds.has(inv.id)}
-                        onCheckedChange={() => toggleSelect(inv.id)}
-                      />
+                <tr
+                  key={inv.id}
+                  className={`border-b hover:bg-muted/30 ${inv._hidden ? 'opacity-60' : ''}`}
+                >
+                  <td className="p-2">
+                    <Checkbox
+                      checked={selectedIds.has(inv.id)}
+                      onCheckedChange={() => toggleSelect(inv.id)}
+                    />
+                  </td>
+                  {activeCols.map((col) => (
+                    <td key={col.key} className={`p-2 ${col.align === 'right' ? 'text-right' : ''}`}>
+                      {col.render(inv)}
                     </td>
-                    <td className="p-2">
-                      <div className="font-medium">
-                        {inv.partner_name}
-                        {inv._hidden && (
-                          <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
-                            hidden
-                          </span>
-                        )}
-                      </div>
-                      {inv.partner_cif && <div className="text-xs text-muted-foreground">{inv.partner_cif}</div>}
-                    </td>
-                    <td className="p-2 font-mono text-xs">
-                      {inv.invoice_series ? `${inv.invoice_series}-` : ''}
-                      {inv.invoice_number}
-                    </td>
-                    <td className="p-2 text-muted-foreground">{fmtDate(inv.issue_date)}</td>
-                    <td className="p-2">
-                      <StatusBadge status={inv.direction} />
-                    </td>
-                    <td className="p-2 text-right">
-                      <CurrencyDisplay value={inv.total_amount} currency={inv.currency} />
-                    </td>
-                    <td className="p-2 text-xs text-muted-foreground">{inv.cif_owner}</td>
-                    <td className="p-2">
-                      {inv.type_override || inv.mapped_type_names?.join(', ') || '—'}
-                    </td>
-                    <td className="p-2">
-                      <StatusBadge status={inv.status} />
-                    </td>
-                    <td className="p-2">
-                      <div className="flex justify-end gap-0.5">
-                        {inv._hidden ? (
+                  ))}
+                  <td className="p-2">
+                    <div className="flex justify-end gap-0.5">
+                      {inv._hidden ? (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7"
+                          title="Restore"
+                          onClick={() => setConfirmAction({ action: 'restore-hidden', ids: [inv.id] })}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-green-600 dark:text-green-400"
+                            title="Send to Module"
+                            onClick={() => setConfirmAction({ action: 'send', ids: [inv.id] })}
+                          >
+                            <Send className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-amber-600 dark:text-amber-400"
+                            title="Edit Type/Dept"
+                            onClick={() => openEdit(inv)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-blue-600 dark:text-blue-400"
+                            title="View Details"
+                            onClick={() => setViewInvoice(inv)}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-red-600 dark:text-red-400"
+                            title="Export PDF"
+                            onClick={() => window.open(efacturaApi.getInvoicePdfUrl(inv.id), '_blank')}
+                          >
+                            <FileText className="h-3.5 w-3.5" />
+                          </Button>
                           <Button
                             size="icon"
                             variant="ghost"
                             className="h-7 w-7"
-                            title="Restore"
-                            onClick={() => setConfirmAction({ action: 'restore-hidden', ids: [inv.id] })}
+                            title="Hide"
+                            onClick={() => setConfirmAction({ action: 'hide', ids: [inv.id] })}
                           >
-                            <RotateCcw className="h-3.5 w-3.5" />
+                            <EyeOff className="h-3.5 w-3.5" />
                           </Button>
-                        ) : (
-                          <>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-green-600 dark:text-green-400"
-                              title="Send to Module"
-                              onClick={() => setConfirmAction({ action: 'send', ids: [inv.id] })}
-                            >
-                              <Send className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-amber-600 dark:text-amber-400"
-                              title="Edit Type/Dept"
-                              onClick={() => openEdit(inv)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-blue-600 dark:text-blue-400"
-                              title="View Details"
-                              onClick={() => setViewInvoice(inv)}
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-red-600 dark:text-red-400"
-                              title="Export PDF"
-                              onClick={() => window.open(efacturaApi.getInvoicePdfUrl(inv.id), '_blank')}
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              title="Hide"
-                              onClick={() => setConfirmAction({ action: 'hide', ids: [inv.id] })}
-                            >
-                              <EyeOff className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-destructive"
-                              title="Delete"
-                              onClick={() => setConfirmAction({ action: 'delete', ids: [inv.id] })}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-destructive"
+                            title="Delete"
+                            onClick={() => setConfirmAction({ action: 'delete', ids: [inv.id] })}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
@@ -513,10 +777,10 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
           </DialogHeader>
           {viewInvoice && (
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <div className="text-muted-foreground">Partner</div>
+              <div className="text-muted-foreground">Supplier</div>
               <div className="font-medium">{viewInvoice.partner_name}</div>
 
-              <div className="text-muted-foreground">Partner CIF</div>
+              <div className="text-muted-foreground">Supplier CIF</div>
               <div>{viewInvoice.partner_cif || '—'}</div>
 
               <div className="text-muted-foreground">Invoice #</div>
@@ -611,38 +875,120 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Department</Label>
-                  <Input
-                    value={overrides.department_override}
-                    onChange={(e) => setOverrides((o) => ({ ...o, department_override: e.target.value }))}
-                    placeholder="Department"
-                  />
+                  {departments.length > 0 ? (
+                    <Select
+                      value={overrides.department_override || '__none__'}
+                      onValueChange={(v) => setOverrides((o) => ({
+                        ...o,
+                        department_override: v === '__none__' ? '' : v,
+                        subdepartment_override: '',
+                      }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— None —</SelectItem>
+                        {departments.map((d) => (
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={overrides.department_override}
+                      onChange={(e) => setOverrides((o) => ({ ...o, department_override: e.target.value }))}
+                      placeholder="Department"
+                    />
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Subdepartment</Label>
-                  <Input
-                    value={overrides.subdepartment_override}
-                    onChange={(e) => setOverrides((o) => ({ ...o, subdepartment_override: e.target.value }))}
-                    placeholder="Subdepartment"
-                  />
+                  {subdepartments1.length > 0 ? (
+                    <Select
+                      value={overrides.subdepartment_override || '__none__'}
+                      onValueChange={(v) => setOverrides((o) => ({
+                        ...o,
+                        subdepartment_override: v === '__none__' ? '' : v,
+                      }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select subdepartment" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— None —</SelectItem>
+                        {subdepartments1.map((s) => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={overrides.subdepartment_override}
+                      onChange={(e) => setOverrides((o) => ({ ...o, subdepartment_override: e.target.value }))}
+                      placeholder="Subdepartment"
+                    />
+                  )}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="text-xs">Department 2</Label>
-                  <Input
-                    value={overrides.department_override_2}
-                    onChange={(e) => setOverrides((o) => ({ ...o, department_override_2: e.target.value }))}
-                    placeholder="Department 2"
-                  />
+                  {departments.length > 0 ? (
+                    <Select
+                      value={overrides.department_override_2 || '__none__'}
+                      onValueChange={(v) => setOverrides((o) => ({
+                        ...o,
+                        department_override_2: v === '__none__' ? '' : v,
+                        subdepartment_override_2: '',
+                      }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— None —</SelectItem>
+                        {departments.map((d) => (
+                          <SelectItem key={d} value={d}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={overrides.department_override_2}
+                      onChange={(e) => setOverrides((o) => ({ ...o, department_override_2: e.target.value }))}
+                      placeholder="Department 2"
+                    />
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Subdepartment 2</Label>
-                  <Input
-                    value={overrides.subdepartment_override_2}
-                    onChange={(e) => setOverrides((o) => ({ ...o, subdepartment_override_2: e.target.value }))}
-                    placeholder="Subdepartment 2"
-                  />
+                  {subdepartments2.length > 0 ? (
+                    <Select
+                      value={overrides.subdepartment_override_2 || '__none__'}
+                      onValueChange={(v) => setOverrides((o) => ({
+                        ...o,
+                        subdepartment_override_2: v === '__none__' ? '' : v,
+                      }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select subdepartment" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— None —</SelectItem>
+                        {subdepartments2.map((s) => (
+                          <SelectItem key={s} value={s}>{s}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Input
+                      value={overrides.subdepartment_override_2}
+                      onChange={(e) => setOverrides((o) => ({ ...o, subdepartment_override_2: e.target.value }))}
+                      placeholder="Subdepartment 2"
+                    />
+                  )}
                 </div>
               </div>
             </div>

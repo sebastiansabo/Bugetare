@@ -144,7 +144,7 @@ export interface SupplierMapping {
 }
 
 // Partner type
-export interface PartnerType {
+export interface SupplierType {
   id: number
   name: string
   description: string | null
@@ -248,7 +248,7 @@ export interface CompanyLookup {
 }
 
 // Distinct partner
-export interface DistinctPartner {
+export interface DistinctSupplier {
   partner_name: string
   partner_cif: string | null
 }
