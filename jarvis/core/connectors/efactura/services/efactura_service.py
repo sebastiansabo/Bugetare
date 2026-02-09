@@ -1399,6 +1399,11 @@ class EFacturaService:
         count = self.invoice_repo.bulk_permanent_delete(invoice_ids)
         return ServiceResult(success=True, data={'deleted': count})
 
+    def cleanup_old_unallocated(self, days: int = 15, cif_owner: str = None) -> ServiceResult:
+        """Permanently delete unallocated invoices older than N days."""
+        count = self.invoice_repo.delete_old_unallocated(days=days, cif_owner=cif_owner)
+        return ServiceResult(success=True, data={'deleted': count})
+
     # ============== Duplicate Detection ==============
 
     def detect_unallocated_duplicates(self) -> List[Dict[str, Any]]:

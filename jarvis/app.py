@@ -111,6 +111,15 @@ app.register_blueprint(connectors_bp)
 
 app_logger.info(f'JARVIS startup complete — {len(app.url_map._rules)} routes registered')
 
+# ============== Background Scheduler ==============
+# Start cleanup scheduler (only in main process or reloader child, not both)
+if not os.environ.get('TESTING'):
+    try:
+        from tasks.cleanup import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        app_logger.warning(f'Failed to start background scheduler: {e}')
+
 
 # ============== After-Request Hook ==============
 

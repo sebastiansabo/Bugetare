@@ -304,6 +304,10 @@ export const efacturaApi = {
   deletePartnerType: (id: number) =>
     api.delete<{ success: boolean }>(`${BASE}/partner-types/${id}`),
 
+  // ── Cleanup ──────────────────────────────────────────────
+  cleanupOldUnallocated: (cif: string, days = 15) =>
+    api.post<{ success: boolean; deleted: number }>(`${BASE}/invoices/cleanup-old`, { cif, days }),
+
   // ── Rate Limit ────────────────────────────────────────────
   getRateLimit: async () => {
     const res = await api.get<{ success: boolean; data: { max_per_hour: number; remaining: number; note: string } }>(

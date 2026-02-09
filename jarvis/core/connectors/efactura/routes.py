@@ -1798,6 +1798,42 @@ def bulk_permanent_delete_invoices():
         }), 500
 
 
+@efactura_bp.route('/api/invoices/cleanup-old', methods=['POST'])
+@api_login_required
+def cleanup_old_unallocated():
+    """
+    Permanently delete unallocated invoices older than N days.
+
+    Request body:
+        cif: CIF of the company to clean up
+        days: Number of days (default 15)
+    """
+    try:
+        data = request.get_json()
+        cif = data.get('cif')
+        days = data.get('days', 15)
+
+        if not cif:
+            return jsonify({
+                'success': False,
+                'error': "CIF is required",
+            }), 400
+
+        result = efactura_service.cleanup_old_unallocated(days=days, cif_owner=cif)
+
+        return jsonify({
+            'success': True,
+            'deleted': result.data['deleted'],
+        })
+
+    except Exception as e:
+        logger.error(f"Error cleaning up old unallocated invoices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+        }), 500
+
+
 @efactura_bp.route('/api/invoices/<int:invoice_id>/pdf', methods=['GET'])
 @api_login_required
 def get_invoice_pdf(invoice_id: int):

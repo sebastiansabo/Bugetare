@@ -3,16 +3,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Send,
   EyeOff,
-  Trash2,
   RotateCcw,
   CheckCircle,
   FileStack,
-  Archive,
-  XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -29,11 +27,9 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog'
 import { efacturaApi } from '@/api/efactura'
 import type { EFacturaInvoice, EFacturaInvoiceFilters } from '@/types/efactura'
 
-type SubView = 'unallocated' | 'hidden' | 'bin'
-
 export default function UnallocatedTab() {
   const qc = useQueryClient()
-  const [view, setView] = useState<SubView>('unallocated')
+  const [showHidden, setShowHidden] = useState(false)
   const [filters, setFilters] = useState<EFacturaInvoiceFilters>({ page: 1, limit: 50 })
   const [search, setSearch] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -48,19 +44,12 @@ export default function UnallocatedTab() {
   const { data: unallocData, isLoading: unallocLoading } = useQuery({
     queryKey: ['efactura-unallocated', { ...filters, search }],
     queryFn: () => efacturaApi.getUnallocated({ ...filters, search: search || undefined }),
-    enabled: view === 'unallocated',
   })
 
   const { data: hiddenData, isLoading: hiddenLoading } = useQuery({
     queryKey: ['efactura-hidden', { ...filters, search }],
     queryFn: () => efacturaApi.getHidden({ ...filters, search: search || undefined }),
-    enabled: view === 'hidden',
-  })
-
-  const { data: binData, isLoading: binLoading } = useQuery({
-    queryKey: ['efactura-bin', { ...filters, search }],
-    queryFn: () => efacturaApi.getBin({ ...filters, search: search || undefined }),
-    enabled: view === 'bin',
+    enabled: showHidden,
   })
 
   const { data: hiddenCount } = useQuery({
@@ -68,19 +57,12 @@ export default function UnallocatedTab() {
     queryFn: () => efacturaApi.getHiddenCount(),
   })
 
-  const { data: binCount } = useQuery({
-    queryKey: ['efactura-bin-count'],
-    queryFn: () => efacturaApi.getBinCount(),
-  })
-
   // ── Mutations ─────────────────────────────────────────────
   const invalidateAll = () => {
     qc.invalidateQueries({ queryKey: ['efactura-unallocated'] })
     qc.invalidateQueries({ queryKey: ['efactura-hidden'] })
-    qc.invalidateQueries({ queryKey: ['efactura-bin'] })
     qc.invalidateQueries({ queryKey: ['efactura-unallocated-count'] })
     qc.invalidateQueries({ queryKey: ['efactura-hidden-count'] })
-    qc.invalidateQueries({ queryKey: ['efactura-bin-count'] })
     setSelectedIds(new Set())
     setConfirmAction(null)
   }
@@ -100,31 +82,15 @@ export default function UnallocatedTab() {
     onSuccess: invalidateAll,
   })
 
-  const bulkDeleteMut = useMutation({
-    mutationFn: (ids: number[]) => efacturaApi.bulkDelete(ids),
-    onSuccess: invalidateAll,
-  })
-
-  const bulkRestoreBinMut = useMutation({
-    mutationFn: (ids: number[]) => efacturaApi.bulkRestoreBin(ids),
-    onSuccess: invalidateAll,
-  })
-
-  const bulkPermanentDeleteMut = useMutation({
-    mutationFn: (ids: number[]) => efacturaApi.bulkPermanentDelete(ids),
-    onSuccess: invalidateAll,
-  })
-
   // ── Derived state ────────────────────────────────────────
-  const isLoading = view === 'unallocated' ? unallocLoading : view === 'hidden' ? hiddenLoading : binLoading
-  const invoices: EFacturaInvoice[] =
-    view === 'unallocated' ? (unallocData?.invoices ?? [])
-    : view === 'hidden' ? (hiddenData?.invoices ?? [])
-    : (binData?.invoices ?? [])
-  const pagination =
-    view === 'unallocated' ? unallocData?.pagination
-    : view === 'hidden' ? hiddenData?.pagination
-    : binData?.pagination
+  const unallocInvoices = unallocData?.invoices ?? []
+  const hiddenInvoices = showHidden ? (hiddenData?.invoices ?? []) : []
+  const invoices: (EFacturaInvoice & { _hidden?: boolean })[] = [
+    ...unallocInvoices.map((i) => ({ ...i, _hidden: false })),
+    ...hiddenInvoices.map((i) => ({ ...i, _hidden: true })),
+  ]
+  const isLoading = unallocLoading || (showHidden && hiddenLoading)
+  const pagination = unallocData?.pagination
   const companies = unallocData?.companies ?? []
 
   const toggleSelect = (id: number) => {
@@ -141,16 +107,17 @@ export default function UnallocatedTab() {
     else setSelectedIds(new Set(invoices.map((i) => i.id)))
   }
 
+  const selectedInvoices = invoices.filter((i) => selectedIds.has(i.id))
+  const hasUnallocSelected = selectedInvoices.some((i) => !i._hidden)
+  const hasHiddenSelected = selectedInvoices.some((i) => i._hidden)
+
   const executeAction = () => {
     if (!confirmAction) return
     const { action, ids } = confirmAction
     switch (action) {
       case 'send': sendToModuleMut.mutate(ids); break
       case 'hide': bulkHideMut.mutate(ids); break
-      case 'delete': bulkDeleteMut.mutate(ids); break
       case 'restore-hidden': bulkRestoreHiddenMut.mutate(ids); break
-      case 'restore-bin': bulkRestoreBinMut.mutate(ids); break
-      case 'permanent-delete': bulkPermanentDeleteMut.mutate(ids); break
     }
   }
 
@@ -158,28 +125,19 @@ export default function UnallocatedTab() {
 
   return (
     <div className="space-y-4">
-      {/* Sub-view tabs */}
-      <div className="flex gap-2">
-        {([
-          { key: 'unallocated' as SubView, label: 'Unallocated', icon: FileStack },
-          { key: 'hidden' as SubView, label: `Hidden (${hiddenCount ?? 0})`, icon: EyeOff },
-          { key: 'bin' as SubView, label: `Bin (${binCount ?? 0})`, icon: Archive },
-        ]).map((sv) => (
-          <Button
-            key={sv.key}
-            variant={view === sv.key ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => { setView(sv.key); setSelectedIds(new Set()); setFilters({ page: 1, limit: 50 }) }}
-          >
-            <sv.icon className="mr-1.5 h-3.5 w-3.5" />
-            {sv.label}
-          </Button>
-        ))}
+      {/* Show Hidden toggle */}
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Switch checked={showHidden} onCheckedChange={(v) => { setShowHidden(v); setSelectedIds(new Set()) }} />
+          <Label className="text-sm cursor-pointer" onClick={() => { setShowHidden(!showHidden); setSelectedIds(new Set()) }}>
+            Show Hidden ({hiddenCount ?? 0})
+          </Label>
+        </div>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3">
-        {view === 'unallocated' && companies.length > 0 && (
+        {companies.length > 0 && (
           <div className="space-y-1">
             <Label className="text-xs">Company</Label>
             <Select
@@ -251,38 +209,29 @@ export default function UnallocatedTab() {
         <div className="flex flex-wrap items-center gap-2 rounded border bg-muted/30 px-3 py-2">
           <span className="text-sm font-medium">{selectedIds.size} selected</span>
 
-          {view === 'unallocated' && (
+          {hasUnallocSelected && (
             <>
-              <Button size="sm" onClick={() => setConfirmAction({ action: 'send', ids: Array.from(selectedIds) })}>
+              <Button size="sm" onClick={() => setConfirmAction({
+                action: 'send',
+                ids: selectedInvoices.filter((i) => !i._hidden).map((i) => i.id),
+              })}>
                 <Send className="mr-1 h-3 w-3" /> Send to Module
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setConfirmAction({ action: 'hide', ids: Array.from(selectedIds) })}>
+              <Button size="sm" variant="outline" onClick={() => setConfirmAction({
+                action: 'hide',
+                ids: selectedInvoices.filter((i) => !i._hidden).map((i) => i.id),
+              })}>
                 <EyeOff className="mr-1 h-3 w-3" /> Hide
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setConfirmAction({ action: 'delete', ids: Array.from(selectedIds) })}>
-                <Trash2 className="mr-1 h-3 w-3" /> Delete
-              </Button>
             </>
           )}
-          {view === 'hidden' && (
-            <>
-              <Button size="sm" onClick={() => setConfirmAction({ action: 'restore-hidden', ids: Array.from(selectedIds) })}>
-                <RotateCcw className="mr-1 h-3 w-3" /> Restore
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => setConfirmAction({ action: 'delete', ids: Array.from(selectedIds) })}>
-                <Trash2 className="mr-1 h-3 w-3" /> Move to Bin
-              </Button>
-            </>
-          )}
-          {view === 'bin' && (
-            <>
-              <Button size="sm" onClick={() => setConfirmAction({ action: 'restore-bin', ids: Array.from(selectedIds) })}>
-                <RotateCcw className="mr-1 h-3 w-3" /> Restore
-              </Button>
-              <Button size="sm" variant="destructive" onClick={() => setConfirmAction({ action: 'permanent-delete', ids: Array.from(selectedIds) })}>
-                <XCircle className="mr-1 h-3 w-3" /> Permanent Delete
-              </Button>
-            </>
+          {hasHiddenSelected && (
+            <Button size="sm" variant="outline" onClick={() => setConfirmAction({
+              action: 'restore-hidden',
+              ids: selectedInvoices.filter((i) => i._hidden).map((i) => i.id),
+            })}>
+              <RotateCcw className="mr-1 h-3 w-3" /> Restore
+            </Button>
           )}
 
           <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
@@ -306,8 +255,8 @@ export default function UnallocatedTab() {
       ) : invoices.length === 0 ? (
         <EmptyState
           icon={<FileStack className="h-10 w-10" />}
-          title={view === 'unallocated' ? 'No unallocated invoices' : view === 'hidden' ? 'No hidden invoices' : 'Bin is empty'}
-          description={view === 'unallocated' ? 'All imported invoices have been allocated' : undefined}
+          title={showHidden ? 'No unallocated or hidden invoices' : 'No unallocated invoices'}
+          description={!showHidden ? 'All imported invoices have been allocated' : undefined}
         />
       ) : (
         <div className="rounded border overflow-x-auto">
@@ -331,44 +280,63 @@ export default function UnallocatedTab() {
               </tr>
             </thead>
             <tbody>
-              {invoices.map((inv) => (
-                <tr key={inv.id} className="border-b hover:bg-muted/30">
-                  <td className="p-2">
-                    <Checkbox
-                      checked={selectedIds.has(inv.id)}
-                      onCheckedChange={() => toggleSelect(inv.id)}
-                    />
-                  </td>
-                  <td className="p-2">
-                    <div className="font-medium">{inv.partner_name}</div>
-                    {inv.partner_cif && <div className="text-xs text-muted-foreground">{inv.partner_cif}</div>}
-                  </td>
-                  <td className="p-2 font-mono text-xs">
-                    {inv.invoice_series ? `${inv.invoice_series}-` : ''}
-                    {inv.invoice_number}
-                  </td>
-                  <td className="p-2 text-muted-foreground">{fmtDate(inv.issue_date)}</td>
-                  <td className="p-2">
-                    <StatusBadge status={inv.direction} />
-                  </td>
-                  <td className="p-2 text-right">
-                    <CurrencyDisplay value={inv.total_amount} currency={inv.currency} />
-                  </td>
-                  <td className="p-2 text-xs text-muted-foreground">{inv.cif_owner}</td>
-                  <td className="p-2">
-                    {inv.type_override || inv.mapped_type_names?.join(', ') || '—'}
-                  </td>
-                  <td className="p-2">
-                    <StatusBadge status={inv.status} />
+              {/* Hidden separator */}
+              {showHidden && unallocInvoices.length > 0 && hiddenInvoices.length > 0 && (
+                <tr>
+                  <td colSpan={9} className="bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                    <EyeOff className="mr-1 inline h-3 w-3" />
+                    Hidden invoices ({hiddenInvoices.length})
                   </td>
                 </tr>
+              )}
+              {invoices.map((inv) => (
+                  <tr
+                    key={inv.id}
+                    className={`border-b hover:bg-muted/30 ${inv._hidden ? 'opacity-60' : ''}`}
+                  >
+                    <td className="p-2">
+                      <Checkbox
+                        checked={selectedIds.has(inv.id)}
+                        onCheckedChange={() => toggleSelect(inv.id)}
+                      />
+                    </td>
+                    <td className="p-2">
+                      <div className="font-medium">
+                        {inv.partner_name}
+                        {inv._hidden && (
+                          <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+                            hidden
+                          </span>
+                        )}
+                      </div>
+                      {inv.partner_cif && <div className="text-xs text-muted-foreground">{inv.partner_cif}</div>}
+                    </td>
+                    <td className="p-2 font-mono text-xs">
+                      {inv.invoice_series ? `${inv.invoice_series}-` : ''}
+                      {inv.invoice_number}
+                    </td>
+                    <td className="p-2 text-muted-foreground">{fmtDate(inv.issue_date)}</td>
+                    <td className="p-2">
+                      <StatusBadge status={inv.direction} />
+                    </td>
+                    <td className="p-2 text-right">
+                      <CurrencyDisplay value={inv.total_amount} currency={inv.currency} />
+                    </td>
+                    <td className="p-2 text-xs text-muted-foreground">{inv.cif_owner}</td>
+                    <td className="p-2">
+                      {inv.type_override || inv.mapped_type_names?.join(', ') || '—'}
+                    </td>
+                    <td className="p-2">
+                      <StatusBadge status={inv.status} />
+                    </td>
+                  </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
 
-      {/* Pagination */}
+      {/* Pagination (unallocated only) */}
       {pagination && pagination.total_pages > 1 && (
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
@@ -402,16 +370,11 @@ export default function UnallocatedTab() {
         title={
           confirmAction?.action === 'send' ? 'Send to Invoice Module'
           : confirmAction?.action === 'hide' ? 'Hide Invoices'
-          : confirmAction?.action === 'delete' ? 'Delete Invoices'
-          : confirmAction?.action === 'restore-hidden' ? 'Restore from Hidden'
-          : confirmAction?.action === 'restore-bin' ? 'Restore from Bin'
-          : 'Permanently Delete'
+          : 'Restore from Hidden'
         }
-        description={`This will affect ${confirmAction?.ids.length ?? 0} invoice(s).${
-          confirmAction?.action === 'permanent-delete' ? ' This cannot be undone.' : ''
-        }`}
+        description={`This will affect ${confirmAction?.ids.length ?? 0} invoice(s).`}
         onConfirm={executeAction}
-        destructive={confirmAction?.action === 'permanent-delete' || confirmAction?.action === 'delete'}
+        destructive={false}
       />
     </div>
   )
