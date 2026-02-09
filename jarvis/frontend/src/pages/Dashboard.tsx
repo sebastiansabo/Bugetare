@@ -62,8 +62,8 @@ export default function Dashboard() {
     staleTime: 60_000,
   })
 
-  const totalInvoices = companySummary?.reduce((sum, c) => sum + c.invoice_count, 0) ?? 0
-  const totalValue = companySummary?.reduce((sum, c) => sum + (c.total_value_ron ?? 0), 0) ?? 0
+  const totalInvoices = companySummary?.reduce((sum, c) => sum + Number(c.invoice_count), 0) ?? 0
+  const totalValue = companySummary?.reduce((sum, c) => sum + Number(c.total_value_ron ?? 0), 0) ?? 0
 
   const visibleApps = apps.filter((app) => {
     if (!('permission' in app) || !app.permission) return true
