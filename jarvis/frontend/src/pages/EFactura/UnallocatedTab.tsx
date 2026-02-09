@@ -261,13 +261,14 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
                 <th className="p-2 text-left">Company</th>
                 <th className="p-2 text-left">Type</th>
                 <th className="p-2 text-left">Status</th>
+                <th className="p-2 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {/* Hidden separator */}
               {showHidden && unallocInvoices.length > 0 && hiddenInvoices.length > 0 && (
                 <tr>
-                  <td colSpan={9} className="bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                  <td colSpan={10} className="bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
                     <EyeOff className="mr-1 inline h-3 w-3" />
                     Hidden invoices ({hiddenInvoices.length})
                   </td>
@@ -312,6 +313,42 @@ export default function UnallocatedTab({ showHidden }: { showHidden: boolean }) 
                     </td>
                     <td className="p-2">
                       <StatusBadge status={inv.status} />
+                    </td>
+                    <td className="p-2">
+                      <div className="flex justify-end gap-1">
+                        {inv._hidden ? (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7"
+                            title="Restore"
+                            onClick={() => setConfirmAction({ action: 'restore-hidden', ids: [inv.id] })}
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-primary"
+                              title="Send to Module"
+                              onClick={() => setConfirmAction({ action: 'send', ids: [inv.id] })}
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              title="Hide"
+                              onClick={() => setConfirmAction({ action: 'hide', ids: [inv.id] })}
+                            >
+                              <EyeOff className="h-3.5 w-3.5" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
               ))}
