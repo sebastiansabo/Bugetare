@@ -24,9 +24,9 @@ const MappingsTab = lazy(() => import('./MappingsTab'))
 const SyncTab = lazy(() => import('./SyncTab'))
 
 const tabs = [
+  { to: '/app/efactura/unallocated', label: 'Unallocated', icon: FileStack },
   { to: '/app/efactura/connections', label: 'Connections', icon: Plug },
   { to: '/app/efactura/fetch', label: 'Fetch', icon: Download },
-  { to: '/app/efactura/unallocated', label: 'Unallocated', icon: FileStack },
   { to: '/app/efactura/invoices', label: 'Invoices', icon: FileSearch },
   { to: '/app/efactura/mappings', label: 'Mappings', icon: Tags },
   { to: '/app/efactura/sync', label: 'Sync', icon: RefreshCw },
@@ -143,7 +143,7 @@ export default function EFactura() {
       {/* Tab content */}
       <Suspense fallback={<TabLoader />}>
         <Routes>
-          <Route index element={<Navigate to="connections" replace />} />
+          <Route index element={<Navigate to="unallocated" replace />} />
           <Route path="connections" element={<ConnectionsTab />} />
           <Route path="fetch" element={<FetchTab />} />
           <Route path="unallocated" element={<UnallocatedTab />} />

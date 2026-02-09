@@ -1,5 +1,40 @@
 # Changelog
 
+## 2026-02-09
+
+### AI Implementation: Phase AI4 Complete
+- **Settings → AI Agent tab** (`AiTab.tsx`): 3 cards — LLM Models, RAG Configuration, Data Sources & Indexing
+- **Backend**: Model management routes (GET all, PUT default, PUT toggle, PUT api-key) + AI settings GET/POST
+- **AI settings**: Stored in `notification_settings` table (key-value store), runtime loading with 60s cache
+- **AI Agent permissions**: Added 7 permissions to `permissions_v2` (chat access/use, models view/manage, RAG view/reindex, settings edit)
+- **Migration**: Admin gets all AI permissions, Manager/User get chat access only
+
+### Shared AllocationEditor Component
+- **New**: `AllocationEditor.tsx` — shared allocation editing component extracted from AddInvoice
+- **Used in**: AddInvoice (form), EditInvoiceDialog (dialog), and inline expanded rows (Accounting dashboard)
+- **Features**: Company selector, allocation rows with brand/dept/subdept cascading, %↔value sync, lock, comment, manager lookup, reinvoice destinations with multi-line support
+- **Ref API**: `getCompany()`, `getRows()`, `isValid()` via `useImperativeHandle`
+
+### Inline Allocation Editing
+- **Expanded invoice rows**: Edit button in expanded allocation view opens AllocationEditor inline
+- **Save/cancel**: Saves via `invoicesApi.updateAllocations()`, invalidates React Query cache
+
+### Reinvoice Destinations in React
+- **Multi-line reinvoice**: Each allocation supports multiple reinvoice destination lines
+- **Bidirectional sync**: Reinvoice value and percentage sync automatically
+- **Lock/comment**: Per-reinvoice-line lock and comment support
+
+### Click-to-Expand Invoice Rows
+- **Feature**: Clicking anywhere on an invoice row expands/collapses its allocations
+- **Implementation**: `onClick` on `<TableRow>` with `stopPropagation` on checkbox and action cells
+
+### Collapsible Sidebar
+- **Feature**: Sidebar collapses to icon-only mode with hamburger toggle button
+- **State**: Persisted to localStorage
+
+### Database Schema Verification
+- **Confirmed**: Local and staging PostgreSQL schemas are identical (44 tables, all columns match)
+
 ## 2026-02-07
 
 ### Development Guidelines Integration

@@ -182,8 +182,8 @@ jarvis/                           # Main application folder
 │   ├── repositories/             # conversations, messages, RAG docs
 │   └── services/                 # ai_agent_service, rag_service
 │
-├── frontend/                     # React SPA (Vite+React 19+TS+Tailwind)
-│   └── src/                      # Builds to static/react/
+├── frontend/                     # React SPA (Vite+React 19+TS+Tailwind 4+shadcn/ui)
+│   └── src/                      # ~115 files, builds to static/react/
 │
 ├── static/                       # Static assets
 │   ├── css/theme.css
@@ -698,7 +698,7 @@ The e-Factura page uses versioned column configurations to handle schema changes
 - `efacturaColumnConfigVersion` - Version number for migration
 
 ## Deployment
-Configured via `.do/app.yaml` for DigitalOcean App Platform with auto-deploy on push to main branch.
+Configured via `.do/app.yaml` for DigitalOcean App Platform with auto-deploy on push to staging branch.
 
 ## Invoice Parsing System
 
@@ -1485,4 +1485,4 @@ tests/
 - Mock external APIs (ANAF, Google Drive, LLM providers) — never hit real endpoints in tests
 - Each test is independent — no shared mutable state
 - Always test error paths, not just happy paths
-- Current baseline: 437 tests passing
+- Current baseline: 560 tests passing
