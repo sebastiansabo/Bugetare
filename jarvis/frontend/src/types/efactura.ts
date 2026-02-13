@@ -251,6 +251,7 @@ export interface CompanyLookup {
 export interface DistinctSupplier {
   partner_name: string
   partner_cif: string | null
+  invoice_count?: number
 }
 
 // Error stats
