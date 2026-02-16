@@ -368,12 +368,20 @@ export function AllocationRowComponent({
   }
 
   const addDest = () => {
-    onUpdate({ reinvoiceDestinations: [...row.reinvoiceDestinations, newReinvoiceDest()] })
+    const newCount = row.reinvoiceDestinations.length + 1
+    const perDest = 100 / newCount
+    const redistributed = row.reinvoiceDestinations.map((d) => ({ ...d, percentage: perDest }))
+    onUpdate({ reinvoiceDestinations: [...redistributed, { ...newReinvoiceDest(), percentage: perDest }] })
   }
 
   const removeDest = (destId: string) => {
     const remaining = row.reinvoiceDestinations.filter((d) => d.id !== destId)
-    onUpdate({ reinvoiceDestinations: remaining })
+    if (remaining.length > 0) {
+      const perDest = 100 / remaining.length
+      onUpdate({ reinvoiceDestinations: remaining.map((d) => ({ ...d, percentage: perDest })) })
+    } else {
+      onUpdate({ reinvoiceDestinations: [] })
+    }
   }
 
   const hasBrands = brands.length > 0
