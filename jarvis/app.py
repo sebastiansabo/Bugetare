@@ -37,12 +37,10 @@ check_permission_v2 = _perm_repo.check_permission_v2
 
 app = Flask(__name__)
 
-# Secret key — prefer env var, generate random fallback if missing
-_secret_key = os.environ.get('FLASK_SECRET_KEY', os.environ.get('SECRET_KEY'))
-if not _secret_key:
-    import secrets
-    _secret_key = secrets.token_hex(32)
-    app_logger.warning('FLASK_SECRET_KEY not set — generated random key (sessions will not survive restarts)')
+# Secret key — prefer env var; fixed fallback ensures all workers share the same key
+_secret_key = os.environ.get('FLASK_SECRET_KEY', os.environ.get('SECRET_KEY', 'jarvis-aw-2026-change-me'))
+if _secret_key == 'jarvis-aw-2026-change-me':
+    app_logger.warning('Using default secret key — set FLASK_SECRET_KEY env var for production')
 app.secret_key = _secret_key
 
 # Flask-Compress for gzip/brotli compression (60-70% size reduction)
