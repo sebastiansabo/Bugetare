@@ -15,7 +15,7 @@ const EFactura = lazy(() => import('./pages/EFactura'))
 
 function PageLoader() {
   return (
-    <div className="p-6 space-y-4">
+    <div className="space-y-4">
       <Skeleton className="h-8 w-48" />
       <Skeleton className="h-4 w-96" />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 mt-6">
@@ -27,24 +27,26 @@ function PageLoader() {
   )
 }
 
+function SuspensePage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>
+}
+
 export default function App() {
   return (
-    <Suspense fallback={<PageLoader />}>
-      <Routes>
-        <Route path="/app" element={<Layout />}>
-          <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<Dashboard />} />
-          <Route path="ai-agent" element={<AiAgent />} />
-          <Route path="settings/*" element={<Settings />} />
-          <Route path="profile" element={<Profile />} />
-          <Route path="accounting" element={<Accounting />} />
-          <Route path="accounting/add" element={<AddInvoice />} />
-          <Route path="hr/*" element={<Hr />} />
-          <Route path="statements/*" element={<Statements />} />
-          <Route path="efactura/*" element={<EFactura />} />
-          <Route path="*" element={<Navigate to="dashboard" replace />} />
-        </Route>
-      </Routes>
-    </Suspense>
+    <Routes>
+      <Route path="/app" element={<Layout />}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<SuspensePage><Dashboard /></SuspensePage>} />
+        <Route path="ai-agent" element={<SuspensePage><AiAgent /></SuspensePage>} />
+        <Route path="settings/*" element={<SuspensePage><Settings /></SuspensePage>} />
+        <Route path="profile" element={<SuspensePage><Profile /></SuspensePage>} />
+        <Route path="accounting" element={<SuspensePage><Accounting /></SuspensePage>} />
+        <Route path="accounting/add" element={<SuspensePage><AddInvoice /></SuspensePage>} />
+        <Route path="hr/*" element={<SuspensePage><Hr /></SuspensePage>} />
+        <Route path="statements/*" element={<SuspensePage><Statements /></SuspensePage>} />
+        <Route path="efactura/*" element={<SuspensePage><EFactura /></SuspensePage>} />
+        <Route path="*" element={<Navigate to="dashboard" replace />} />
+      </Route>
+    </Routes>
   )
 }

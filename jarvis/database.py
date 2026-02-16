@@ -253,6 +253,17 @@ def init_db():
             )
         """)
         if cursor.fetchone()['exists']:
+            # Run pending column migrations on existing schema
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'auto_tag_rules' AND column_name = 'match_mode') THEN
+                        ALTER TABLE auto_tag_rules ADD COLUMN match_mode VARCHAR(10) NOT NULL DEFAULT 'all';
+                    END IF;
+                END $$;
+            ''')
+            conn.commit()
             logger.info('Database schema already initialized — skipping init_db()')
             return
 
