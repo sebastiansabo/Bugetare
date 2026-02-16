@@ -662,16 +662,11 @@ function ReinvoiceDestRow({
         onChange={(e) => onUpdate({ percentage: parseFloat(e.target.value) || 0 })}
       />
       <span className="text-[11px] text-muted-foreground shrink-0">%</span>
-      <Input
-        type="number"
-        step={0.01}
-        className="h-7 text-xs text-right w-24"
-        value={(rowValue * (dest.percentage / 100)).toFixed(2)}
-        onChange={(e) => {
-          const v = parseFloat(e.target.value) || 0
-          onUpdate({ percentage: rowValue > 0 ? (v / rowValue) * 100 : 0 })
-        }}
-      />
+      <span className="text-xs text-right w-24 tabular-nums">
+        {new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(
+          rowValue * (dest.percentage / 100),
+        )}
+      </span>
       <span className="text-[11px] text-muted-foreground shrink-0">{currency}</span>
       {canRemove && (
         <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive shrink-0" onClick={onRemove}>
