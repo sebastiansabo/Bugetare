@@ -239,17 +239,17 @@ def init_db():
     Delegates to migrations.init_schema.create_schema() which contains
     all CREATE TABLE, ALTER TABLE, CREATE INDEX, and INSERT statements.
 
-    Skips if schema already exists (checks for 'invoices' table) to avoid
+    Skips if schema already exists (checks for newest table) to avoid
     running ~100 SQL statements on every worker startup.
     """
     conn = get_db()
     cursor = get_cursor(conn)
     try:
-        # Quick check: if core table exists, schema is already initialized
+        # Quick check: if newest table exists, full schema is already initialized
         cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = 'invoices'
+                WHERE table_schema = 'public' AND table_name = 'auto_tag_rules'
             )
         """)
         if cursor.fetchone()['exists']:
