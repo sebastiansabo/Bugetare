@@ -1033,39 +1033,41 @@ const InvoiceRow = memo(function InvoiceRow({
                         <th className="pb-1 text-right font-medium">%</th>
                         <th className="pb-1 text-right font-medium">Value</th>
                         <th className="pb-1 text-left font-medium">Responsible</th>
+                        <th className="pb-1 text-left font-medium">Comment</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {inv.allocations!.map((alloc) => (
+                      {inv.allocations!.map((alloc) => {
+                        const hasReinvoice = alloc.reinvoice_destinations?.length > 0
+                        return (
                         <React.Fragment key={alloc.id}>
-                          <tr className="border-t border-border/50">
+                          <tr className={cn('border-t border-border/50', hasReinvoice && 'text-muted-foreground/50')}>
                             <td className="py-1">{alloc.company}</td>
                             <td className="py-1">{alloc.brand || '-'}</td>
                             <td className="py-1">{alloc.department}</td>
                             <td className="py-1">{alloc.subdepartment || '-'}</td>
                             <td className="py-1 text-right">{alloc.allocation_percent}%</td>
-                            <td className="py-1 text-right">
+                            <td className={cn('py-1 text-right', hasReinvoice && 'opacity-40')}>
                               <CurrencyDisplay value={alloc.allocation_value} currency={inv.currency} />
                             </td>
                             <td className="py-1">{alloc.responsible || '-'}</td>
+                            <td className="py-1 text-muted-foreground max-w-[150px] truncate">{alloc.comment || ''}</td>
                           </tr>
-                          {alloc.reinvoice_destinations?.length > 0 && (
-                            <tr>
-                              <td colSpan={7} className="py-1 pl-6">
-                                <div className="text-[11px] text-muted-foreground">
-                                  <span className="font-medium">Reinvoiced to:</span>
-                                  {alloc.reinvoice_destinations.map((rd) => (
-                                    <span key={rd.id} className="ml-2">
-                                      {rd.company}{rd.brand ? ` / ${rd.brand}` : ''} / {rd.department}{rd.subdepartment ? ` / ${rd.subdepartment}` : ''}{' '}
-                                      ({rd.percentage}% — <CurrencyDisplay value={rd.value} currency={inv.currency} />)
-                                    </span>
-                                  ))}
-                                </div>
+                          {hasReinvoice && alloc.reinvoice_destinations.map((rd) => (
+                            <tr key={rd.id} className="text-[11px]">
+                              <td className="py-0.5 pl-6 text-foreground">{rd.company}</td>
+                              <td className="py-0.5 text-foreground">{rd.brand || '-'}</td>
+                              <td className="py-0.5 text-foreground">{rd.department}</td>
+                              <td className="py-0.5 text-foreground">{rd.subdepartment || '-'}</td>
+                              <td className="py-0.5 text-right text-foreground">{rd.percentage}%</td>
+                              <td className="py-0.5 text-right text-foreground">
+                                <CurrencyDisplay value={rd.value} currency={inv.currency} />
                               </td>
+                              <td colSpan={2} className="py-0.5 text-muted-foreground italic">reinvoiced</td>
                             </tr>
-                          )}
+                          ))}
                         </React.Fragment>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </>
