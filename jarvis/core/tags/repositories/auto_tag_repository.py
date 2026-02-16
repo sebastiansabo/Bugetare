@@ -27,7 +27,7 @@ class AutoTagRepository:
             where = f'WHERE {" AND ".join(conditions)}' if conditions else ''
             cursor.execute(f'''
                 SELECT r.*, t.name as tag_name, t.color as tag_color,
-                       u.full_name as created_by_name
+                       u.name as created_by_name
                 FROM auto_tag_rules r
                 JOIN tags t ON t.id = r.tag_id
                 LEFT JOIN users u ON u.id = r.created_by
