@@ -401,6 +401,12 @@ export function AllocationRowComponent({
 
   const hasBrands = brands.length > 0
 
+  // Net values: gross minus reinvoiced portion
+  const reinvoiceTotal = row.reinvoiceDestinations.reduce((s, d) => s + d.percentage, 0)
+  const netFactor = hasReinvoice ? Math.max(0, 1 - reinvoiceTotal / 100) : 1
+  const netValue = row.value * netFactor
+  const netPercent = row.percent * netFactor
+
   return (
     <div className="rounded-lg border p-2 space-y-2">
       <div className="grid grid-cols-12 gap-2 items-center">
@@ -466,8 +472,9 @@ export function AllocationRowComponent({
             min={0}
             max={100}
             step={0.01}
-            className="h-8 text-xs text-right"
-            value={row.percent.toFixed(2)}
+            className={cn('h-8 text-xs text-right', hasReinvoice && 'opacity-60')}
+            value={hasReinvoice ? netPercent.toFixed(2) : row.percent.toFixed(2)}
+            disabled={hasReinvoice}
             onChange={(e) => {
               const p = parseFloat(e.target.value) || 0
               onUpdate({ percent: p, value: effectiveValue * (p / 100) })
@@ -478,8 +485,9 @@ export function AllocationRowComponent({
           <Input
             type="number"
             step={0.01}
-            className="h-8 text-xs text-right"
-            value={row.value.toFixed(2)}
+            className={cn('h-8 text-xs text-right', hasReinvoice && 'opacity-60')}
+            value={hasReinvoice ? netValue.toFixed(2) : row.value.toFixed(2)}
+            disabled={hasReinvoice}
             onChange={(e) => {
               const v = parseFloat(e.target.value) || 0
               onUpdate({
