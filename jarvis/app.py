@@ -37,14 +37,12 @@ check_permission_v2 = _perm_repo.check_permission_v2
 
 app = Flask(__name__)
 
-# Secret key — required in production, dev fallback only when FLASK_DEBUG=true
+# Secret key — prefer env var, generate random fallback if missing
 _secret_key = os.environ.get('FLASK_SECRET_KEY', os.environ.get('SECRET_KEY'))
 if not _secret_key:
-    if os.environ.get('FLASK_DEBUG', 'false').lower() == 'true':
-        _secret_key = 'dev-secret-key-for-local-only'
-        app_logger.warning('Using development secret key — set FLASK_SECRET_KEY for production')
-    else:
-        raise RuntimeError('FLASK_SECRET_KEY environment variable is required')
+    import secrets
+    _secret_key = secrets.token_hex(32)
+    app_logger.warning('FLASK_SECRET_KEY not set — generated random key (sessions will not survive restarts)')
 app.secret_key = _secret_key
 
 # Flask-Compress for gzip/brotli compression (60-70% size reduction)
