@@ -249,7 +249,7 @@ def init_db():
         cursor.execute("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = 'notifications'
+                WHERE table_schema = 'public' AND table_name = 'smart_notification_state'
             )
         """)
         if cursor.fetchone()['exists']:
@@ -263,6 +263,23 @@ def init_db():
                     END IF;
                 END $$;
             ''')
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'mkt_projects' AND column_name = 'company_ids') THEN
+                        ALTER TABLE mkt_projects ADD COLUMN company_ids INTEGER[] DEFAULT '{}';
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'mkt_projects' AND column_name = 'brand_ids') THEN
+                        ALTER TABLE mkt_projects ADD COLUMN brand_ids INTEGER[] DEFAULT '{}';
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'mkt_projects' AND column_name = 'department_ids') THEN
+                        ALTER TABLE mkt_projects ADD COLUMN department_ids INTEGER[] DEFAULT '{}';
+                    END IF;
+                END $$;
+            ''')
             # Ensure 'approved' invoice status exists
             cursor.execute('''
                 INSERT INTO dropdown_options (dropdown_type, value, label, color, sort_order, is_active, min_role)
@@ -270,6 +287,101 @@ def init_db():
                 WHERE NOT EXISTS (
                     SELECT 1 FROM dropdown_options WHERE dropdown_type = 'invoice_status' AND value = 'approved'
                 )
+            ''')
+            # Create mkt_project_events if not exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS mkt_project_events (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+                    event_id INTEGER NOT NULL REFERENCES hr.events(id) ON DELETE CASCADE,
+                    notes TEXT,
+                    linked_by INTEGER NOT NULL REFERENCES users(id),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT mkt_project_events_unique UNIQUE (project_id, event_id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_project_events_project ON mkt_project_events(project_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_project_events_event ON mkt_project_events(event_id)')
+            # KPI linking tables
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS mkt_kpi_budget_lines (
+                    id SERIAL PRIMARY KEY,
+                    project_kpi_id INTEGER NOT NULL REFERENCES mkt_project_kpis(id) ON DELETE CASCADE,
+                    budget_line_id INTEGER NOT NULL REFERENCES mkt_budget_lines(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT mkt_kpi_budget_lines_unique UNIQUE (project_kpi_id, budget_line_id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_bl_kpi ON mkt_kpi_budget_lines(project_kpi_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_bl_line ON mkt_kpi_budget_lines(budget_line_id)')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS mkt_kpi_dependencies (
+                    id SERIAL PRIMARY KEY,
+                    project_kpi_id INTEGER NOT NULL REFERENCES mkt_project_kpis(id) ON DELETE CASCADE,
+                    depends_on_kpi_id INTEGER NOT NULL REFERENCES mkt_project_kpis(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL DEFAULT 'input',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT mkt_kpi_deps_unique UNIQUE (project_kpi_id, depends_on_kpi_id),
+                    CONSTRAINT mkt_kpi_deps_no_self CHECK (project_kpi_id != depends_on_kpi_id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_deps_kpi ON mkt_kpi_dependencies(project_kpi_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_deps_dep ON mkt_kpi_dependencies(depends_on_kpi_id)')
+            # Seed default mkt_project approval flow if missing
+            cursor.execute('''
+                INSERT INTO approval_flows (name, slug, entity_type, is_active, created_by)
+                SELECT 'Marketing Project Approval', 'mkt-project-approval', 'mkt_project', TRUE, 1
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM approval_flows WHERE slug = 'mkt-project-approval'
+                )
+            ''')
+            cursor.execute('''
+                INSERT INTO approval_steps (flow_id, name, step_order, approver_type, notify_on_pending, notify_on_decision)
+                SELECT f.id, 'Selected Approver', 1, 'context_approver', TRUE, TRUE
+                FROM approval_flows f
+                WHERE f.slug = 'mkt-project-approval'
+                AND NOT EXISTS (
+                    SELECT 1 FROM approval_steps s WHERE s.flow_id = f.id
+                )
+            ''')
+            # Smart notification state table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS smart_notification_state (
+                    id SERIAL PRIMARY KEY,
+                    alert_type TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    entity_id INTEGER NOT NULL,
+                    last_alerted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_value NUMERIC(15,4),
+                    CONSTRAINT smart_notif_state_unique UNIQUE (alert_type, entity_type, entity_id)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_smart_notif_state_type ON smart_notification_state(alert_type)')
+            # AI6: line_items + invoice_type columns on invoices
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'invoices' AND column_name = 'line_items') THEN
+                        ALTER TABLE invoices ADD COLUMN line_items JSONB;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'invoices' AND column_name = 'invoice_type') THEN
+                        ALTER TABLE invoices ADD COLUMN invoice_type TEXT DEFAULT 'standard';
+                    END IF;
+                END $$;
+            ''')
+            cursor.execute('''
+                INSERT INTO notification_settings (setting_key, setting_value) VALUES
+                    ('smart_alerts_enabled', 'true'),
+                    ('smart_kpi_alerts_enabled', 'true'),
+                    ('smart_budget_alerts_enabled', 'true'),
+                    ('smart_invoice_anomaly_enabled', 'true'),
+                    ('smart_efactura_backlog_enabled', 'true'),
+                    ('smart_efactura_backlog_threshold', '50'),
+                    ('smart_alert_cooldown_hours', '24'),
+                    ('smart_invoice_anomaly_sigma', '2')
+                ON CONFLICT (setting_key) DO NOTHING
             ''')
             conn.commit()
             logger.info('Database schema already initialized — skipping init_db()')

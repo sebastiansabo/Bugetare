@@ -34,7 +34,9 @@ def create_schema(conn, cursor):
             status TEXT DEFAULT 'new',
             deleted_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            line_items JSONB,
+            invoice_type TEXT DEFAULT 'standard'
         )
     ''')
 
@@ -2156,6 +2158,282 @@ def create_schema(conn, cursor):
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, is_read) WHERE is_read = FALSE')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at DESC)')
 
+    # ============== Smart Notification State ==============
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS smart_notification_state (
+            id SERIAL PRIMARY KEY,
+            alert_type TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER NOT NULL,
+            last_alerted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_value NUMERIC(15,4),
+            CONSTRAINT smart_notif_state_unique UNIQUE (alert_type, entity_type, entity_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_smart_notif_state_type ON smart_notification_state(alert_type)')
+
+    # Seed smart alert defaults
+    cursor.execute('''
+        INSERT INTO notification_settings (setting_key, setting_value) VALUES
+            ('smart_alerts_enabled', 'true'),
+            ('smart_kpi_alerts_enabled', 'true'),
+            ('smart_budget_alerts_enabled', 'true'),
+            ('smart_invoice_anomaly_enabled', 'true'),
+            ('smart_efactura_backlog_enabled', 'true'),
+            ('smart_efactura_backlog_threshold', '50'),
+            ('smart_alert_cooldown_hours', '24'),
+            ('smart_invoice_anomaly_sigma', '2')
+        ON CONFLICT (setting_key) DO NOTHING
+    ''')
+
+    # ============== Marketing Projects Module ==============
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_projects (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            description TEXT,
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            company_ids INTEGER[] DEFAULT '{}',
+            brand_id INTEGER REFERENCES brands(id),
+            brand_ids INTEGER[] DEFAULT '{}',
+            department_structure_id INTEGER REFERENCES department_structure(id),
+            department_ids INTEGER[] DEFAULT '{}',
+            project_type TEXT NOT NULL DEFAULT 'campaign',
+            channel_mix TEXT[] DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'draft',
+            start_date DATE,
+            end_date DATE,
+            total_budget NUMERIC(15,2) NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'RON',
+            owner_id INTEGER NOT NULL REFERENCES users(id),
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            objective TEXT,
+            target_audience TEXT,
+            brief JSONB DEFAULT '{}'::jsonb,
+            external_ref TEXT,
+            metadata JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TIMESTAMP,
+            CONSTRAINT mkt_projects_status_check CHECK (status IN (
+                'draft','pending_approval','approved','active','paused','completed','archived','cancelled'
+            )),
+            CONSTRAINT mkt_projects_type_check CHECK (project_type IN (
+                'campaign','always_on','event','launch','branding','research'
+            ))
+        )
+    ''')
+    cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_mkt_projects_slug ON mkt_projects(slug)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_projects_company ON mkt_projects(company_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_projects_brand ON mkt_projects(brand_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_projects_status ON mkt_projects(status) WHERE deleted_at IS NULL')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_projects_owner ON mkt_projects(owner_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_projects_dates ON mkt_projects(start_date, end_date) WHERE deleted_at IS NULL')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_project_members (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            role TEXT NOT NULL DEFAULT 'member',
+            department_structure_id INTEGER REFERENCES department_structure(id),
+            added_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT mkt_members_role_check CHECK (role IN ('owner','manager','specialist','viewer','agency')),
+            CONSTRAINT mkt_members_unique UNIQUE (project_id, user_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_members_user ON mkt_project_members(user_id)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_budget_lines (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            channel TEXT NOT NULL,
+            description TEXT,
+            department_structure_id INTEGER REFERENCES department_structure(id),
+            agency_name TEXT,
+            planned_amount NUMERIC(15,2) NOT NULL DEFAULT 0,
+            approved_amount NUMERIC(15,2) DEFAULT 0,
+            spent_amount NUMERIC(15,2) DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT 'RON',
+            period_type TEXT DEFAULT 'campaign',
+            period_start DATE,
+            period_end DATE,
+            status TEXT NOT NULL DEFAULT 'draft',
+            notes TEXT,
+            metadata JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT mkt_budget_status_check CHECK (status IN (
+                'draft','pending_approval','approved','active','exhausted','cancelled'
+            ))
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_budget_lines_project ON mkt_budget_lines(project_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_budget_lines_channel ON mkt_budget_lines(channel)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_budget_transactions (
+            id SERIAL PRIMARY KEY,
+            budget_line_id INTEGER NOT NULL REFERENCES mkt_budget_lines(id) ON DELETE CASCADE,
+            amount NUMERIC(15,2) NOT NULL,
+            direction TEXT NOT NULL DEFAULT 'debit',
+            source TEXT NOT NULL DEFAULT 'manual',
+            reference_id TEXT,
+            invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+            transaction_date DATE NOT NULL,
+            description TEXT,
+            recorded_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT mkt_budget_tx_dir_check CHECK (direction IN ('debit','credit'))
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_budget_tx_line ON mkt_budget_transactions(budget_line_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_budget_tx_date ON mkt_budget_transactions(transaction_date)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_kpi_definitions (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            unit TEXT NOT NULL DEFAULT 'number',
+            direction TEXT NOT NULL DEFAULT 'higher',
+            category TEXT NOT NULL DEFAULT 'performance',
+            formula TEXT,
+            description TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_project_kpis (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            kpi_definition_id INTEGER NOT NULL REFERENCES mkt_kpi_definitions(id),
+            channel TEXT,
+            target_value NUMERIC(15,4),
+            current_value NUMERIC(15,4) DEFAULT 0,
+            weight INTEGER DEFAULT 50,
+            threshold_warning NUMERIC(15,4),
+            threshold_critical NUMERIC(15,4),
+            status TEXT DEFAULT 'no_data',
+            last_synced_at TIMESTAMP,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT mkt_kpi_status_check CHECK (status IN ('no_data','on_track','at_risk','behind','exceeded')),
+            CONSTRAINT mkt_kpi_unique UNIQUE (project_id, kpi_definition_id, channel)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_project_kpis_project ON mkt_project_kpis(project_id)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_kpi_snapshots (
+            id SERIAL PRIMARY KEY,
+            project_kpi_id INTEGER NOT NULL REFERENCES mkt_project_kpis(id) ON DELETE CASCADE,
+            value NUMERIC(15,4) NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual',
+            recorded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            recorded_by INTEGER REFERENCES users(id),
+            notes TEXT
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_snapshots_kpi ON mkt_kpi_snapshots(project_kpi_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_snapshots_date ON mkt_kpi_snapshots(recorded_at)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_project_activity (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            action TEXT NOT NULL,
+            actor_id INTEGER REFERENCES users(id),
+            actor_type TEXT DEFAULT 'user',
+            details JSONB DEFAULT '{}'::jsonb,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_activity_project ON mkt_project_activity(project_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_activity_date ON mkt_project_activity(created_at)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_project_comments (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            parent_id INTEGER REFERENCES mkt_project_comments(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            content TEXT NOT NULL,
+            is_internal BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_comments_project ON mkt_project_comments(project_id)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_project_files (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            file_name TEXT NOT NULL,
+            file_type TEXT,
+            mime_type TEXT,
+            file_size INTEGER,
+            storage_uri TEXT NOT NULL,
+            uploaded_by INTEGER NOT NULL REFERENCES users(id),
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_files_project ON mkt_project_files(project_id)')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_project_events (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            event_id INTEGER NOT NULL REFERENCES hr.events(id) ON DELETE CASCADE,
+            notes TEXT,
+            linked_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT mkt_project_events_unique UNIQUE (project_id, event_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_project_events_project ON mkt_project_events(project_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_project_events_event ON mkt_project_events(event_id)')
+
+    # KPI ↔ Budget Line linking
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_kpi_budget_lines (
+            id SERIAL PRIMARY KEY,
+            project_kpi_id INTEGER NOT NULL REFERENCES mkt_project_kpis(id) ON DELETE CASCADE,
+            budget_line_id INTEGER NOT NULL REFERENCES mkt_budget_lines(id) ON DELETE CASCADE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT mkt_kpi_budget_lines_unique UNIQUE (project_kpi_id, budget_line_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_bl_kpi ON mkt_kpi_budget_lines(project_kpi_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_bl_line ON mkt_kpi_budget_lines(budget_line_id)')
+
+    # KPI ↔ KPI dependencies
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_kpi_dependencies (
+            id SERIAL PRIMARY KEY,
+            project_kpi_id INTEGER NOT NULL REFERENCES mkt_project_kpis(id) ON DELETE CASCADE,
+            depends_on_kpi_id INTEGER NOT NULL REFERENCES mkt_project_kpis(id) ON DELETE CASCADE,
+            role TEXT NOT NULL DEFAULT 'input',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT mkt_kpi_deps_unique UNIQUE (project_kpi_id, depends_on_kpi_id),
+            CONSTRAINT mkt_kpi_deps_no_self CHECK (project_kpi_id != depends_on_kpi_id)
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_deps_kpi ON mkt_kpi_dependencies(project_kpi_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_kpi_deps_dep ON mkt_kpi_dependencies(depends_on_kpi_id)')
+
     conn.commit()
 
     # Seed approval permissions_v2 if not already present
@@ -2206,6 +2484,121 @@ def create_schema(conn, cursor):
                         ''', (role['id'], p['id']))
 
         conn.commit()
+
+    # Seed marketing permissions_v2 if not already present
+    cursor.execute("SELECT COUNT(*) as cnt FROM permissions_v2 WHERE module_key = 'marketing'")
+    if cursor.fetchone()['cnt'] == 0:
+        cursor.execute('''
+            INSERT INTO permissions_v2 (module_key, module_label, module_icon, entity_key, entity_label, action_key, action_label, description, is_scope_based, sort_order) VALUES
+            ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'view', 'View', 'View marketing projects', TRUE, 1),
+            ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'create', 'Create', 'Create marketing projects', TRUE, 2),
+            ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'edit', 'Edit', 'Edit marketing projects', TRUE, 3),
+            ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'delete', 'Delete', 'Delete marketing projects', TRUE, 4),
+            ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'approve', 'Submit for Approval', 'Submit projects for approval', TRUE, 5),
+            ('marketing', 'Marketing', 'bi-megaphone', 'budget', 'Budgets', 'view', 'View', 'View budget allocations', TRUE, 6),
+            ('marketing', 'Marketing', 'bi-megaphone', 'budget', 'Budgets', 'edit', 'Edit', 'Edit budgets and record spend', TRUE, 7),
+            ('marketing', 'Marketing', 'bi-megaphone', 'kpi', 'KPIs', 'view', 'View', 'View KPI targets and actuals', TRUE, 8),
+            ('marketing', 'Marketing', 'bi-megaphone', 'kpi', 'KPIs', 'edit', 'Edit', 'Set KPI targets and record values', TRUE, 9),
+            ('marketing', 'Marketing', 'bi-megaphone', 'report', 'Reports', 'view', 'View', 'View marketing reports', TRUE, 10)
+        ''')
+        # Grant marketing perms to roles
+        cursor.execute('SELECT id, name FROM roles')
+        for role in cursor.fetchall():
+            role_name = role['name']
+            cursor.execute("SELECT id, action_key FROM permissions_v2 WHERE module_key = 'marketing'")
+            for p in cursor.fetchall():
+                if role_name == 'Admin':
+                    scope = 'all'
+                elif role_name == 'Manager':
+                    scope = 'department' if p['action_key'] not in ('delete',) else 'deny'
+                else:
+                    scope = 'own' if p['action_key'] in ('view', 'create') else 'deny'
+                if scope != 'deny':
+                    cursor.execute('''
+                        INSERT INTO role_permissions_v2 (role_id, permission_id, scope, granted)
+                        VALUES (%s, %s, %s, TRUE)
+                        ON CONFLICT (role_id, permission_id) DO NOTHING
+                    ''', (role['id'], p['id'], scope))
+        conn.commit()
+
+    # Seed marketing dropdown_options if not present
+    cursor.execute("SELECT COUNT(*) as cnt FROM dropdown_options WHERE dropdown_type = 'mkt_project_type'")
+    if cursor.fetchone()['cnt'] == 0:
+        cursor.execute('''
+            INSERT INTO dropdown_options (dropdown_type, value, label, color, sort_order, is_active) VALUES
+            ('mkt_project_type', 'campaign', 'Campaign', '#0d6efd', 1, TRUE),
+            ('mkt_project_type', 'always_on', 'Always-On', '#198754', 2, TRUE),
+            ('mkt_project_type', 'event', 'Event', '#fd7e14', 3, TRUE),
+            ('mkt_project_type', 'launch', 'Product Launch', '#6f42c1', 4, TRUE),
+            ('mkt_project_type', 'branding', 'Branding', '#d63384', 5, TRUE),
+            ('mkt_project_type', 'research', 'Research', '#6c757d', 6, TRUE),
+            ('mkt_channel', 'meta_ads', 'Meta Ads', '#1877F2', 1, TRUE),
+            ('mkt_channel', 'google_ads', 'Google Ads', '#4285F4', 2, TRUE),
+            ('mkt_channel', 'radio', 'Radio', '#FF6B35', 3, TRUE),
+            ('mkt_channel', 'print', 'Print', '#2D3436', 4, TRUE),
+            ('mkt_channel', 'ooh', 'OOH / Outdoor', '#00B894', 5, TRUE),
+            ('mkt_channel', 'influencer', 'Influencer', '#E84393', 6, TRUE),
+            ('mkt_channel', 'email', 'Email Marketing', '#FDCB6E', 7, TRUE),
+            ('mkt_channel', 'sms', 'SMS', '#636E72', 8, TRUE),
+            ('mkt_channel', 'events', 'Events', '#6C5CE7', 9, TRUE),
+            ('mkt_channel', 'other', 'Other', '#95A5A6', 10, TRUE),
+            ('mkt_project_status', 'draft', 'Draft', '#6c757d', 1, TRUE),
+            ('mkt_project_status', 'pending_approval', 'Pending Approval', '#ffc107', 2, TRUE),
+            ('mkt_project_status', 'approved', 'Approved', '#198754', 3, TRUE),
+            ('mkt_project_status', 'active', 'Active', '#0d6efd', 4, TRUE),
+            ('mkt_project_status', 'paused', 'Paused', '#fd7e14', 5, TRUE),
+            ('mkt_project_status', 'completed', 'Completed', '#20c997', 6, TRUE),
+            ('mkt_project_status', 'cancelled', 'Cancelled', '#dc3545', 7, TRUE),
+            ('mkt_project_status', 'archived', 'Archived', '#adb5bd', 8, TRUE),
+            ('mkt_kpi_status', 'no_data', 'No Data', '#6c757d', 1, TRUE),
+            ('mkt_kpi_status', 'exceeded', 'Exceeded', '#198754', 2, TRUE),
+            ('mkt_kpi_status', 'on_track', 'On Track', '#0d6efd', 3, TRUE),
+            ('mkt_kpi_status', 'at_risk', 'At Risk', '#ffc107', 4, TRUE),
+            ('mkt_kpi_status', 'behind', 'Behind', '#dc3545', 5, TRUE)
+        ''')
+        conn.commit()
+
+    # Seed KPI definitions if not present
+    cursor.execute("SELECT COUNT(*) as cnt FROM mkt_kpi_definitions")
+    if cursor.fetchone()['cnt'] == 0:
+        cursor.execute('''
+            INSERT INTO mkt_kpi_definitions (name, slug, unit, direction, category, formula, sort_order) VALUES
+            ('Cost Per Acquisition', 'cpa', 'currency', 'lower', 'performance', 'spent / conversions', 1),
+            ('Return On Ad Spend', 'roas', 'ratio', 'higher', 'financial', 'revenue / spent', 2),
+            ('Cost Per Lead', 'cpl', 'currency', 'lower', 'performance', 'spent / leads', 3),
+            ('Click-Through Rate', 'ctr', 'percentage', 'higher', 'engagement', 'clicks / impressions * 100', 4),
+            ('Conversion Rate', 'cvr', 'percentage', 'higher', 'conversion', 'conversions / clicks * 100', 5),
+            ('Cost Per Click', 'cpc', 'currency', 'lower', 'performance', 'spent / clicks', 6),
+            ('Cost Per Mille', 'cpm', 'currency', 'lower', 'performance', 'spent / impressions * 1000', 7),
+            ('Impressions', 'impressions', 'number', 'higher', 'brand', NULL, 8),
+            ('Reach', 'reach', 'number', 'higher', 'brand', NULL, 9),
+            ('Leads Generated', 'leads', 'number', 'higher', 'conversion', NULL, 10),
+            ('Sales / Conversions', 'conversions', 'number', 'higher', 'conversion', NULL, 11),
+            ('Revenue Generated', 'revenue', 'currency', 'higher', 'financial', NULL, 12),
+            ('Total Spend', 'total_spend', 'currency', 'lower', 'financial', NULL, 13),
+            ('Video Views', 'video_views', 'number', 'higher', 'engagement', NULL, 14),
+            ('Engagement Rate', 'engagement_rate', 'percentage', 'higher', 'engagement', '(likes + comments + shares) / impressions * 100', 15)
+        ''')
+        conn.commit()
+
+    # Seed default approval flow for marketing projects (context_approver)
+    cursor.execute('''
+        INSERT INTO approval_flows (name, slug, entity_type, is_active, created_by)
+        SELECT 'Marketing Project Approval', 'mkt-project-approval', 'mkt_project', TRUE, 1
+        WHERE NOT EXISTS (
+            SELECT 1 FROM approval_flows WHERE slug = 'mkt-project-approval'
+        )
+    ''')
+    cursor.execute('''
+        INSERT INTO approval_steps (flow_id, name, step_order, approver_type, notify_on_pending, notify_on_decision)
+        SELECT f.id, 'Selected Approver', 1, 'context_approver', TRUE, TRUE
+        FROM approval_flows f
+        WHERE f.slug = 'mkt-project-approval'
+        AND NOT EXISTS (
+            SELECT 1 FROM approval_steps s WHERE s.flow_id = f.id
+        )
+    ''')
+    conn.commit()
 
     # Seed initial data if tables are empty
     cursor.execute('SELECT COUNT(*) FROM department_structure')

@@ -1,0 +1,1893 @@
+import { useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Separator } from '@/components/ui/separator'
+import { cn } from '@/lib/utils'
+import {
+  ArrowLeft, Pencil, Play, Pause, CheckCircle, Send, Copy, Check, RefreshCw,
+  DollarSign, Target, Users, Clock, FileText, MessageSquare,
+  Plus, Trash2, BarChart3, CalendarDays, Link2, Search,
+} from 'lucide-react'
+import { marketingApi } from '@/api/marketing'
+import { usersApi } from '@/api/users'
+import { settingsApi } from '@/api/settings'
+import type { MktProject, MktBudgetLine, MktProjectKpi, HrEventSearchResult, InvoiceSearchResult } from '@/types/marketing'
+import type { UserDetail } from '@/types/users'
+import { ApprovalWidget } from '@/components/shared/ApprovalWidget'
+import ProjectForm from './ProjectForm'
+
+const statusColors: Record<string, string> = {
+  draft: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+  pending_approval: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+  approved: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200',
+  active: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200',
+  paused: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200',
+  completed: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-200',
+  cancelled: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200',
+  archived: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+}
+
+function fmt(val: number | string | null | undefined, currency = 'RON') {
+  const n = typeof val === 'string' ? parseFloat(val) : (val ?? 0)
+  return `${n.toLocaleString('ro-RO', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${currency}`
+}
+
+function fmtDate(d: string | null | undefined) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('ro-RO')
+}
+
+function fmtDatetime(d: string | null | undefined) {
+  if (!d) return '—'
+  return new Date(d).toLocaleString('ro-RO', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+type Tab = 'overview' | 'budget' | 'kpis' | 'team' | 'events' | 'activity' | 'files' | 'comments'
+
+const tabs: { key: Tab; label: string; icon: React.ElementType }[] = [
+  { key: 'overview', label: 'Overview', icon: BarChart3 },
+  { key: 'budget', label: 'Budget', icon: DollarSign },
+  { key: 'kpis', label: 'KPIs', icon: Target },
+  { key: 'team', label: 'Team', icon: Users },
+  { key: 'events', label: 'Events', icon: CalendarDays },
+  { key: 'activity', label: 'Activity', icon: Clock },
+  { key: 'files', label: 'Files', icon: FileText },
+  { key: 'comments', label: 'Comments', icon: MessageSquare },
+]
+
+export default function ProjectDetail() {
+  const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const id = Number(projectId)
+
+  const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [showEditDialog, setShowEditDialog] = useState(false)
+
+  const { data: project, isLoading } = useQuery({
+    queryKey: ['mkt-project', id],
+    queryFn: () => marketingApi.getProject(id),
+    enabled: !!id,
+  })
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    )
+  }
+
+  if (!project) {
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        Project not found.
+        <Button variant="link" onClick={() => navigate('/app/marketing')}>Back to projects</Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => navigate('/app/marketing')}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h1 className="text-2xl font-bold truncate">{project.name}</h1>
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[project.status] ?? ''}`}>
+              {(project.status ?? '').replace('_', ' ')}
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground ml-9">
+            {project.company_name}{project.brand_name ? ` / ${project.brand_name}` : ''}
+            {' · '}
+            {(project.project_type ?? '').replace('_', ' ')}
+            {project.owner_name ? ` · Owner: ${project.owner_name}` : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setShowEditDialog(true)}>
+            <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
+          </Button>
+          <StatusActions project={project} onDone={() => queryClient.invalidateQueries({ queryKey: ['mkt-project', id] })} />
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b">
+        {tabs.map((tab) => {
+          const Icon = tab.icon
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                activeTab === tab.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'overview' && <OverviewTab project={project} />}
+      {activeTab === 'budget' && <BudgetTab projectId={id} currency={project.currency} />}
+      {activeTab === 'kpis' && <KpisTab projectId={id} />}
+      {activeTab === 'team' && <TeamTab projectId={id} />}
+      {activeTab === 'events' && <EventsTab projectId={id} />}
+      {activeTab === 'activity' && <ActivityTab projectId={id} />}
+      {activeTab === 'files' && <FilesTab projectId={id} />}
+      {activeTab === 'comments' && <CommentsTab projectId={id} />}
+
+      {/* Edit Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Project</DialogTitle>
+          </DialogHeader>
+          <ProjectForm
+            project={project}
+            onSuccess={() => {
+              setShowEditDialog(false)
+              queryClient.invalidateQueries({ queryKey: ['mkt-project', id] })
+              queryClient.invalidateQueries({ queryKey: ['mkt-projects'] })
+            }}
+            onCancel={() => setShowEditDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Status Action Buttons
+// ──────────────────────────────────────────
+
+function StatusActions({ project, onDone }: { project: MktProject; onDone: () => void }) {
+  const [submitOpen, setSubmitOpen] = useState(false)
+  const [selectedApprover, setSelectedApprover] = useState<number | undefined>()
+  const { data: allUsers } = useQuery({ queryKey: ['users-list'], queryFn: () => usersApi.getUsers(), enabled: submitOpen })
+  const submitMut = useMutation({
+    mutationFn: () => marketingApi.submitApproval(project.id, selectedApprover),
+    onSuccess: () => { setSubmitOpen(false); setSelectedApprover(undefined); onDone() },
+  })
+  const activateMut = useMutation({ mutationFn: () => marketingApi.activateProject(project.id), onSuccess: onDone })
+  const pauseMut = useMutation({ mutationFn: () => marketingApi.pauseProject(project.id), onSuccess: onDone })
+  const completeMut = useMutation({ mutationFn: () => marketingApi.completeProject(project.id), onSuccess: onDone })
+  const dupMut = useMutation({ mutationFn: () => marketingApi.duplicateProject(project.id), onSuccess: onDone })
+
+  const s = project.status
+  return (
+    <div className="flex items-center gap-1.5">
+      {(s === 'draft' || s === 'cancelled') && (
+        <Popover open={submitOpen} onOpenChange={(o) => { setSubmitOpen(o); if (!o) setSelectedApprover(undefined) }}>
+          <PopoverTrigger asChild>
+            <Button size="sm">
+              <Send className="h-3.5 w-3.5 mr-1.5" /> Submit
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-64 p-3 space-y-2" align="end">
+            <label className="text-xs font-medium text-muted-foreground">Select Approver</label>
+            <select
+              className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+              value={selectedApprover ?? ''}
+              onChange={(e) => setSelectedApprover(e.target.value ? Number(e.target.value) : undefined)}
+            >
+              <option value="">Choose...</option>
+              {(allUsers ?? []).map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+            <Button size="sm" className="w-full" disabled={!selectedApprover || submitMut.isPending} onClick={() => submitMut.mutate()}>
+              {submitMut.isPending ? 'Submitting...' : 'Submit for Approval'}
+            </Button>
+          </PopoverContent>
+        </Popover>
+      )}
+      {s === 'approved' && (
+        <Button size="sm" onClick={() => activateMut.mutate()} disabled={activateMut.isPending}>
+          <Play className="h-3.5 w-3.5 mr-1.5" /> Activate
+        </Button>
+      )}
+      {s === 'active' && (
+        <>
+          <Button size="sm" variant="outline" onClick={() => pauseMut.mutate()} disabled={pauseMut.isPending}>
+            <Pause className="h-3.5 w-3.5 mr-1.5" /> Pause
+          </Button>
+          <Button size="sm" onClick={() => completeMut.mutate()} disabled={completeMut.isPending}>
+            <CheckCircle className="h-3.5 w-3.5 mr-1.5" /> Complete
+          </Button>
+        </>
+      )}
+      {s === 'paused' && (
+        <>
+          <Button size="sm" onClick={() => activateMut.mutate()} disabled={activateMut.isPending}>
+            <Play className="h-3.5 w-3.5 mr-1.5" /> Resume
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => completeMut.mutate()} disabled={completeMut.isPending}>
+            <CheckCircle className="h-3.5 w-3.5 mr-1.5" /> Complete
+          </Button>
+        </>
+      )}
+      <Button size="sm" variant="ghost" onClick={() => dupMut.mutate()} disabled={dupMut.isPending}>
+        <Copy className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Overview Tab
+// ──────────────────────────────────────────
+
+function OverviewTab({ project }: { project: MktProject }) {
+  const budget = typeof project.total_budget === 'string' ? parseFloat(project.total_budget as string) : (project.total_budget ?? 0)
+  const spent = typeof project.total_spent === 'string' ? parseFloat(project.total_spent as string) : (project.total_spent ?? 0)
+  const burn = budget ? Math.round((spent / budget) * 100) : 0
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Left column: details */}
+      <div className="lg:col-span-2 space-y-6">
+        {/* Budget summary */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <h3 className="font-semibold text-sm">Budget</h3>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-lg font-bold">{fmt(budget, project.currency)}</div>
+              <div className="text-xs text-muted-foreground">Total Budget</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold">{fmt(spent, project.currency)}</div>
+              <div className="text-xs text-muted-foreground">Spent</div>
+            </div>
+            <div>
+              <div className={`text-lg font-bold ${burn > 90 ? 'text-red-500' : burn > 70 ? 'text-yellow-500' : ''}`}>{burn}%</div>
+              <div className="text-xs text-muted-foreground">Burn Rate</div>
+            </div>
+          </div>
+          <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full ${burn > 90 ? 'bg-red-500' : burn > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+              style={{ width: `${Math.min(burn, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Objective & Audience */}
+        {project.objective && (
+          <div className="space-y-1">
+            <h3 className="font-semibold text-sm">Objective</h3>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{project.objective}</p>
+          </div>
+        )}
+        {project.target_audience && (
+          <div className="space-y-1">
+            <h3 className="font-semibold text-sm">Target Audience</h3>
+            <p className="text-sm text-muted-foreground">{project.target_audience}</p>
+          </div>
+        )}
+        {project.description && (
+          <div className="space-y-1">
+            <h3 className="font-semibold text-sm">Description</h3>
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{project.description}</p>
+          </div>
+        )}
+      </div>
+
+      {/* Right column: metadata */}
+      <div className="space-y-4">
+        <div className="rounded-lg border p-4 space-y-3 text-sm">
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Status</span>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[project.status] ?? ''}`}>
+              {(project.status ?? '').replace('_', ' ')}
+            </span>
+          </div>
+          <Separator />
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Type</span>
+            <span className="capitalize">{(project.project_type ?? '').replace('_', ' ')}</span>
+          </div>
+          <Separator />
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Start Date</span>
+            <span>{fmtDate(project.start_date)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">End Date</span>
+            <span>{fmtDate(project.end_date)}</span>
+          </div>
+          <Separator />
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Owner</span>
+            <span>{project.owner_name ?? '—'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">Created</span>
+            <span>{fmtDate(project.created_at)}</span>
+          </div>
+          {project.external_ref && (
+            <>
+              <Separator />
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">External Ref</span>
+                <span>{project.external_ref}</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Channel Mix */}
+        {project.channel_mix?.length > 0 && (
+          <div className="rounded-lg border p-4 space-y-2">
+            <h3 className="font-semibold text-sm">Channels</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {project.channel_mix.map((ch) => (
+                <Badge key={ch} variant="secondary" className="text-xs">
+                  {ch.replace('_', ' ')}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Team preview */}
+        {project.members && project.members.length > 0 && (
+          <div className="rounded-lg border p-4 space-y-2">
+            <h3 className="font-semibold text-sm">Team ({project.members.length})</h3>
+            <div className="space-y-1">
+              {project.members.slice(0, 5).map((m) => (
+                <div key={m.id} className="flex items-center justify-between text-sm">
+                  <span>{m.user_name}</span>
+                  <Badge variant="outline" className="text-xs">{m.role}</Badge>
+                </div>
+              ))}
+              {project.members.length > 5 && (
+                <span className="text-xs text-muted-foreground">+{project.members.length - 5} more</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Approval Status */}
+        <div className="rounded-lg border p-4">
+          <ApprovalWidget
+            entityType="mkt_project"
+            entityId={project.id}
+            showApproverPicker
+            onSubmit={async ({ approverId }) => {
+              await marketingApi.submitApproval(project.id, approverId)
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Budget Tab
+// ──────────────────────────────────────────
+
+function BudgetTab({ projectId, currency }: { projectId: number; currency: string }) {
+  const queryClient = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [addForm, setAddForm] = useState({ channel: '', planned_amount: '', description: '', period_type: 'campaign' })
+  const [linkLineId, setLinkLineId] = useState<number | null>(null)
+  const [invoiceSearch, setInvoiceSearch] = useState('')
+  const [invoiceResults, setInvoiceResults] = useState<InvoiceSearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [linkedInvoiceIds, setLinkedInvoiceIds] = useState<Set<number>>(new Set())
+  const [spendLineId, setSpendLineId] = useState<number | null>(null)
+  const [spendForm, setSpendForm] = useState({ amount: '', transaction_date: '', description: '' })
+
+  const { data } = useQuery({
+    queryKey: ['mkt-budget-lines', projectId],
+    queryFn: () => marketingApi.getBudgetLines(projectId),
+  })
+  const lines = data?.budget_lines ?? []
+
+  const { data: channelOpts } = useQuery({
+    queryKey: ['dropdown-options', 'mkt_channel'],
+    queryFn: () => settingsApi.getDropdownOptions('mkt_channel'),
+  })
+
+  const addMut = useMutation({
+    mutationFn: (d: Record<string, unknown>) => marketingApi.createBudgetLine(projectId, d as Partial<MktBudgetLine>),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-budget-lines', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-project', projectId] })
+      setShowAdd(false)
+      setAddForm({ channel: '', planned_amount: '', description: '', period_type: 'campaign' })
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (lineId: number) => marketingApi.deleteBudgetLine(projectId, lineId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-budget-lines', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-project', projectId] })
+    },
+  })
+
+  const spendMut = useMutation({
+    mutationFn: () => marketingApi.createTransaction(spendLineId!, {
+      amount: Number(spendForm.amount),
+      transaction_date: spendForm.transaction_date,
+      direction: 'debit',
+      source: 'manual',
+      description: spendForm.description || undefined,
+    } as Record<string, unknown>),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-budget-lines', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-project', projectId] })
+      setSpendLineId(null)
+      setSpendForm({ amount: '', transaction_date: '', description: '' })
+    },
+  })
+
+  const linkInvoiceMut = useMutation({
+    mutationFn: (inv: InvoiceSearchResult) => marketingApi.createTransaction(linkLineId!, {
+      amount: inv.invoice_value,
+      transaction_date: inv.invoice_date,
+      direction: 'debit',
+      source: 'invoice',
+      invoice_id: inv.id,
+      description: `${inv.supplier} #${inv.invoice_number}`,
+    } as Record<string, unknown>),
+    onSuccess: (_data, inv) => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-budget-lines', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-project', projectId] })
+      setLinkedInvoiceIds((prev) => new Set(prev).add(inv.id))
+    },
+  })
+
+  async function searchInvoices(q: string) {
+    setInvoiceSearch(q)
+    if (q.length < 2) { setInvoiceResults([]); return }
+    setIsSearching(true)
+    try {
+      const res = await marketingApi.searchInvoices(q)
+      setInvoiceResults(res?.invoices ?? [])
+    } catch { setInvoiceResults([]) }
+    setIsSearching(false)
+  }
+
+  const totalPlanned = lines.reduce((s, l) => s + (Number(l.planned_amount) || 0), 0)
+  const totalApproved = lines.reduce((s, l) => s + (Number(l.approved_amount) || 0), 0)
+  const totalSpent = lines.reduce((s, l) => s + (Number(l.spent_amount) || 0), 0)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex gap-4 text-sm">
+          <span>Planned: <strong>{fmt(totalPlanned, currency)}</strong></span>
+          <span>Approved: <strong>{fmt(totalApproved, currency)}</strong></span>
+          <span>Spent: <strong>{fmt(totalSpent, currency)}</strong></span>
+        </div>
+        <Button size="sm" onClick={() => setShowAdd(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Line
+        </Button>
+      </div>
+
+      {lines.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">No budget lines yet.</div>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Channel</TableHead>
+                <TableHead>Description</TableHead>
+                <TableHead>Period</TableHead>
+                <TableHead className="text-right">Planned</TableHead>
+                <TableHead className="text-right">Approved</TableHead>
+                <TableHead className="text-right">Spent</TableHead>
+                <TableHead>Utilization</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lines.map((l) => {
+                const planned = Number(l.planned_amount) || 0
+                const spent = Number(l.spent_amount) || 0
+                const util = planned ? Math.round((spent / planned) * 100) : 0
+                return (
+                  <TableRow key={l.id}>
+                    <TableCell>
+                      <Badge variant="outline" className="text-xs">{(l.channel ?? '').replace('_', ' ')}</Badge>
+                    </TableCell>
+                    <TableCell className="text-sm max-w-[200px] truncate">{l.description || '—'}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{l.period_type}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{fmt(l.planned_amount, currency)}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{fmt(l.approved_amount, currency)}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">{fmt(l.spent_amount, currency)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <div className="w-14 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${util > 90 ? 'bg-red-500' : util > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+                            style={{ width: `${Math.min(util, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground">{util}%</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-0.5">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Record Spend"
+                          onClick={() => { setSpendLineId(l.id); setSpendForm({ amount: '', transaction_date: new Date().toISOString().slice(0, 10), description: '' }) }}>
+                          <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Link Invoice"
+                          onClick={() => { setLinkLineId(l.id); setInvoiceSearch(''); setInvoiceResults([]); setLinkedInvoiceIds(new Set()) }}>
+                          <Link2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Delete" onClick={() => deleteMut.mutate(l.id)}>
+                          <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Link Invoice Dialog */}
+      <Dialog open={!!linkLineId} onOpenChange={(open) => { if (!open) setLinkLineId(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Link Invoices to Budget Line</DialogTitle>
+            {linkedInvoiceIds.size > 0 && (
+              <p className="text-sm text-muted-foreground">{linkedInvoiceIds.size} invoice{linkedInvoiceIds.size > 1 ? 's' : ''} linked</p>
+            )}
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Search by supplier or invoice number..."
+                value={invoiceSearch}
+                onChange={(e) => searchInvoices(e.target.value)}
+                autoFocus
+              />
+            </div>
+            {isSearching && <div className="text-center text-sm text-muted-foreground py-2">Searching...</div>}
+            {invoiceResults.length > 0 && (
+              <div className="rounded-md border max-h-64 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead>Number</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead className="w-10" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoiceResults.map((inv) => {
+                      const alreadyLinked = linkedInvoiceIds.has(inv.id)
+                      return (
+                        <TableRow key={inv.id} className={alreadyLinked ? 'opacity-60' : ''}>
+                          <TableCell className="text-sm">{inv.supplier}</TableCell>
+                          <TableCell className="text-sm font-mono">{inv.invoice_number}</TableCell>
+                          <TableCell className="text-sm">{fmtDate(inv.invoice_date)}</TableCell>
+                          <TableCell className="text-right text-sm tabular-nums">{fmt(inv.invoice_value, inv.currency)}</TableCell>
+                          <TableCell>
+                            {alreadyLinked ? (
+                              <Check className="h-4 w-4 text-green-500 mx-auto" />
+                            ) : (
+                              <Button size="sm" variant="outline" className="h-7"
+                                disabled={linkInvoiceMut.isPending}
+                                onClick={() => linkInvoiceMut.mutate(inv)}>
+                                Link
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {invoiceSearch.length >= 2 && !isSearching && invoiceResults.length === 0 && (
+              <div className="text-center text-sm text-muted-foreground py-4">No invoices found.</div>
+            )}
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setLinkLineId(null)}>Done</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Record Spend Dialog */}
+      <Dialog open={!!spendLineId} onOpenChange={(open) => { if (!open) setSpendLineId(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Record Spend</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Amount *</Label>
+              <Input type="number" value={spendForm.amount} onChange={(e) => setSpendForm((f) => ({ ...f, amount: e.target.value }))} autoFocus placeholder="0" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Date *</Label>
+              <Input type="date" value={spendForm.transaction_date} onChange={(e) => setSpendForm((f) => ({ ...f, transaction_date: e.target.value }))} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input value={spendForm.description} onChange={(e) => setSpendForm((f) => ({ ...f, description: e.target.value }))} placeholder="e.g., Agency fee Q1" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setSpendLineId(null)}>Cancel</Button>
+              <Button
+                disabled={!spendForm.amount || !spendForm.transaction_date || spendMut.isPending}
+                onClick={() => spendMut.mutate()}
+              >
+                {spendMut.isPending ? 'Saving...' : 'Record'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Budget Line Dialog */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Add Budget Line</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Channel *</Label>
+              <Select value={addForm.channel} onValueChange={(v) => setAddForm((f) => ({ ...f, channel: v }))}>
+                <SelectTrigger><SelectValue placeholder="Select channel" /></SelectTrigger>
+                <SelectContent>
+                  {(channelOpts ?? []).map((o: { value: string; label: string }) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Planned Amount</Label>
+              <Input
+                type="number"
+                value={addForm.planned_amount}
+                onChange={(e) => setAddForm((f) => ({ ...f, planned_amount: e.target.value }))}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input
+                value={addForm.description}
+                onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+              <Button
+                disabled={!addForm.channel || addMut.isPending}
+                onClick={() => addMut.mutate({
+                  channel: addForm.channel,
+                  planned_amount: Number(addForm.planned_amount) || 0,
+                  description: addForm.description || undefined,
+                  period_type: addForm.period_type,
+                  currency,
+                })}
+              >
+                {addMut.isPending ? 'Adding...' : 'Add'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// KPIs Tab
+// ──────────────────────────────────────────
+
+function MiniSparkline({ values, className }: { values: number[]; className?: string }) {
+  if (values.length < 2) return null
+  const h = 24
+  const w = 60
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w
+    const y = h - ((v - min) / range) * (h - 4) - 2
+    return `${x},${y}`
+  })
+  return (
+    <svg width={w} height={h} className={className} viewBox={`0 0 ${w} ${h}`}>
+      <polyline
+        points={pts.join(' ')}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function KpisTab({ projectId }: { projectId: number }) {
+  const queryClient = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [addDefId, setAddDefId] = useState('')
+  const [addTarget, setAddTarget] = useState('')
+  const [snapKpiId, setSnapKpiId] = useState<number | null>(null)
+  const [snapValue, setSnapValue] = useState('')
+  const [historyKpiId, setHistoryKpiId] = useState<number | null>(null)
+  const [linkBudgetKpiId, setLinkBudgetKpiId] = useState<number | null>(null)
+  const [linkDepKpiId, setLinkDepKpiId] = useState<number | null>(null)
+  const [depRole, setDepRole] = useState<string>('numerator')
+
+  const { data } = useQuery({
+    queryKey: ['mkt-project-kpis', projectId],
+    queryFn: () => marketingApi.getProjectKpis(projectId),
+  })
+  const kpis = data?.kpis ?? []
+
+  const { data: budgetData } = useQuery({
+    queryKey: ['mkt-budget-lines', projectId],
+    queryFn: () => marketingApi.getBudgetLines(projectId),
+  })
+  const budgetLines = budgetData?.budget_lines ?? []
+
+  const { data: defsData } = useQuery({
+    queryKey: ['mkt-kpi-definitions'],
+    queryFn: () => marketingApi.getKpiDefinitions(),
+    enabled: showAdd,
+  })
+  const definitions = defsData?.definitions ?? []
+
+  const { data: snapshotsData } = useQuery({
+    queryKey: ['mkt-kpi-snapshots', historyKpiId],
+    queryFn: () => marketingApi.getKpiSnapshots(historyKpiId!, 50),
+    enabled: !!historyKpiId,
+  })
+  const snapshots = snapshotsData?.snapshots ?? []
+
+  // Budget lines linked to the KPI being edited
+  const { data: kpiBLData } = useQuery({
+    queryKey: ['mkt-kpi-budget-lines', linkBudgetKpiId],
+    queryFn: () => marketingApi.getKpiBudgetLines(linkBudgetKpiId!),
+    enabled: !!linkBudgetKpiId,
+  })
+  const linkedBudgetLines = kpiBLData?.budget_lines ?? []
+  const linkedBLIds = new Set(linkedBudgetLines.map((l) => l.budget_line_id))
+
+  // KPI dependencies for the KPI being edited
+  const { data: kpiDepData } = useQuery({
+    queryKey: ['mkt-kpi-dependencies', linkDepKpiId],
+    queryFn: () => marketingApi.getKpiDependencies(linkDepKpiId!),
+    enabled: !!linkDepKpiId,
+  })
+  const linkedDeps = kpiDepData?.dependencies ?? []
+  const linkedDepIds = new Set(linkedDeps.map((d) => d.depends_on_kpi_id))
+
+  const addMut = useMutation({
+    mutationFn: () => marketingApi.addProjectKpi(projectId, {
+      kpi_definition_id: Number(addDefId),
+      target_value: Number(addTarget) || null,
+    } as Partial<MktProjectKpi>),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-project-kpis', projectId] })
+      setShowAdd(false)
+      setAddDefId('')
+      setAddTarget('')
+    },
+  })
+
+  const snapMut = useMutation({
+    mutationFn: () => marketingApi.addKpiSnapshot(projectId, snapKpiId!, {
+      value: Number(snapValue),
+      source: 'manual',
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-project-kpis', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-snapshots'] })
+      setSnapKpiId(null)
+      setSnapValue('')
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (kpiId: number) => marketingApi.deleteProjectKpi(projectId, kpiId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mkt-project-kpis', projectId] }),
+  })
+
+  const linkBLMut = useMutation({
+    mutationFn: (lineId: number) => marketingApi.linkKpiBudgetLine(linkBudgetKpiId!, lineId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-budget-lines', linkBudgetKpiId] })
+    },
+  })
+
+  const unlinkBLMut = useMutation({
+    mutationFn: (lineId: number) => marketingApi.unlinkKpiBudgetLine(linkBudgetKpiId!, lineId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-budget-lines', linkBudgetKpiId] })
+    },
+  })
+
+  const linkDepMut = useMutation({
+    mutationFn: ({ depId, role }: { depId: number; role: string }) =>
+      marketingApi.linkKpiDependency(linkDepKpiId!, depId, role),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-dependencies', linkDepKpiId] })
+    },
+  })
+
+  const unlinkDepMut = useMutation({
+    mutationFn: (depId: number) => marketingApi.unlinkKpiDependency(linkDepKpiId!, depId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-dependencies', linkDepKpiId] })
+    },
+  })
+
+  const syncMut = useMutation({
+    mutationFn: (kpiId: number) => marketingApi.syncKpi(kpiId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-project-kpis', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-snapshots'] })
+    },
+  })
+
+  const kpiStatusColors: Record<string, string> = {
+    on_track: 'text-green-600', exceeded: 'text-blue-600',
+    at_risk: 'text-yellow-600', behind: 'text-red-600', no_data: 'text-gray-400',
+  }
+
+  const historyKpi = kpis.find((k) => k.id === historyKpiId)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => setShowAdd(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add KPI
+        </Button>
+      </div>
+
+      {kpis.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">No KPIs configured.</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {kpis.map((k) => (
+            <KpiCard
+              key={k.id}
+              kpi={k}
+              statusColors={kpiStatusColors}
+              onRecord={() => { setSnapKpiId(k.id); setSnapValue('') }}
+              onHistory={() => setHistoryKpiId(k.id)}
+              onDelete={() => deleteMut.mutate(k.id)}
+              onLinkBudget={() => setLinkBudgetKpiId(k.id)}
+              onLinkKpi={() => { setLinkDepKpiId(k.id); setDepRole('numerator') }}
+              onSync={() => syncMut.mutate(k.id)}
+              isSyncing={syncMut.isPending}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Add KPI Dialog */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add KPI</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>KPI Definition *</Label>
+              <Select value={addDefId} onValueChange={setAddDefId}>
+                <SelectTrigger><SelectValue placeholder="Select KPI" /></SelectTrigger>
+                <SelectContent>
+                  {definitions.map((d) => (
+                    <SelectItem key={d.id} value={String(d.id)}>{d.name} ({d.unit})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Target Value</Label>
+              <Input type="number" value={addTarget} onChange={(e) => setAddTarget(e.target.value)} placeholder="0" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+              <Button disabled={!addDefId || addMut.isPending} onClick={() => addMut.mutate()}>
+                {addMut.isPending ? 'Adding...' : 'Add'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Record Snapshot Dialog */}
+      <Dialog open={!!snapKpiId} onOpenChange={(open) => { if (!open) setSnapKpiId(null) }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Record KPI Value</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Value *</Label>
+              <Input type="number" value={snapValue} onChange={(e) => setSnapValue(e.target.value)} autoFocus />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setSnapKpiId(null)}>Cancel</Button>
+              <Button disabled={!snapValue || snapMut.isPending} onClick={() => snapMut.mutate()}>
+                {snapMut.isPending ? 'Saving...' : 'Record'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Snapshot History Dialog */}
+      <Dialog open={!!historyKpiId} onOpenChange={(open) => { if (!open) setHistoryKpiId(null) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{historyKpi?.kpi_name ?? 'KPI'} — History</DialogTitle>
+          </DialogHeader>
+          {snapshots.length === 0 ? (
+            <div className="text-center py-6 text-muted-foreground text-sm">No snapshots recorded yet.</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-lg border p-4 flex items-center justify-center">
+                <HistoryChart values={[...snapshots].reverse().map((s) => ({ value: s.value, date: s.recorded_at }))} />
+              </div>
+              <div className="rounded-md border max-h-64 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Value</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>By</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {snapshots.map((s) => (
+                      <TableRow key={s.id}>
+                        <TableCell className="text-sm">{fmtDatetime(s.recorded_at)}</TableCell>
+                        <TableCell className="text-right text-sm tabular-nums font-medium">
+                          {Number(s.value).toLocaleString('ro-RO')}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">{s.source}</Badge>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{s.recorded_by_name ?? '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Link Budget Lines Dialog */}
+      <Dialog open={!!linkBudgetKpiId} onOpenChange={(open) => { if (!open) setLinkBudgetKpiId(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Link Budget Lines</DialogTitle>
+            <p className="text-sm text-muted-foreground">Select budget lines whose spend feeds this KPI</p>
+          </DialogHeader>
+          <div className="space-y-2 max-h-72 overflow-y-auto">
+            {budgetLines.length === 0 ? (
+              <div className="text-center py-4 text-sm text-muted-foreground">No budget lines. Add lines in the Budget tab first.</div>
+            ) : budgetLines.map((bl) => {
+              const isLinked = linkedBLIds.has(bl.id)
+              return (
+                <div
+                  key={bl.id}
+                  className={cn(
+                    'flex items-center justify-between rounded-md border px-3 py-2 cursor-pointer transition-colors',
+                    isLinked ? 'border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30' : 'hover:bg-muted/50',
+                  )}
+                  onClick={() => {
+                    if (isLinked) unlinkBLMut.mutate(bl.id)
+                    else linkBLMut.mutate(bl.id)
+                  }}
+                >
+                  <div>
+                    <div className="text-sm font-medium">{(bl.channel ?? '').replace('_', ' ')}</div>
+                    {bl.description && <div className="text-xs text-muted-foreground">{bl.description}</div>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {fmt(bl.spent_amount, bl.currency)} spent
+                    </span>
+                    {isLinked && <Check className="h-4 w-4 text-blue-500" />}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {linkedBudgetLines.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              Total linked spend: <strong>{fmt(linkedBudgetLines.reduce((s, l) => s + Number(l.spent_amount), 0), 'RON')}</strong>
+            </div>
+          )}
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setLinkBudgetKpiId(null)}>Done</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Link KPI Dependencies Dialog */}
+      <Dialog open={!!linkDepKpiId} onOpenChange={(open) => { if (!open) setLinkDepKpiId(null) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Link KPI Dependencies</DialogTitle>
+            <p className="text-sm text-muted-foreground">Select KPIs this metric depends on (e.g. ROAS = Revenue / Spend)</p>
+          </DialogHeader>
+          {/* Linked deps */}
+          {linkedDeps.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Linked</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {linkedDeps.map((d) => (
+                  <Badge key={d.depends_on_kpi_id} variant="secondary" className="gap-1 pr-1">
+                    {d.dep_kpi_name}
+                    <span className="text-[10px] opacity-60">({d.role})</span>
+                    <button
+                      className="ml-0.5 hover:text-destructive"
+                      onClick={() => unlinkDepMut.mutate(d.depends_on_kpi_id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+          {/* Available KPIs to link */}
+          <div className="space-y-1.5">
+            <Label className="text-xs">Available KPIs</Label>
+            <div className="flex items-center gap-2 mb-2">
+              <Label className="text-xs text-muted-foreground">Role:</Label>
+              <Select value={depRole} onValueChange={setDepRole}>
+                <SelectTrigger className="w-36 h-7 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="numerator">Numerator</SelectItem>
+                  <SelectItem value="denominator">Denominator</SelectItem>
+                  <SelectItem value="input">Input</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto">
+              {kpis.filter((k) => k.id !== linkDepKpiId && !linkedDepIds.has(k.id)).map((k) => (
+                <div
+                  key={k.id}
+                  className="flex items-center justify-between rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                  onClick={() => linkDepMut.mutate({ depId: k.id, role: depRole })}
+                >
+                  <div>
+                    <div className="text-sm font-medium">{k.kpi_name}</div>
+                    <div className="text-xs text-muted-foreground">{k.unit} — current: {Number(k.current_value || 0).toLocaleString('ro-RO')}</div>
+                  </div>
+                  <Plus className="h-4 w-4 text-muted-foreground" />
+                </div>
+              ))}
+              {kpis.filter((k) => k.id !== linkDepKpiId && !linkedDepIds.has(k.id)).length === 0 && (
+                <div className="text-center py-3 text-sm text-muted-foreground">No other KPIs available to link.</div>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={() => setLinkDepKpiId(null)}>Done</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkBudget, onLinkKpi, onSync, isSyncing }: {
+  kpi: MktProjectKpi; statusColors: Record<string, string>
+  onRecord: () => void; onHistory: () => void; onDelete: () => void
+  onLinkBudget: () => void; onLinkKpi: () => void; onSync: () => void; isSyncing: boolean
+}) {
+  const { data: snapsData } = useQuery({
+    queryKey: ['mkt-kpi-snapshots', k.id],
+    queryFn: () => marketingApi.getKpiSnapshots(k.id, 10),
+  })
+  const sparkValues = [...(snapsData?.snapshots ?? [])].reverse().map((s) => s.value)
+
+  const { data: blData } = useQuery({
+    queryKey: ['mkt-kpi-budget-lines', k.id],
+    queryFn: () => marketingApi.getKpiBudgetLines(k.id),
+  })
+  const linkedBLCount = blData?.budget_lines?.length ?? 0
+
+  const { data: depData } = useQuery({
+    queryKey: ['mkt-kpi-dependencies', k.id],
+    queryFn: () => marketingApi.getKpiDependencies(k.id),
+  })
+  const linkedDepCount = depData?.dependencies?.length ?? 0
+  const hasLinks = linkedBLCount > 0 || linkedDepCount > 0
+
+  const target = Number(k.target_value) || 0
+  const current = Number(k.current_value) || 0
+  const pct = target ? Math.round((current / target) * 100) : 0
+  const warn = Number(k.threshold_warning) || 0
+  const crit = Number(k.threshold_critical) || 0
+  const isWarning = warn > 0 && current <= warn && current > crit
+  const isCritical = crit > 0 && current <= crit
+
+  return (
+    <div className={cn(
+      'rounded-lg border p-4 space-y-3',
+      isCritical && 'border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20',
+      isWarning && !isCritical && 'border-yellow-300 dark:border-yellow-800 bg-yellow-50/50 dark:bg-yellow-950/20',
+    )}>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="font-medium text-sm">{k.kpi_name}</div>
+          {k.channel && <div className="text-xs text-muted-foreground">{k.channel}</div>}
+        </div>
+        <div className="flex items-center gap-1">
+          {hasLinks && (
+            <Badge variant="outline" className="text-[10px] h-5 px-1.5">auto</Badge>
+          )}
+          <span className={`text-xs font-medium ${statusColors[k.status] ?? ''}`}>
+            {k.status.replace('_', ' ')}
+          </span>
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onDelete}>
+            <Trash2 className="h-3 w-3 text-muted-foreground" />
+          </Button>
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl font-bold tabular-nums">{current.toLocaleString('ro-RO')}</span>
+          {target > 0 && <span className="text-sm text-muted-foreground">/ {target.toLocaleString('ro-RO')} {k.unit}</span>}
+        </div>
+        {sparkValues.length >= 2 && (
+          <MiniSparkline
+            values={sparkValues}
+            className={cn(
+              'text-blue-500 dark:text-blue-400',
+              isCritical && 'text-red-500 dark:text-red-400',
+              isWarning && !isCritical && 'text-yellow-500 dark:text-yellow-400',
+            )}
+          />
+        )}
+      </div>
+      {target > 0 && (
+        <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full ${pct >= 100 ? 'bg-green-500' : pct >= 70 ? 'bg-blue-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+            style={{ width: `${Math.min(pct, 100)}%` }}
+          />
+        </div>
+      )}
+      {(isWarning || isCritical) && (
+        <div className={`text-xs font-medium ${isCritical ? 'text-red-600' : 'text-yellow-600'}`}>
+          {isCritical ? 'Below critical threshold' : 'Below warning threshold'}
+        </div>
+      )}
+      {/* Link indicators */}
+      {hasLinks && (
+        <div className="flex flex-wrap gap-1">
+          {linkedBLCount > 0 && (
+            <Badge variant="outline" className="text-[10px] h-5 cursor-pointer" onClick={onLinkBudget}>
+              <DollarSign className="h-3 w-3 mr-0.5" /> {linkedBLCount} budget line{linkedBLCount > 1 ? 's' : ''}
+            </Badge>
+          )}
+          {(depData?.dependencies ?? []).map((d) => (
+            <Badge key={d.depends_on_kpi_id} variant="outline" className="text-[10px] h-5 cursor-pointer" onClick={onLinkKpi}>
+              <Target className="h-3 w-3 mr-0.5" /> {d.dep_kpi_name} <span className="opacity-60 ml-0.5">({d.role})</span>
+            </Badge>
+          ))}
+        </div>
+      )}
+      <div className="flex gap-1.5">
+        <Button variant="outline" size="sm" className="flex-1 text-xs h-7" onClick={onRecord}>
+          Record
+        </Button>
+        <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onLinkBudget} title="Link budget lines">
+          <DollarSign className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onLinkKpi} title="Link KPIs">
+          <Link2 className="h-3.5 w-3.5" />
+        </Button>
+        {hasLinks && (
+          <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onSync} disabled={isSyncing} title="Sync from linked sources">
+            <RefreshCw className={cn('h-3.5 w-3.5', isSyncing && 'animate-spin')} />
+          </Button>
+        )}
+        <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onHistory} title="History">
+          <BarChart3 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function HistoryChart({ values }: { values: { value: number; date: string }[] }) {
+  if (values.length < 2) return <span className="text-sm text-muted-foreground">Not enough data for chart</span>
+  const w = 400
+  const h = 120
+  const pad = { t: 10, b: 20, l: 40, r: 10 }
+  const iw = w - pad.l - pad.r
+  const ih = h - pad.t - pad.b
+  const nums = values.map((v) => v.value)
+  const min = Math.min(...nums)
+  const max = Math.max(...nums)
+  const range = max - min || 1
+  const pts = values.map((v, i) => ({
+    x: pad.l + (i / (values.length - 1)) * iw,
+    y: pad.t + ih - ((v.value - min) / range) * ih,
+  }))
+  const line = pts.map((p) => `${p.x},${p.y}`).join(' ')
+  const fill = `${pts[0].x},${pad.t + ih} ${line} ${pts[pts.length - 1].x},${pad.t + ih}`
+
+  // Y-axis labels
+  const ySteps = [min, min + range * 0.5, max]
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} className="text-foreground">
+      {/* Grid lines */}
+      {ySteps.map((v, i) => {
+        const y = pad.t + ih - ((v - min) / range) * ih
+        return (
+          <g key={i}>
+            <line x1={pad.l} x2={w - pad.r} y1={y} y2={y} stroke="currentColor" strokeOpacity={0.1} />
+            <text x={pad.l - 4} y={y + 3} textAnchor="end" className="fill-muted-foreground" fontSize={9}>
+              {v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}
+            </text>
+          </g>
+        )
+      })}
+      {/* Area fill */}
+      <polygon points={fill} fill="currentColor" fillOpacity={0.08} className="text-blue-500" />
+      {/* Line */}
+      <polyline points={line} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="text-blue-500" />
+      {/* Dots */}
+      {pts.map((p, i) => (
+        <circle key={i} cx={p.x} cy={p.y} r={3} fill="currentColor" className="text-blue-500" />
+      ))}
+      {/* Date labels (first and last) */}
+      <text x={pad.l} y={h - 2} className="fill-muted-foreground" fontSize={9}>
+        {new Date(values[0].date).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' })}
+      </text>
+      <text x={w - pad.r} y={h - 2} textAnchor="end" className="fill-muted-foreground" fontSize={9}>
+        {new Date(values[values.length - 1].date).toLocaleDateString('ro-RO', { day: '2-digit', month: 'short' })}
+      </text>
+    </svg>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Team Tab
+// ──────────────────────────────────────────
+
+function TeamTab({ projectId }: { projectId: number }) {
+  const queryClient = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [addUserId, setAddUserId] = useState('')
+  const [addRole, setAddRole] = useState('specialist')
+
+  const { data } = useQuery({
+    queryKey: ['mkt-members', projectId],
+    queryFn: () => marketingApi.getMembers(projectId),
+  })
+  const members = data?.members ?? []
+
+  const { data: usersData } = useQuery({
+    queryKey: ['users-list'],
+    queryFn: () => usersApi.getUsers(),
+    enabled: showAdd,
+  })
+  const users: UserDetail[] = (usersData as UserDetail[] | undefined) ?? []
+  const existingUserIds = new Set(members.map((m) => m.user_id))
+
+  const addMut = useMutation({
+    mutationFn: () => marketingApi.addMember(projectId, { user_id: Number(addUserId), role: addRole }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-members', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-project', projectId] })
+      setShowAdd(false)
+      setAddUserId('')
+    },
+  })
+
+  const removeMut = useMutation({
+    mutationFn: (memberId: number) => marketingApi.removeMember(projectId, memberId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-members', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-project', projectId] })
+    },
+  })
+
+  const updateRoleMut = useMutation({
+    mutationFn: ({ memberId, role }: { memberId: number; role: string }) =>
+      marketingApi.updateMember(projectId, memberId, { role }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mkt-members', projectId] }),
+  })
+
+  const roles = ['owner', 'manager', 'specialist', 'viewer', 'agency']
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => setShowAdd(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add Member
+        </Button>
+      </div>
+
+      {members.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">No team members.</div>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Added</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {members.map((m) => (
+                <TableRow key={m.id}>
+                  <TableCell className="font-medium">{m.user_name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{m.user_email}</TableCell>
+                  <TableCell>
+                    <Select
+                      value={m.role}
+                      onValueChange={(v) => updateRoleMut.mutate({ memberId: m.id, role: v })}
+                    >
+                      <SelectTrigger className="w-[120px] h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles.map((r) => (
+                          <SelectItem key={r} value={r} className="text-xs capitalize">{r}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{fmtDate(m.created_at)}</TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeMut.mutate(m.id)}>
+                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Add Member Dialog */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Add Team Member</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>User *</Label>
+              <Select value={addUserId} onValueChange={setAddUserId}>
+                <SelectTrigger><SelectValue placeholder="Select user" /></SelectTrigger>
+                <SelectContent>
+                  {users.filter((u) => u.is_active && !existingUserIds.has(u.id)).map((u) => (
+                    <SelectItem key={u.id} value={String(u.id)}>{u.name} ({u.role_name})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select value={addRole} onValueChange={setAddRole}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {roles.map((r) => (
+                    <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+              <Button disabled={!addUserId || addMut.isPending} onClick={() => addMut.mutate()}>
+                {addMut.isPending ? 'Adding...' : 'Add'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Events Tab (HR Events linked to project)
+// ──────────────────────────────────────────
+
+function EventsTab({ projectId }: { projectId: number }) {
+  const queryClient = useQueryClient()
+  const [showLink, setShowLink] = useState(false)
+  const [eventSearch, setEventSearch] = useState('')
+  const [eventResults, setEventResults] = useState<HrEventSearchResult[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+
+  const { data } = useQuery({
+    queryKey: ['mkt-project-events', projectId],
+    queryFn: () => marketingApi.getProjectEvents(projectId),
+  })
+  const events = data?.events ?? []
+
+  const linkMut = useMutation({
+    mutationFn: (eventId: number) => marketingApi.linkEvent(projectId, eventId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-project-events', projectId] })
+      setShowLink(false)
+      setEventSearch('')
+      setEventResults([])
+    },
+  })
+
+  const unlinkMut = useMutation({
+    mutationFn: (eventId: number) => marketingApi.unlinkEvent(projectId, eventId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mkt-project-events', projectId] }),
+  })
+
+  async function searchEvents(q: string) {
+    setEventSearch(q)
+    if (q.length < 2) { setEventResults([]); return }
+    setIsSearching(true)
+    try {
+      const res = await marketingApi.searchHrEvents(q)
+      setEventResults(res?.events ?? [])
+    } catch { setEventResults([]) }
+    setIsSearching(false)
+  }
+
+  const linkedIds = new Set(events.map((e) => e.event_id))
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => { setShowLink(true); setEventSearch(''); setEventResults([]) }}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Link Event
+        </Button>
+      </div>
+
+      {events.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">No HR events linked.</div>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Event</TableHead>
+                <TableHead>Company</TableHead>
+                <TableHead>Start</TableHead>
+                <TableHead>End</TableHead>
+                <TableHead>Linked By</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {events.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell>
+                    <div>
+                      <div className="text-sm font-medium">{e.event_name}</div>
+                      {e.event_description && (
+                        <div className="text-xs text-muted-foreground truncate max-w-[250px]">{e.event_description}</div>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm">{e.event_company ?? '—'}</TableCell>
+                  <TableCell className="text-sm">{fmtDate(e.event_start_date)}</TableCell>
+                  <TableCell className="text-sm">{fmtDate(e.event_end_date)}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{e.linked_by_name}</TableCell>
+                  <TableCell>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => unlinkMut.mutate(e.event_id)}>
+                      <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+
+      {/* Link Event Dialog */}
+      <Dialog open={showLink} onOpenChange={setShowLink}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Link HR Event</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                placeholder="Search events by name, company..."
+                value={eventSearch}
+                onChange={(e) => searchEvents(e.target.value)}
+                autoFocus
+              />
+            </div>
+            {isSearching && <div className="text-center text-sm text-muted-foreground py-2">Searching...</div>}
+            {eventResults.length > 0 && (
+              <div className="rounded-md border max-h-64 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Event</TableHead>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Dates</TableHead>
+                      <TableHead className="w-10" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {eventResults.map((ev) => (
+                      <TableRow key={ev.id}>
+                        <TableCell>
+                          <div className="text-sm font-medium">{ev.name}</div>
+                          {ev.description && <div className="text-xs text-muted-foreground truncate max-w-[200px]">{ev.description}</div>}
+                        </TableCell>
+                        <TableCell className="text-sm">{ev.company ?? '—'}</TableCell>
+                        <TableCell className="text-sm">{fmtDate(ev.start_date)} — {fmtDate(ev.end_date)}</TableCell>
+                        <TableCell>
+                          {linkedIds.has(ev.id) ? (
+                            <Badge variant="secondary" className="text-xs">Linked</Badge>
+                          ) : (
+                            <Button size="sm" variant="outline" className="h-7"
+                              disabled={linkMut.isPending}
+                              onClick={() => linkMut.mutate(ev.id)}>
+                              Link
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+            {eventSearch.length >= 2 && !isSearching && eventResults.length === 0 && (
+              <div className="text-center text-sm text-muted-foreground py-4">No events found.</div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Activity Tab
+// ──────────────────────────────────────────
+
+function ActivityTab({ projectId }: { projectId: number }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['mkt-activity', projectId],
+    queryFn: () => marketingApi.getActivity(projectId, 100),
+  })
+  const items = data?.activity ?? []
+
+  if (isLoading) return <Skeleton className="h-32 w-full" />
+
+  return (
+    <div className="space-y-1">
+      {items.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">No activity yet.</div>
+      ) : (
+        <div className="space-y-0">
+          {items.map((a) => (
+            <div key={a.id} className="flex items-start gap-3 py-2.5 border-b last:border-0">
+              <div className="mt-0.5 h-2 w-2 rounded-full bg-primary shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{a.actor_name ?? 'System'}</span>
+                  <span className="text-sm text-muted-foreground">{a.action.replace('_', ' ')}</span>
+                </div>
+                {a.details && Object.keys(a.details).length > 0 && (
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {Object.entries(a.details).map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                  </div>
+                )}
+              </div>
+              <span className="text-xs text-muted-foreground shrink-0">{fmtDatetime(a.created_at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Files Tab
+// ──────────────────────────────────────────
+
+function FilesTab({ projectId }: { projectId: number }) {
+  const queryClient = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [fileName, setFileName] = useState('')
+  const [storageUri, setStorageUri] = useState('')
+  const [fileDesc, setFileDesc] = useState('')
+
+  const { data } = useQuery({
+    queryKey: ['mkt-files', projectId],
+    queryFn: () => marketingApi.getFiles(projectId),
+  })
+  const files = data?.files ?? []
+
+  const addMut = useMutation({
+    mutationFn: () => marketingApi.createFile(projectId, {
+      file_name: fileName,
+      storage_uri: storageUri,
+      description: fileDesc || undefined,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-files', projectId] })
+      setShowAdd(false)
+      setFileName('')
+      setStorageUri('')
+      setFileDesc('')
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (fileId: number) => marketingApi.deleteFile(fileId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mkt-files', projectId] }),
+  })
+
+  function fileIcon(name: string) {
+    const ext = name.split('.').pop()?.toLowerCase() ?? ''
+    if (['pdf'].includes(ext)) return 'PDF'
+    if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'IMG'
+    if (['doc', 'docx'].includes(ext)) return 'DOC'
+    if (['xls', 'xlsx'].includes(ext)) return 'XLS'
+    if (['ppt', 'pptx'].includes(ext)) return 'PPT'
+    return 'FILE'
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => setShowAdd(true)}>
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Add File
+        </Button>
+      </div>
+
+      {files.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">No files attached.</div>
+      ) : (
+        <div className="space-y-2">
+          {files.map((f) => (
+            <div key={f.id} className="flex items-center gap-3 rounded-lg border p-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
+                {fileIcon(f.file_name)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium truncate">{f.file_name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {f.uploaded_by_name ?? 'Unknown'} · {fmtDate(f.created_at)}
+                  {f.file_size ? ` · ${(f.file_size / 1024).toFixed(0)} KB` : ''}
+                </div>
+                {f.description && <div className="text-xs text-muted-foreground mt-0.5">{f.description}</div>}
+              </div>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteMut.mutate(f.id)}>
+                <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add File Dialog */}
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Add File</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>File Name *</Label>
+              <Input value={fileName} onChange={(e) => setFileName(e.target.value)} placeholder="campaign-brief.pdf" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Storage URI / URL *</Label>
+              <Input value={storageUri} onChange={(e) => setStorageUri(e.target.value)} placeholder="https://drive.google.com/..." />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Description</Label>
+              <Input value={fileDesc} onChange={(e) => setFileDesc(e.target.value)} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+              <Button disabled={!fileName || !storageUri || addMut.isPending} onClick={() => addMut.mutate()}>
+                {addMut.isPending ? 'Adding...' : 'Add'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// Comments Tab
+// ──────────────────────────────────────────
+
+function CommentsTab({ projectId }: { projectId: number }) {
+  const queryClient = useQueryClient()
+  const [newComment, setNewComment] = useState('')
+  const [isInternal, setIsInternal] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editContent, setEditContent] = useState('')
+
+  const { data } = useQuery({
+    queryKey: ['mkt-comments', projectId],
+    queryFn: () => marketingApi.getComments(projectId, true),
+  })
+  const comments = data?.comments ?? []
+
+  const addMut = useMutation({
+    mutationFn: () => marketingApi.createComment(projectId, { content: newComment, is_internal: isInternal }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-comments', projectId] })
+      setNewComment('')
+    },
+  })
+
+  const updateMut = useMutation({
+    mutationFn: () => marketingApi.updateComment(editingId!, { content: editContent }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-comments', projectId] })
+      setEditingId(null)
+    },
+  })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => marketingApi.deleteComment(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mkt-comments', projectId] }),
+  })
+
+  return (
+    <div className="space-y-4">
+      {/* New comment */}
+      <div className="space-y-2">
+        <Textarea
+          placeholder="Write a comment..."
+          value={newComment}
+          onChange={(e) => setNewComment(e.target.value)}
+          rows={3}
+        />
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={isInternal}
+              onChange={(e) => setIsInternal(e.target.checked)}
+              className="rounded"
+            />
+            Internal note
+          </label>
+          <Button
+            size="sm"
+            disabled={!newComment.trim() || addMut.isPending}
+            onClick={() => addMut.mutate()}
+          >
+            {addMut.isPending ? 'Posting...' : 'Post'}
+          </Button>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Comments list */}
+      {comments.length === 0 ? (
+        <div className="text-center py-8 text-muted-foreground">No comments yet.</div>
+      ) : (
+        <div className="space-y-4">
+          {comments.map((c) => (
+            <div key={c.id} className={cn('rounded-lg border p-3 space-y-2', c.is_internal && 'border-yellow-300 bg-yellow-50/50 dark:bg-yellow-900/10')}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{c.user_name}</span>
+                  <span className="text-xs text-muted-foreground">{fmtDatetime(c.created_at)}</span>
+                  {c.is_internal && <Badge variant="outline" className="text-xs text-yellow-600">Internal</Badge>}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={() => { setEditingId(c.id); setEditContent(c.content) }}
+                  >
+                    <Pencil className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => deleteMut.mutate(c.id)}>
+                    <Trash2 className="h-3 w-3 text-muted-foreground" />
+                  </Button>
+                </div>
+              </div>
+              {editingId === c.id ? (
+                <div className="space-y-2">
+                  <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={2} />
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                    <Button size="sm" disabled={!editContent.trim() || updateMut.isPending} onClick={() => updateMut.mutate()}>
+                      Save
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm whitespace-pre-wrap">{c.content}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

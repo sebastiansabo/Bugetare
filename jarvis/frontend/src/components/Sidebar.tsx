@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Bot, Calculator, Users, Landmark, FileText, Settings, LogOut, UserCircle, PanelLeftClose, PanelLeft, ChevronDown, ChevronRight, ClipboardCheck } from 'lucide-react'
+import { LayoutDashboard, Bot, Calculator, Users, Landmark, FileText, Settings, LogOut, UserCircle, PanelLeftClose, PanelLeft, ChevronDown, ChevronRight, ClipboardCheck, Megaphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 import { ThemeToggle } from './ThemeToggle'
@@ -36,6 +36,7 @@ const navItems: NavItem[] = [
   },
   { path: '/app/hr', label: 'HR', icon: Users, permission: 'can_access_hr' },
   { path: '/app/approvals', label: 'Approvals', icon: ClipboardCheck, badge: ApprovalBadge },
+  { path: '/app/marketing', label: 'Marketing', icon: Megaphone },
   { path: '/app/settings', label: 'Settings', icon: Settings, permission: 'can_access_settings' },
 ]
 

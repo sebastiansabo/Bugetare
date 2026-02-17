@@ -72,6 +72,29 @@ def _on_approved(payload):
         except Exception as e:
             logger.error(f'Failed to update invoice status on approval: {e}')
 
+    # Auto-update marketing project status to 'approved' + approve budget lines
+    if entity_type == 'mkt_project' and entity_id:
+        try:
+            from marketing.repositories import ProjectRepository, BudgetRepository, ActivityRepository
+            ProjectRepository().update_status(entity_id, 'approved')
+            from database import get_db, get_cursor, release_db
+            conn = get_db()
+            try:
+                cursor = get_cursor(conn)
+                cursor.execute('''
+                    UPDATE mkt_budget_lines
+                    SET approved_amount = planned_amount, status = 'approved', updated_at = NOW()
+                    WHERE project_id = %s AND status = 'draft'
+                ''', (entity_id,))
+                conn.commit()
+            finally:
+                release_db(conn)
+            ActivityRepository().log(entity_id, 'approval_decided', actor_type='system',
+                                     details={'decision': 'approved'})
+            logger.info(f'Marketing project #{entity_id} approved via approval hook')
+        except Exception as e:
+            logger.error(f'Failed to update mkt_project status on approval: {e}')
+
 
 def _on_rejected(payload):
     """Notify requester their request was rejected."""
@@ -91,6 +114,16 @@ def _on_rejected(payload):
             entity_id=entity_id,
             type='approval',
         )
+
+    # Revert marketing project to draft on rejection
+    if entity_type == 'mkt_project' and entity_id:
+        try:
+            from marketing.repositories import ProjectRepository, ActivityRepository
+            ProjectRepository().update_status(entity_id, 'draft')
+            ActivityRepository().log(entity_id, 'approval_decided', actor_type='system',
+                                     details={'decision': 'rejected'})
+        except Exception as e:
+            logger.error(f'Failed to revert mkt_project status on rejection: {e}')
 
 
 def _on_returned(payload):
