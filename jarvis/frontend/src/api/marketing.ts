@@ -19,6 +19,7 @@ import type {
   MktProjectEvent,
   HrEventSearchResult,
   InvoiceSearchResult,
+  SimBenchmark,
 } from '@/types/marketing'
 
 const BASE = '/marketing/api'
@@ -258,4 +259,9 @@ export const marketingApi = {
 
   generateBenchmarks: (defId: number) =>
     api.post<{ success: boolean; benchmarks: import('@/types/marketing').KpiBenchmarks }>(`${BASE}/kpi-definitions/${defId}/generate-benchmarks`),
+
+  // ---- Campaign Simulator ----
+
+  getSimBenchmarks: () =>
+    api.get<{ benchmarks: SimBenchmark[] }>(`${BASE}/simulator/benchmarks`),
 }

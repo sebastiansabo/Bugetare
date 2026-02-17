@@ -502,6 +502,40 @@ def init_db():
                     JOIN mkt_kpi_definitions kd ON kd.id = pk.kpi_definition_id
                     WHERE pk.id = kd_link.project_kpi_id AND kd.formula IS NOT NULL)
             ''')
+            # KPI show_on_overview flag
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'mkt_project_kpis' AND column_name = 'show_on_overview') THEN
+                        ALTER TABLE mkt_project_kpis ADD COLUMN show_on_overview BOOLEAN DEFAULT FALSE;
+                    END IF;
+                END $$;
+            ''')
+            # Campaign Simulator benchmarks table + seed
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS mkt_sim_benchmarks (
+                    id SERIAL PRIMARY KEY,
+                    channel_key TEXT NOT NULL,
+                    channel_label TEXT NOT NULL,
+                    funnel_stage TEXT NOT NULL,
+                    month_index INTEGER NOT NULL,
+                    cpc NUMERIC(10,4) NOT NULL,
+                    cvr_lead NUMERIC(8,6) NOT NULL,
+                    cvr_car NUMERIC(8,6) NOT NULL DEFAULT 0,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT mkt_sim_bench_stage CHECK (funnel_stage IN ('awareness','consideration','conversion')),
+                    CONSTRAINT mkt_sim_bench_month CHECK (month_index BETWEEN 1 AND 3),
+                    CONSTRAINT mkt_sim_bench_unique UNIQUE (channel_key, funnel_stage, month_index)
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_sim_bench_stage ON mkt_sim_benchmarks(funnel_stage)')
+            cursor.execute("SELECT COUNT(*) as cnt FROM mkt_sim_benchmarks")
+            if cursor.fetchone()['cnt'] == 0:
+                from migrations.init_schema import _seed_sim_benchmarks
+                _seed_sim_benchmarks(cursor)
             conn.commit()
             logger.info('Database schema already initialized — skipping init_db()')
             return

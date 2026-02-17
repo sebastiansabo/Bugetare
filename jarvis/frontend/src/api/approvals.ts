@@ -1,6 +1,7 @@
 import { api } from './client'
 import type {
   ApprovalRequest,
+  ApprovalDecision,
   ApprovalQueueItem,
   ApprovalRequestDetail,
   ApprovalFlow,
@@ -98,7 +99,7 @@ export const approvalsApi = {
     return api.get<{ audit: ApprovalAuditEntry[] }>(`/approvals/api/audit${q ? `?${q}` : ''}`)
   },
 
-  // Entity history
+  // Entity history (includes decisions per request)
   getEntityHistory: (entityType: string, entityId: number) =>
-    api.get<{ history: ApprovalRequest[] }>(`/approvals/api/entity/${entityType}/${entityId}/history`),
+    api.get<{ history: (ApprovalRequest & { decisions?: ApprovalDecision[] })[] }>(`/approvals/api/entity/${entityType}/${entityId}/history`),
 }

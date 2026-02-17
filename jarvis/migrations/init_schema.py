@@ -2326,6 +2326,7 @@ def create_schema(conn, cursor):
             status TEXT DEFAULT 'no_data',
             last_synced_at TIMESTAMP,
             notes TEXT,
+            show_on_overview BOOLEAN DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             CONSTRAINT mkt_kpi_status_check CHECK (status IN ('no_data','on_track','at_risk','behind','exceeded')),
@@ -2608,63 +2609,7 @@ def create_schema(conn, cursor):
     # Seed simulator benchmarks from exercitiu.xlsx Foaie2
     cursor.execute("SELECT COUNT(*) as cnt FROM mkt_sim_benchmarks")
     if cursor.fetchone()['cnt'] == 0:
-        cursor.execute('''
-            INSERT INTO mkt_sim_benchmarks (channel_key, channel_label, funnel_stage, month_index, cpc, cvr_lead, cvr_car) VALUES
-            -- Awareness channels (8 channels x 3 months)
-            ('youtube_skippable_aw', 'YouTube Skippable In-Stream', 'awareness', 1, 1.0000, 0.007500, 0.001500),
-            ('youtube_skippable_aw', 'YouTube Skippable In-Stream', 'awareness', 2, 1.0000, 0.005500, 0.001500),
-            ('youtube_skippable_aw', 'YouTube Skippable In-Stream', 'awareness', 3, 1.0000, 0.003500, 0.001500),
-            ('meta_reach', 'Meta Reach', 'awareness', 1, 0.3000, 0.004000, 0.001500),
-            ('meta_reach', 'Meta Reach', 'awareness', 2, 0.3000, 0.002000, 0.001500),
-            ('meta_reach', 'Meta Reach', 'awareness', 3, 0.3000, 0.002000, 0.001500),
-            ('meta_traffic_aw', 'Meta Traffic', 'awareness', 1, 0.0600, 0.002000, 0.000500),
-            ('meta_traffic_aw', 'Meta Traffic', 'awareness', 2, 0.0600, 0.001000, 0.000500),
-            ('meta_traffic_aw', 'Meta Traffic', 'awareness', 3, 0.0600, 0.001000, 0.000500),
-            ('meta_video_views', 'Meta Video Views', 'awareness', 1, 1.0000, 0.007500, 0.001000),
-            ('meta_video_views', 'Meta Video Views', 'awareness', 2, 1.0000, 0.005500, 0.001000),
-            ('meta_video_views', 'Meta Video Views', 'awareness', 3, 1.0000, 0.003500, 0.001000),
-            ('google_display', 'Google Display', 'awareness', 1, 0.6000, 0.003000, 0.000500),
-            ('google_display', 'Google Display', 'awareness', 2, 0.6000, 0.001500, 0.000500),
-            ('google_display', 'Google Display', 'awareness', 3, 0.6000, 0.001500, 0.000500),
-            ('google_search_aw', 'Google Search', 'awareness', 1, 0.0800, 0.003000, 0.000500),
-            ('google_search_aw', 'Google Search', 'awareness', 2, 0.0800, 0.001500, 0.000500),
-            ('google_search_aw', 'Google Search', 'awareness', 3, 0.0800, 0.001500, 0.000500),
-            ('programmatic_display', 'Programmatic Display', 'awareness', 1, 0.4000, 0.005000, 0.001000),
-            ('programmatic_display', 'Programmatic Display', 'awareness', 2, 0.4000, 0.002500, 0.001000),
-            ('programmatic_display', 'Programmatic Display', 'awareness', 3, 0.4000, 0.002500, 0.001000),
-            ('google_pmax_clicks', 'Google Pmax (clicks)', 'awareness', 1, 0.1000, 0.004000, 0.000500),
-            ('google_pmax_clicks', 'Google Pmax (clicks)', 'awareness', 2, 0.1000, 0.002000, 0.000500),
-            ('google_pmax_clicks', 'Google Pmax (clicks)', 'awareness', 3, 0.1000, 0.002000, 0.000500),
-            -- Consideration channels (6 channels x 3 months, no M1 budget by default)
-            ('youtube_skippable_co', 'YouTube Skippable In-Stream', 'consideration', 1, 1.0000, 0.008000, 0.001500),
-            ('youtube_skippable_co', 'YouTube Skippable In-Stream', 'consideration', 2, 1.0000, 0.007000, 0.001500),
-            ('youtube_skippable_co', 'YouTube Skippable In-Stream', 'consideration', 3, 1.0000, 0.007000, 0.001500),
-            ('youtube_bumper', 'YouTube Bumper', 'consideration', 1, 1.0000, 0.005500, 0.000500),
-            ('youtube_bumper', 'YouTube Bumper', 'consideration', 2, 1.0000, 0.006500, 0.000500),
-            ('youtube_bumper', 'YouTube Bumper', 'consideration', 3, 1.0000, 0.006500, 0.000500),
-            ('google_demand_gen', 'Google Demand Gen', 'consideration', 1, 0.2500, 0.003500, 0.000500),
-            ('google_demand_gen', 'Google Demand Gen', 'consideration', 2, 0.2500, 0.004500, 0.000500),
-            ('google_demand_gen', 'Google Demand Gen', 'consideration', 3, 0.2500, 0.004500, 0.000500),
-            ('meta_engagement', 'Meta Engagement', 'consideration', 1, 0.5000, 0.008000, 0.001500),
-            ('meta_engagement', 'Meta Engagement', 'consideration', 2, 0.5000, 0.010000, 0.001500),
-            ('meta_engagement', 'Meta Engagement', 'consideration', 3, 0.5000, 0.010000, 0.004000),
-            ('meta_traffic_co', 'Meta Traffic', 'consideration', 1, 0.0600, 0.005000, 0.000500),
-            ('meta_traffic_co', 'Meta Traffic', 'consideration', 2, 0.0600, 0.006500, 0.000500),
-            ('meta_traffic_co', 'Meta Traffic', 'consideration', 3, 0.0600, 0.006500, 0.000500),
-            ('special_activation', 'Special Activation', 'consideration', 1, 0.3000, 0.008000, 0.004000),
-            ('special_activation', 'Special Activation', 'consideration', 2, 0.3000, 0.012000, 0.004000),
-            ('special_activation', 'Special Activation', 'consideration', 3, 0.3000, 0.012000, 0.000000),
-            -- Conversion channels (3 channels x 3 months)
-            ('google_search_hi', 'Google Search High Intent', 'conversion', 1, 1.5000, 0.010000, 0.002500),
-            ('google_search_hi', 'Google Search High Intent', 'conversion', 2, 1.2000, 0.018000, 0.002500),
-            ('google_search_hi', 'Google Search High Intent', 'conversion', 3, 1.0000, 0.035000, 0.002500),
-            ('google_pmax_conv', 'Google Pmax (conversion)', 'conversion', 1, 0.4500, 0.018000, 0.001500),
-            ('google_pmax_conv', 'Google Pmax (conversion)', 'conversion', 2, 0.4500, 0.022000, 0.001500),
-            ('google_pmax_conv', 'Google Pmax (conversion)', 'conversion', 3, 0.4500, 0.026000, 0.001500),
-            ('meta_conversion', 'Meta Conversion', 'conversion', 1, 0.8000, 0.022000, 0.001500),
-            ('meta_conversion', 'Meta Conversion', 'conversion', 2, 0.8000, 0.025000, 0.001500),
-            ('meta_conversion', 'Meta Conversion', 'conversion', 3, 0.8000, 0.028000, 0.001500)
-        ''')
+        _seed_sim_benchmarks(cursor)
         conn.commit()
 
     # Seed default approval flow for marketing projects (context_approver)
@@ -2755,3 +2700,64 @@ def _seed_companies(cursor):
         VALUES (%s, %s, %s)
     '''
     cursor.executemany(query, companies_data)
+
+
+def _seed_sim_benchmarks(cursor):
+    """Seed campaign simulator benchmarks from exercitiu.xlsx Foaie2."""
+    cursor.execute('''
+        INSERT INTO mkt_sim_benchmarks (channel_key, channel_label, funnel_stage, month_index, cpc, cvr_lead, cvr_car) VALUES
+        -- Awareness (8 channels x 3 months)
+        ('youtube_skippable_aw', 'YouTube Skippable In-Stream', 'awareness', 1, 1.0000, 0.007500, 0.001500),
+        ('youtube_skippable_aw', 'YouTube Skippable In-Stream', 'awareness', 2, 1.0000, 0.005500, 0.001500),
+        ('youtube_skippable_aw', 'YouTube Skippable In-Stream', 'awareness', 3, 1.0000, 0.003500, 0.001500),
+        ('meta_reach', 'Meta Reach', 'awareness', 1, 0.3000, 0.004000, 0.001500),
+        ('meta_reach', 'Meta Reach', 'awareness', 2, 0.3000, 0.002000, 0.001500),
+        ('meta_reach', 'Meta Reach', 'awareness', 3, 0.3000, 0.002000, 0.001500),
+        ('meta_traffic_aw', 'Meta Traffic', 'awareness', 1, 0.0600, 0.002000, 0.000500),
+        ('meta_traffic_aw', 'Meta Traffic', 'awareness', 2, 0.0600, 0.001000, 0.000500),
+        ('meta_traffic_aw', 'Meta Traffic', 'awareness', 3, 0.0600, 0.001000, 0.000500),
+        ('meta_video_views', 'Meta Video Views', 'awareness', 1, 1.0000, 0.007500, 0.001000),
+        ('meta_video_views', 'Meta Video Views', 'awareness', 2, 1.0000, 0.005500, 0.001000),
+        ('meta_video_views', 'Meta Video Views', 'awareness', 3, 1.0000, 0.003500, 0.001000),
+        ('google_display', 'Google Display', 'awareness', 1, 0.6000, 0.003000, 0.000500),
+        ('google_display', 'Google Display', 'awareness', 2, 0.6000, 0.001500, 0.000500),
+        ('google_display', 'Google Display', 'awareness', 3, 0.6000, 0.001500, 0.000500),
+        ('google_search_aw', 'Google Search', 'awareness', 1, 0.0800, 0.003000, 0.000500),
+        ('google_search_aw', 'Google Search', 'awareness', 2, 0.0800, 0.001500, 0.000500),
+        ('google_search_aw', 'Google Search', 'awareness', 3, 0.0800, 0.001500, 0.000500),
+        ('programmatic_display', 'Programmatic Display', 'awareness', 1, 0.4000, 0.005000, 0.001000),
+        ('programmatic_display', 'Programmatic Display', 'awareness', 2, 0.4000, 0.002500, 0.001000),
+        ('programmatic_display', 'Programmatic Display', 'awareness', 3, 0.4000, 0.002500, 0.001000),
+        ('google_pmax_clicks', 'Google Pmax (clicks)', 'awareness', 1, 0.1000, 0.004000, 0.000500),
+        ('google_pmax_clicks', 'Google Pmax (clicks)', 'awareness', 2, 0.1000, 0.002000, 0.000500),
+        ('google_pmax_clicks', 'Google Pmax (clicks)', 'awareness', 3, 0.1000, 0.002000, 0.000500),
+        -- Consideration (6 channels x 3 months)
+        ('youtube_skippable_co', 'YouTube Skippable In-Stream', 'consideration', 1, 1.0000, 0.008000, 0.001500),
+        ('youtube_skippable_co', 'YouTube Skippable In-Stream', 'consideration', 2, 1.0000, 0.007000, 0.001500),
+        ('youtube_skippable_co', 'YouTube Skippable In-Stream', 'consideration', 3, 1.0000, 0.007000, 0.001500),
+        ('youtube_bumper', 'YouTube Bumper', 'consideration', 1, 1.0000, 0.005500, 0.000500),
+        ('youtube_bumper', 'YouTube Bumper', 'consideration', 2, 1.0000, 0.006500, 0.000500),
+        ('youtube_bumper', 'YouTube Bumper', 'consideration', 3, 1.0000, 0.006500, 0.000500),
+        ('google_demand_gen', 'Google Demand Gen', 'consideration', 1, 0.2500, 0.003500, 0.000500),
+        ('google_demand_gen', 'Google Demand Gen', 'consideration', 2, 0.2500, 0.004500, 0.000500),
+        ('google_demand_gen', 'Google Demand Gen', 'consideration', 3, 0.2500, 0.004500, 0.000500),
+        ('meta_engagement', 'Meta Engagement', 'consideration', 1, 0.5000, 0.008000, 0.001500),
+        ('meta_engagement', 'Meta Engagement', 'consideration', 2, 0.5000, 0.010000, 0.001500),
+        ('meta_engagement', 'Meta Engagement', 'consideration', 3, 0.5000, 0.010000, 0.004000),
+        ('meta_traffic_co', 'Meta Traffic', 'consideration', 1, 0.0600, 0.005000, 0.000500),
+        ('meta_traffic_co', 'Meta Traffic', 'consideration', 2, 0.0600, 0.006500, 0.000500),
+        ('meta_traffic_co', 'Meta Traffic', 'consideration', 3, 0.0600, 0.006500, 0.000500),
+        ('special_activation', 'Special Activation', 'consideration', 1, 0.3000, 0.008000, 0.004000),
+        ('special_activation', 'Special Activation', 'consideration', 2, 0.3000, 0.012000, 0.004000),
+        ('special_activation', 'Special Activation', 'consideration', 3, 0.3000, 0.012000, 0.000000),
+        -- Conversion (3 channels x 3 months)
+        ('google_search_hi', 'Google Search High Intent', 'conversion', 1, 1.5000, 0.010000, 0.002500),
+        ('google_search_hi', 'Google Search High Intent', 'conversion', 2, 1.2000, 0.018000, 0.002500),
+        ('google_search_hi', 'Google Search High Intent', 'conversion', 3, 1.0000, 0.035000, 0.002500),
+        ('google_pmax_conv', 'Google Pmax (conversion)', 'conversion', 1, 0.4500, 0.018000, 0.001500),
+        ('google_pmax_conv', 'Google Pmax (conversion)', 'conversion', 2, 0.4500, 0.022000, 0.001500),
+        ('google_pmax_conv', 'Google Pmax (conversion)', 'conversion', 3, 0.4500, 0.026000, 0.001500),
+        ('meta_conversion', 'Meta Conversion', 'conversion', 1, 0.8000, 0.022000, 0.001500),
+        ('meta_conversion', 'Meta Conversion', 'conversion', 2, 0.8000, 0.025000, 0.001500),
+        ('meta_conversion', 'Meta Conversion', 'conversion', 3, 0.8000, 0.028000, 0.001500)
+    ''')

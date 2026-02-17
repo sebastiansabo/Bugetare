@@ -16,8 +16,8 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import {
   ArrowLeft, Pencil, Play, Pause, CheckCircle, Send, Copy, Check, RefreshCw,
-  DollarSign, Target, Users, Clock, FileText, MessageSquare,
-  Plus, Trash2, BarChart3, CalendarDays, Link2, Search,
+  DollarSign, Target, Users, Clock, FileText, MessageSquare, ClipboardCheck,
+  Plus, Trash2, BarChart3, CalendarDays, Link2, Search, Eye,
   ChevronDown, ChevronRight, Upload, Sparkles,
 } from 'lucide-react'
 import { marketingApi } from '@/api/marketing'
@@ -26,6 +26,7 @@ import { rolesApi } from '@/api/roles'
 import { settingsApi } from '@/api/settings'
 import type { MktProject, MktBudgetLine, MktProjectKpi, HrEventSearchResult, InvoiceSearchResult, KpiBenchmarks } from '@/types/marketing'
 import type { UserDetail } from '@/types/users'
+import { approvalsApi } from '@/api/approvals'
 import { ApprovalWidget } from '@/components/shared/ApprovalWidget'
 import ProjectForm from './ProjectForm'
 
@@ -276,6 +277,12 @@ function OverviewTab({ project }: { project: MktProject }) {
   const [editingDesc, setEditingDesc] = useState(false)
   const [descDraft, setDescDraft] = useState(project.description ?? '')
 
+  const { data: kpisData } = useQuery({
+    queryKey: ['mkt-project-kpis', project.id],
+    queryFn: () => marketingApi.getProjectKpis(project.id),
+  })
+  const overviewKpis = (kpisData?.kpis ?? []).filter((k) => k.show_on_overview)
+
   const saveMut = useMutation({
     mutationFn: (desc: string) => marketingApi.updateProject(project.id, { description: desc }),
     onSuccess: () => {
@@ -283,6 +290,14 @@ function OverviewTab({ project }: { project: MktProject }) {
       setEditingDesc(false)
     },
   })
+
+  const kpiStatusColors: Record<string, string> = {
+    no_data: 'text-gray-500',
+    on_track: 'text-green-600',
+    at_risk: 'text-yellow-600',
+    behind: 'text-red-600',
+    exceeded: 'text-emerald-600',
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -312,6 +327,48 @@ function OverviewTab({ project }: { project: MktProject }) {
             />
           </div>
         </div>
+
+        {/* KPI Overview — only KPIs marked show_on_overview */}
+        {overviewKpis.length > 0 && (
+          <div className="rounded-lg border p-4 space-y-3">
+            <h3 className="font-semibold text-sm">Key Metrics</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {overviewKpis.map((k) => {
+                const target = Number(k.target_value) || 0
+                const current = Number(k.current_value) || 0
+                const isLowerBetter = k.direction === 'lower'
+                const pct = target
+                  ? Math.round(isLowerBetter ? (target / Math.max(current, 0.01)) * 100 : (current / target) * 100)
+                  : 0
+                return (
+                  <div key={k.id} className="rounded-lg border p-3 space-y-1">
+                    <div className="text-xs text-muted-foreground truncate">{k.kpi_name}</div>
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-bold tabular-nums">
+                        {current.toLocaleString('ro-RO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+                        {k.unit === 'percentage' ? '%' : k.unit === 'currency' ? ` ${k.currency || 'RON'}` : ''}
+                      </span>
+                      {target > 0 && (
+                        <span className="text-xs text-muted-foreground">/ {target.toLocaleString('ro-RO')}</span>
+                      )}
+                    </div>
+                    {target > 0 && (
+                      <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${pct >= 100 ? 'bg-green-500' : pct >= 70 ? 'bg-blue-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                          style={{ width: `${Math.min(pct, 100)}%` }}
+                        />
+                      </div>
+                    )}
+                    <div className={`text-[10px] font-medium ${kpiStatusColors[k.status] ?? ''}`}>
+                      {k.status.replace('_', ' ')}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Project Description — editable */}
         <div className="rounded-lg border p-4 space-y-3">
@@ -1211,6 +1268,12 @@ function KpisTab({ projectId }: { projectId: number }) {
     },
   })
 
+  const toggleOverviewMut = useMutation({
+    mutationFn: ({ kpiId, show }: { kpiId: number; show: boolean }) =>
+      marketingApi.updateProjectKpi(projectId, kpiId, { show_on_overview: show }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mkt-project-kpis', projectId] }),
+  })
+
   const benchmarkMut = useMutation({
     mutationFn: (defId: number) => marketingApi.generateBenchmarks(defId),
     onSuccess: () => {
@@ -1257,6 +1320,7 @@ function KpisTab({ projectId }: { projectId: number }) {
                 onLinkSources={() => setLinkSourcesKpiId(k.id)}
                 onSync={() => syncMut.mutate(k.id)}
                 isSyncing={syncMut.isPending}
+                onToggleOverview={() => toggleOverviewMut.mutate({ kpiId: k.id, show: !k.show_on_overview })}
               />
             )
           })}
@@ -1535,12 +1599,13 @@ function KpisTab({ projectId }: { projectId: number }) {
   )
 }
 
-function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkSources, onSync, isSyncing, formula, benchmarks }: {
+function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkSources, onSync, isSyncing, formula, benchmarks, onToggleOverview }: {
   kpi: MktProjectKpi; statusColors: Record<string, string>
   onRecord: () => void; onHistory: () => void; onDelete: () => void
   onLinkSources: () => void; onSync: () => void; isSyncing: boolean
   formula?: string | null
   benchmarks?: KpiBenchmarks | null
+  onToggleOverview: () => void
 }) {
   const { data: snapsData } = useQuery({
     queryKey: ['mkt-kpi-snapshots', k.id],
@@ -1688,6 +1753,15 @@ function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkSo
         )}
         <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onHistory} title="History">
           <BarChart3 className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn('text-xs h-7 px-2', k.show_on_overview && 'text-blue-600 dark:text-blue-400')}
+          onClick={onToggleOverview}
+          title={k.show_on_overview ? 'Hide from overview' : 'Show on overview'}
+        >
+          <Eye className="h-3.5 w-3.5" />
         </Button>
       </div>
     </div>
@@ -2257,6 +2331,55 @@ function CommentsTab({ projectId }: { projectId: number }) {
   })
   const comments = data?.comments ?? []
 
+  // Fetch approval history to show decision comments
+  const { data: approvalHistory } = useQuery({
+    queryKey: ['approval-entity-history', 'mkt_project', projectId],
+    queryFn: () => approvalsApi.getEntityHistory('mkt_project', projectId),
+  })
+
+  // Build unified timeline: project comments + approval decisions with comments
+  type TimelineItem =
+    | { kind: 'comment'; data: (typeof comments)[0] }
+    | { kind: 'decision'; data: { id: string; user_name: string; decision: string; comment: string; decided_at: string; step_name?: string } }
+
+  const timeline: TimelineItem[] = []
+  for (const c of comments) {
+    timeline.push({ kind: 'comment', data: c })
+  }
+  for (const req of approvalHistory?.history ?? []) {
+    for (const d of req.decisions ?? []) {
+      if (d.comment) {
+        timeline.push({
+          kind: 'decision',
+          data: {
+            id: `decision-${d.id}`,
+            user_name: d.decided_by?.name ?? 'Unknown',
+            decision: d.decision,
+            comment: d.comment,
+            decided_at: d.decided_at ?? '',
+            step_name: d.step_name ?? undefined,
+          },
+        })
+      }
+    }
+  }
+  timeline.sort((a, b) => {
+    const da = a.kind === 'comment' ? a.data.created_at : a.data.decided_at
+    const db = b.kind === 'comment' ? b.data.created_at : b.data.decided_at
+    return new Date(db).getTime() - new Date(da).getTime()
+  })
+
+  const decisionColors: Record<string, string> = {
+    approved: 'border-green-300 bg-green-50/50 dark:border-green-800 dark:bg-green-950/20',
+    rejected: 'border-red-300 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20',
+    returned: 'border-orange-300 bg-orange-50/50 dark:border-orange-800 dark:bg-orange-950/20',
+  }
+  const decisionBadgeColors: Record<string, string> = {
+    approved: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+    rejected: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+    returned: 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200',
+  }
+
   const addMut = useMutation({
     mutationFn: () => marketingApi.createComment(projectId, { content: newComment, is_internal: isInternal }),
     onSuccess: () => {
@@ -2310,48 +2433,68 @@ function CommentsTab({ projectId }: { projectId: number }) {
 
       <Separator />
 
-      {/* Comments list */}
-      {comments.length === 0 ? (
+      {/* Unified timeline */}
+      {timeline.length === 0 ? (
         <div className="text-center py-8 text-muted-foreground">No comments yet.</div>
       ) : (
         <div className="space-y-4">
-          {comments.map((c) => (
-            <div key={c.id} className={cn('rounded-lg border p-3 space-y-2', c.is_internal && 'border-yellow-300 bg-yellow-50/50 dark:bg-yellow-900/10')}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{c.user_name}</span>
-                  <span className="text-xs text-muted-foreground">{fmtDatetime(c.created_at)}</span>
-                  {c.is_internal && <Badge variant="outline" className="text-xs text-yellow-600">Internal</Badge>}
+          {timeline.map((item) => {
+            if (item.kind === 'decision') {
+              const d = item.data
+              return (
+                <div key={d.id} className={cn('rounded-lg border p-3 space-y-2', decisionColors[d.decision] ?? '')}>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ClipboardCheck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-medium">{d.user_name}</span>
+                    <Badge className={cn('text-[10px] h-5 px-1.5', decisionBadgeColors[d.decision] ?? '')}>
+                      {d.decision}
+                    </Badge>
+                    {d.step_name && <span className="text-xs text-muted-foreground">Step: {d.step_name}</span>}
+                    <span className="text-xs text-muted-foreground ml-auto">{fmtDatetime(d.decided_at)}</span>
+                  </div>
+                  <p className="text-sm whitespace-pre-wrap">{d.comment}</p>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => { setEditingId(c.id); setEditContent(c.content) }}
-                  >
-                    <Pencil className="h-3 w-3 text-muted-foreground" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => deleteMut.mutate(c.id)}>
-                    <Trash2 className="h-3 w-3 text-muted-foreground" />
-                  </Button>
-                </div>
-              </div>
-              {editingId === c.id ? (
-                <div className="space-y-2">
-                  <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={2} />
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
-                    <Button size="sm" disabled={!editContent.trim() || updateMut.isPending} onClick={() => updateMut.mutate()}>
-                      Save
+              )
+            }
+            const c = item.data
+            return (
+              <div key={c.id} className={cn('rounded-lg border p-3 space-y-2', c.is_internal && 'border-yellow-300 bg-yellow-50/50 dark:bg-yellow-900/10')}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{c.user_name}</span>
+                    <span className="text-xs text-muted-foreground">{fmtDatetime(c.created_at)}</span>
+                    {c.is_internal && <Badge variant="outline" className="text-xs text-yellow-600">Internal</Badge>}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => { setEditingId(c.id); setEditContent(c.content) }}
+                    >
+                      <Pencil className="h-3 w-3 text-muted-foreground" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => deleteMut.mutate(c.id)}>
+                      <Trash2 className="h-3 w-3 text-muted-foreground" />
                     </Button>
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm whitespace-pre-wrap">{c.content}</p>
-              )}
-            </div>
-          ))}
+                {editingId === c.id ? (
+                  <div className="space-y-2">
+                    <Textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} rows={2} />
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                      <Button size="sm" disabled={!editContent.trim() || updateMut.isPending} onClick={() => updateMut.mutate()}>
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm whitespace-pre-wrap">{c.content}</p>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

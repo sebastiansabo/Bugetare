@@ -467,9 +467,17 @@ def api_global_audit():
 @approvals_bp.route('/api/entity/<entity_type>/<int:entity_id>/history', methods=['GET'])
 @login_required
 def api_entity_history(entity_type, entity_id):
-    """Full approval history for an entity."""
+    """Full approval history for an entity, including decisions."""
+    from .repositories import DecisionRepository
+    decision_repo = DecisionRepository()
     history = _engine.get_history_for_entity(entity_type, entity_id)
-    return jsonify({'history': [_serialize_request(r) for r in history]})
+    result = []
+    for r in history:
+        item = _serialize_request(r)
+        decisions = decision_repo.get_decisions_for_request(r['id'])
+        item['decisions'] = [_serialize_decision(d) for d in decisions]
+        result.append(item)
+    return jsonify({'history': result})
 
 
 # ════════════════════════════════════════════

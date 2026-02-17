@@ -87,8 +87,8 @@ class KpiRepository:
             cursor.execute('''
                 INSERT INTO mkt_project_kpis
                     (project_id, kpi_definition_id, channel, target_value, weight,
-                     threshold_warning, threshold_critical, currency, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     threshold_warning, threshold_critical, currency, notes, show_on_overview)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 project_id, kpi_definition_id,
@@ -97,6 +97,7 @@ class KpiRepository:
                 kwargs.get('threshold_warning'), kwargs.get('threshold_critical'),
                 kwargs.get('currency', 'RON'),
                 kwargs.get('notes'),
+                kwargs.get('show_on_overview', False),
             ))
             kpi_id = cursor.fetchone()['id']
             conn.commit()
@@ -109,7 +110,8 @@ class KpiRepository:
 
     def update_project_kpi(self, kpi_id, **kwargs):
         allowed = {'target_value', 'current_value', 'weight', 'threshold_warning',
-                    'threshold_critical', 'status', 'notes', 'channel', 'currency'}
+                    'threshold_critical', 'status', 'notes', 'channel', 'currency',
+                    'show_on_overview'}
         conn = get_db()
         try:
             cursor = get_cursor(conn)

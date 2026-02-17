@@ -153,6 +153,7 @@ export interface MktProjectKpi {
   status: 'no_data' | 'on_track' | 'at_risk' | 'behind' | 'exceeded'
   last_synced_at: string | null
   notes: string | null
+  show_on_overview: boolean
   created_at: string
   updated_at: string | null
 }
@@ -314,4 +315,47 @@ export interface InvoiceSearchResult {
   currency: string
   status: string
   payment_status: string
+}
+
+// ── Campaign Simulator ──
+
+export interface SimBenchmark {
+  id: number
+  channel_key: string
+  channel_label: string
+  funnel_stage: 'awareness' | 'consideration' | 'conversion'
+  month_index: number
+  cpc: number
+  cvr_lead: number
+  cvr_car: number
+  is_active: boolean
+}
+
+export interface SimChannelResult {
+  channel_key: string
+  channel_label: string
+  funnel_stage: string
+  month_index: number
+  budget: number
+  cpc: number
+  clicks: number
+  cvr_lead: number
+  leads: number
+  cvr_car: number
+  cars: number
+}
+
+export interface SimStageTotal {
+  budget: number
+  clicks: number
+  leads: number
+}
+
+export interface SimTotals {
+  total_budget: number
+  total_clicks: number
+  total_leads: number
+  cost_per_lead: number
+  total_cars: number
+  cost_per_car: number
 }
