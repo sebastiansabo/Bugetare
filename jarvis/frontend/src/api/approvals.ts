@@ -35,8 +35,8 @@ export const approvalsApi = {
   resubmit: (requestId: number, context?: Record<string, unknown>) =>
     api.post<{ success: boolean; request: ApprovalRequest }>(`/approvals/api/requests/${requestId}/resubmit`, { context }),
 
-  escalate: (requestId: number, reason?: string) =>
-    api.post<{ success: boolean; request: ApprovalRequest }>(`/approvals/api/requests/${requestId}/escalate`, { reason }),
+  escalate: (requestId: number, data?: { reason?: string; escalate_to?: number }) =>
+    api.post<{ success: boolean; request: ApprovalRequest }>(`/approvals/api/requests/${requestId}/escalate`, data),
 
   // Queue
   getMyQueue: (entityType?: string) =>

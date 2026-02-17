@@ -9,8 +9,10 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { approvalsApi } from '@/api/approvals'
+import { usersApi } from '@/api/users'
 import { toast } from 'sonner'
 import type { ApprovalDecision, ApprovalAuditEntry, ApprovalStep } from '@/types/approvals'
+import type { UserDetail } from '@/types/users'
 
 interface RequestDetailProps {
   requestId: number
@@ -45,6 +47,8 @@ function formatDate(dateStr: string | null): string {
 
 export default function RequestDetail({ requestId, open, onClose }: RequestDetailProps) {
   const [comment, setComment] = useState('')
+  const [showEscalateUser, setShowEscalateUser] = useState(false)
+  const [escalateToUserId, setEscalateToUserId] = useState('')
   const queryClient = useQueryClient()
 
   const { data: detail, isLoading } = useQuery({
@@ -82,13 +86,31 @@ export default function RequestDetail({ requestId, open, onClose }: RequestDetai
     onError: () => toast.error('Failed to cancel request'),
   })
 
+  const { data: usersData } = useQuery({
+    queryKey: ['users-list'],
+    queryFn: () => usersApi.getUsers(),
+    enabled: showEscalateUser,
+  })
+  const users: UserDetail[] = (usersData as UserDetail[] | undefined) ?? []
+
   const escalateMutation = useMutation({
-    mutationFn: () => approvalsApi.escalate(requestId, comment || undefined),
+    mutationFn: (escalateTo?: number) =>
+      approvalsApi.escalate(requestId, {
+        reason: comment || 'manual',
+        escalate_to: escalateTo,
+      }),
     onSuccess: () => {
       toast.success('Request escalated')
+      setShowEscalateUser(false)
+      setEscalateToUserId('')
+      queryClient.invalidateQueries({ queryKey: ['approval-queue'] })
+      queryClient.invalidateQueries({ queryKey: ['approval-queue-count'] })
       queryClient.invalidateQueries({ queryKey: ['approval-request', requestId] })
     },
-    onError: () => toast.error('Failed to escalate'),
+    onError: (err: unknown) => {
+      const msg = (err as { data?: { error?: string } })?.data?.error || 'Failed to escalate'
+      toast.error(msg)
+    },
   })
 
   const isPending = detail?.status === 'pending'
@@ -314,7 +336,7 @@ export default function RequestDetail({ requestId, open, onClose }: RequestDetai
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => escalateMutation.mutate()}
+                      onClick={() => setShowEscalateUser(!showEscalateUser)}
                       disabled={escalateMutation.isPending}
                     >
                       <ArrowUpRight className="mr-1.5 h-4 w-4" />
@@ -329,6 +351,29 @@ export default function RequestDetail({ requestId, open, onClose }: RequestDetai
                       Cancel Request
                     </Button>
                   </div>
+
+                  {/* Escalation user picker */}
+                  {showEscalateUser && (
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/30 p-3">
+                      <select
+                        className="flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
+                        value={escalateToUserId}
+                        onChange={(e) => setEscalateToUserId(e.target.value)}
+                      >
+                        <option value="">Select user to escalate to...</option>
+                        {users.filter(u => u.is_active).map(u => (
+                          <option key={u.id} value={u.id}>{u.name} ({u.role_name})</option>
+                        ))}
+                      </select>
+                      <Button
+                        size="sm"
+                        onClick={() => escalateMutation.mutate(Number(escalateToUserId))}
+                        disabled={!escalateToUserId || escalateMutation.isPending}
+                      >
+                        Confirm
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </>
             )}

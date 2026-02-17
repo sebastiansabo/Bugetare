@@ -576,9 +576,9 @@ class TestEngineEscalate:
         engine.escalate(100, reason='timeout')
 
         engine._request_repo.update_status.assert_called_once_with(
-            100, 'escalated', current_step_id=11)
+            100, 'pending', current_step_id=11)
 
-    def test_escalate_no_path_logs(self):
+    def test_escalate_no_path_raises(self):
         engine = _make_engine()
         req = {'id': 100, 'entity_type': 'invoice', 'entity_id': 1,
                'status': 'pending', 'current_step_id': 10}
@@ -587,7 +587,9 @@ class TestEngineEscalate:
         engine._request_repo.get_by_id.return_value = req
         engine._flow_repo.get_step_by_id.return_value = step
 
-        engine.escalate(100, reason='timeout')
+        from core.approvals.engine import ApprovalError
+        with pytest.raises(ApprovalError, match='No escalation path'):
+            engine.escalate(100, reason='timeout')
 
         # Should log attempt but not change status
         engine._audit_repo.log.assert_called()

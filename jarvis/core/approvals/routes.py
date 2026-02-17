@@ -6,7 +6,7 @@ from flask_login import login_required, current_user
 
 from . import approvals_bp
 from .engine import (
-    ApprovalEngine, NoMatchingFlowError, AlreadyPendingError,
+    ApprovalEngine, ApprovalError, NoMatchingFlowError, AlreadyPendingError,
     NotAuthorizedError, AlreadyDecidedError, InvalidStateError,
 )
 from .repositories import FlowRepository, AuditRepository, DelegationRepository
@@ -170,11 +170,15 @@ def api_escalate(request_id):
     """Manual escalation."""
     data = request.get_json() or {}
     reason = data.get('reason', 'manual')
+    escalate_to = data.get('escalate_to')
 
     try:
-        result = _engine.escalate(request_id, reason=reason, actor_id=current_user.id)
+        result = _engine.escalate(
+            request_id, reason=reason, actor_id=current_user.id,
+            escalate_to_user_id=escalate_to,
+        )
         return jsonify({'success': True, 'request': _serialize_request(result)})
-    except InvalidStateError as e:
+    except (InvalidStateError, ApprovalError) as e:
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         logger.exception(f'Escalate failed: {e}')

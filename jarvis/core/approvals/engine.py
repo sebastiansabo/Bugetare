@@ -333,8 +333,15 @@ class ApprovalEngine:
             priority=old_req.get('priority', 'normal'),
         )
 
-    def escalate(self, request_id, reason='timeout', actor_id=None):
-        """Escalate current step."""
+    def escalate(self, request_id, reason='timeout', actor_id=None, escalate_to_user_id=None):
+        """Escalate current step.
+
+        Priority:
+        1. escalate_to_user_id — reassign current step to a specific user
+        2. step.escalation_step_id — advance to a pre-configured escalation step
+        3. step.escalation_user_id — reassign current step to pre-configured user
+        4. No path — log attempt only
+        """
         req = self._request_repo.get_by_id(request_id)
         if not req or req['status'] not in ('pending', 'in_progress'):
             raise InvalidStateError(f'Cannot escalate request {request_id}')
@@ -345,11 +352,41 @@ class ApprovalEngine:
 
         actor_type = 'user' if actor_id else 'scheduler'
 
+        # 1. Escalate to a specific user (manual, from UI)
+        target_user_id = escalate_to_user_id or step.get('escalation_user_id')
+        if target_user_id:
+            self._flow_repo.update_step(
+                step['id'],
+                approver_type='specific_user',
+                approver_user_id=target_user_id,
+            )
+            self._request_repo.update_status(request_id, 'pending')
+            self._audit_repo.log(request_id, 'escalated', actor_id,
+                                 actor_type=actor_type, details={
+                'reason': reason, 'step_name': step['name'],
+                'escalated_to_user_id': target_user_id,
+            })
+            hooks.fire('approval.escalated', {
+                'request_id': request_id,
+                'entity_type': req['entity_type'],
+                'entity_id': req['entity_id'],
+                'reason': reason,
+            })
+            # Notify the new approver
+            hooks.fire('approval.step_advanced', {
+                'request_id': request_id,
+                'entity_type': req['entity_type'],
+                'entity_id': req['entity_id'],
+                'step_name': step['name'],
+            })
+            return self._request_repo.get_by_id(request_id)
+
+        # 2. Escalate to a different step
         if step.get('escalation_step_id'):
             esc_step = self._flow_repo.get_step_by_id(step['escalation_step_id'])
             if esc_step:
                 self._request_repo.update_status(
-                    request_id, 'escalated',
+                    request_id, 'pending',
                     current_step_id=esc_step['id'],
                 )
                 self._audit_repo.log(request_id, 'escalated', actor_id,
@@ -365,13 +402,13 @@ class ApprovalEngine:
                 })
                 return self._request_repo.get_by_id(request_id)
 
-        # No escalation path — just log it
+        # 3. No escalation path — log attempt
         self._audit_repo.log(request_id, 'escalation_attempted', actor_id,
                              actor_type=actor_type, details={
             'reason': reason, 'step_name': step['name'],
             'note': 'No escalation path configured',
         })
-        return self._request_repo.get_by_id(request_id)
+        raise ApprovalError('No escalation path configured. Select a user to escalate to.')
 
     def get_pending_for_user(self, user_id, entity_type=None):
         """Get all requests pending this user's decision."""

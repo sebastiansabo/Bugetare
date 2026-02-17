@@ -175,7 +175,7 @@ class RequestRepository:
                 entity_filter = 'AND r.entity_type = %s'
                 params.append(entity_type)
             cursor.execute(f'''
-                SELECT DISTINCT r.*,
+                SELECT r.*,
                        f.name as flow_name,
                        s.name as current_step_name,
                        u.name as requested_by_name, u.email as requested_by_email,
