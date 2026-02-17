@@ -121,6 +121,9 @@ app.register_blueprint(connectors_bp)
 from core.approvals import approvals_bp
 app.register_blueprint(approvals_bp, url_prefix='/approvals')
 
+from marketing import marketing_bp
+app.register_blueprint(marketing_bp, url_prefix='/marketing')
+
 # Register approval notification hooks
 from core.approvals.handlers import register_approval_hooks
 register_approval_hooks()
@@ -131,7 +134,7 @@ app_logger.info(f'JARVIS startup complete — {len(app.url_map._rules)} routes r
 
 @app.errorhandler(404)
 def handle_404(e):
-    if request.path.startswith('/api/'):
+    if request.path.startswith('/api/') or request.method != 'GET':
         return jsonify({'success': False, 'error': 'Not found'}), 404
     return redirect('/app/dashboard')
 

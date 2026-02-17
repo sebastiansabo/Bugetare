@@ -312,7 +312,7 @@ function BonusListTable({
                 <TableCell className="text-right text-sm">{b.hours_free ?? '—'}</TableCell>
                 {canViewAmounts && (
                   <TableCell className="text-right text-sm font-medium">
-                    {b.bonus_net != null ? `${b.bonus_net.toFixed(0)} RON` : '—'}
+                    {b.bonus_net != null ? `${Number(b.bonus_net).toFixed(0)} RON` : '—'}
                   </TableCell>
                 )}
                 <TableCell className="text-xs text-muted-foreground max-w-[120px] truncate">{b.details ?? ''}</TableCell>
@@ -371,7 +371,7 @@ function ByEmployeeTable({ data, canViewAmounts }: { data: BonusSummaryByEmploye
                 <TableCell className="text-right text-sm">{row.total_hours}</TableCell>
                 {canViewAmounts && (
                   <TableCell className="text-right text-sm font-medium text-green-600">
-                    {row.total_bonus.toFixed(0)} RON
+                    {Number(row.total_bonus).toFixed(0)} RON
                   </TableCell>
                 )}
               </TableRow>
@@ -387,7 +387,7 @@ function ByEmployeeTable({ data, canViewAmounts }: { data: BonusSummaryByEmploye
               <TableCell className="text-right text-sm">{data.reduce((s, r) => s + r.total_hours, 0)}</TableCell>
               {canViewAmounts && (
                 <TableCell className="text-right text-sm text-green-600">
-                  {data.reduce((s, r) => s + r.total_bonus, 0).toFixed(0)} RON
+                  {data.reduce((s, r) => s + Number(r.total_bonus), 0).toFixed(0)} RON
                 </TableCell>
               )}
             </TableRow>
@@ -437,7 +437,7 @@ function ByEventTable({ data, canViewAmounts }: { data: BonusSummaryByEvent[]; c
                 <TableCell className="text-right text-sm">{row.total_hours}</TableCell>
                 {canViewAmounts && (
                   <TableCell className="text-right text-sm font-medium text-green-600">
-                    {row.total_bonus.toFixed(0)} RON
+                    {Number(row.total_bonus).toFixed(0)} RON
                   </TableCell>
                 )}
               </TableRow>
@@ -453,7 +453,7 @@ function ByEventTable({ data, canViewAmounts }: { data: BonusSummaryByEvent[]; c
               <TableCell className="text-right text-sm">{data.reduce((s, r) => s + r.total_hours, 0)}</TableCell>
               {canViewAmounts && (
                 <TableCell className="text-right text-sm text-green-600">
-                  {data.reduce((s, r) => s + r.total_bonus, 0).toFixed(0)} RON
+                  {data.reduce((s, r) => s + Number(r.total_bonus), 0).toFixed(0)} RON
                 </TableCell>
               )}
             </TableRow>
@@ -478,16 +478,31 @@ function BonusDialog({
   const queryClient = useQueryClient()
   const isEdit = !!bonus
 
+  const { data: bonusTypes = [] } = useQuery({
+    queryKey: ['hr-bonus-types-active'],
+    queryFn: () => hrApi.getBonusTypes(true),
+    enabled: open,
+  })
+
   const [employeeId, setEmployeeId] = useState('')
   const [eventId, setEventId] = useState('')
   const [year, setYear] = useState(String(new Date().getFullYear()))
   const [month, setMonth] = useState(String(new Date().getMonth() + 1))
   const [partStart, setPartStart] = useState('')
   const [partEnd, setPartEnd] = useState('')
+  const [bonusTypeId, setBonusTypeId] = useState('')
   const [bonusDays, setBonusDays] = useState('')
   const [hoursFree, setHoursFree] = useState('')
   const [bonusNet, setBonusNet] = useState('')
   const [details, setDetails] = useState('')
+
+  const recalcBonus = (typeId: string, days: string) => {
+    const type = bonusTypes.find((t) => String(t.id) === typeId)
+    const d = parseFloat(days) || 0
+    if (type && d > 0) {
+      setBonusNet(String(Math.round((type.amount / (type.days_per_amount ?? 1)) * d)))
+    }
+  }
 
   // Load values when bonus changes
   const resetForm = () => {
@@ -498,6 +513,7 @@ function BonusDialog({
       setMonth(String(bonus.month))
       setPartStart(bonus.participation_start ?? '')
       setPartEnd(bonus.participation_end ?? '')
+      setBonusTypeId((bonus as any).bonus_type_id != null ? String((bonus as any).bonus_type_id) : '')
       setBonusDays(bonus.bonus_days != null ? String(bonus.bonus_days) : '')
       setHoursFree(bonus.hours_free != null ? String(bonus.hours_free) : '')
       setBonusNet(bonus.bonus_net != null ? String(bonus.bonus_net) : '')
@@ -509,6 +525,7 @@ function BonusDialog({
       setMonth(String(new Date().getMonth() + 1))
       setPartStart('')
       setPartEnd('')
+      setBonusTypeId('')
       setBonusDays('')
       setHoursFree('')
       setBonusNet('')
@@ -540,7 +557,7 @@ function BonusDialog({
 
   const handleSave = () => {
     if (!employeeId || !eventId) return toast.error('Employee and event are required')
-    const data: Partial<EventBonus> = {
+    const data: Record<string, any> = {
       employee_id: Number(employeeId),
       event_id: Number(eventId),
       year: Number(year),
@@ -552,6 +569,7 @@ function BonusDialog({
       bonus_net: bonusNet ? Number(bonusNet) : null,
       details: details || null,
     }
+    if (bonusTypeId) data.bonus_type_id = Number(bonusTypeId)
     if (isEdit && bonus) {
       updateMutation.mutate({ id: bonus.id, data })
     } else {
@@ -627,10 +645,44 @@ function BonusDialog({
             </div>
           </div>
 
+          {bonusTypes.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">Bonus Type</Label>
+              <Select
+                value={bonusTypeId || '__none__'}
+                onValueChange={(v) => {
+                  const id = v === '__none__' ? '' : v
+                  setBonusTypeId(id)
+                  if (id) recalcBonus(id, bonusDays)
+                }}
+              >
+                <SelectTrigger><SelectValue placeholder="Select type..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Manual —</SelectItem>
+                  {bonusTypes.map((bt) => (
+                    <SelectItem key={bt.id} value={String(bt.id)}>
+                      {bt.name} ({bt.amount} RON{bt.days_per_amount && bt.days_per_amount > 1 ? ` / ${bt.days_per_amount} days` : '/day'})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs">Bonus Days</Label>
-              <Input type="number" step="0.5" min={0} max={31} value={bonusDays} onChange={(e) => setBonusDays(e.target.value)} />
+              <Input
+                type="number"
+                step="0.5"
+                min={0}
+                max={31}
+                value={bonusDays}
+                onChange={(e) => {
+                  setBonusDays(e.target.value)
+                  if (bonusTypeId) recalcBonus(bonusTypeId, e.target.value)
+                }}
+              />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Hours Free</Label>
