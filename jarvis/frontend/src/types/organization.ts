@@ -7,7 +7,7 @@ export interface Company {
 
 export interface CompanyWithBrands extends Company {
   brands: string
-  brands_list: { brand: string }[]
+  brands_list: { id: number; brand_id: number; brand: string }[]
 }
 
 export interface Brand {

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -9,6 +9,10 @@ import {
   Loader2,
   ArrowLeft,
   X,
+  ChevronDown,
+  ChevronRight,
+  Link2,
+  Lightbulb,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,7 +29,7 @@ import { organizationApi } from '@/api/organization'
 import { settingsApi } from '@/api/settings'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
-import type { ParseResult, SubmitInvoiceInput } from '@/types/invoices'
+import type { ParseResult, SubmitInvoiceInput, DeptSuggestion } from '@/types/invoices'
 import { type AllocationRow, newRow, AllocationRowComponent } from '../AllocationEditor'
 
 /* ──── Main Component ──── */
@@ -61,6 +65,14 @@ export default function AddInvoice() {
   const [valueRon, setValueRon] = useState<number | null>(null)
   const [valueEur, setValueEur] = useState<number | null>(null)
   const [exchangeRate, setExchangeRate] = useState<number | null>(null)
+
+  // AI6: Document Intelligence
+  const [lineItems, setLineItems] = useState<{ description: string; quantity: number; unit_price: number; amount: number; vat_rate?: number | null }[]>([])
+  const [invoiceType, setInvoiceType] = useState<string>('standard')
+  const [efacturaMatch, setEfacturaMatch] = useState<ParseResult['data'] extends undefined ? never : NonNullable<ParseResult['data']>['efactura_match']>(null)
+  const [lineItemsOpen, setLineItemsOpen] = useState(false)
+  const [deptSuggestions, setDeptSuggestions] = useState<DeptSuggestion[]>([])
+  const [parseResult, setParseResult] = useState<Record<string, unknown> | null>(null)
 
   // Queries
   const { data: companies = [] } = useQuery({
@@ -99,6 +111,18 @@ export default function AddInvoice() {
     queryKey: ['settings', 'dropdowns', 'payment_status'],
     queryFn: () => settingsApi.getDropdownOptions('payment_status'),
   })
+
+  // Fetch department suggestions when supplier changes
+  useEffect(() => {
+    if (!supplier.trim()) { setDeptSuggestions([]); return }
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await invoicesApi.suggestDepartment(supplier.trim())
+        setDeptSuggestions(res.suggestions ?? [])
+      } catch { setDeptSuggestions([]) }
+    }, 500)
+    return () => clearTimeout(timeout)
+  }, [supplier])
 
   // Computed
   const selectedVatRate = useMemo(
@@ -162,6 +186,11 @@ export default function AddInvoice() {
         if (d.value_eur != null) setValueEur(d.value_eur)
         if (d.exchange_rate != null) setExchangeRate(d.exchange_rate)
         if (d.auto_detected_template) setTemplateName(d.auto_detected_template)
+        if (d.line_items?.length) setLineItems(d.line_items)
+        else setLineItems([])
+        setInvoiceType(d.invoice_type || 'standard')
+        setEfacturaMatch(d.efactura_match ?? null)
+        setParseResult({ supplier: d.supplier, invoice_number: d.invoice_number, invoice_value: d.invoice_value, invoice_date: d.invoice_date })
 
         // Match customer VAT to company
         if (d.customer_vat) {
@@ -284,7 +313,7 @@ export default function AddInvoice() {
       // continue if check fails
     }
 
-    const data: SubmitInvoiceInput = {
+    const data: SubmitInvoiceInput & Record<string, unknown> = {
       supplier,
       invoice_template: templateName || undefined,
       invoice_number: invoiceNumber,
@@ -300,6 +329,10 @@ export default function AddInvoice() {
       value_ron: valueRon ?? undefined,
       value_eur: valueEur ?? undefined,
       exchange_rate: exchangeRate ?? undefined,
+      _line_items: lineItems.length > 0 ? lineItems : undefined,
+      _invoice_type: invoiceType !== 'standard' ? invoiceType : undefined,
+      _parse_result: parseResult ?? undefined,
+      _efactura_match_id: efacturaMatch?.id ?? undefined,
       distributions: rows.map((r) => ({
         company,
         brand: r.brand || undefined,
@@ -341,6 +374,10 @@ export default function AddInvoice() {
     setValueRon(null)
     setValueEur(null)
     setExchangeRate(null)
+    setLineItems([])
+    setInvoiceType('standard')
+    setEfacturaMatch(null)
+    setParseResult(null)
   }
 
   const hasParsedData = !!(supplier || invoiceNumber)
@@ -352,6 +389,18 @@ export default function AddInvoice() {
         description="Create a new invoice and distribute costs."
         actions={
           <div className="flex items-center gap-2">
+            {invoiceType !== 'standard' && (
+              <Badge
+                variant="secondary"
+                className={cn('gap-1',
+                  invoiceType === 'credit_note' && 'border-red-500/50 text-red-600 dark:text-red-400',
+                  invoiceType === 'advance_payment' && 'border-blue-500/50 text-blue-600 dark:text-blue-400',
+                  invoiceType === 'proforma' && 'border-muted-foreground/50 text-muted-foreground',
+                )}
+              >
+                {invoiceType === 'credit_note' ? 'Credit Note' : invoiceType === 'advance_payment' ? 'Advance' : 'Proforma'}
+              </Badge>
+            )}
             {templateName && (
               <Badge variant="secondary" className="gap-1">
                 <FileText className="h-3 w-3" />
@@ -473,6 +522,96 @@ export default function AddInvoice() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* e-Factura match banner */}
+      {efacturaMatch && !efacturaMatch.jarvis_invoice_id && (
+        <div className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 dark:border-blue-800 dark:bg-blue-950/30">
+          <Link2 className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+          <div className="flex-1 text-sm">
+            <span className="font-medium text-blue-700 dark:text-blue-300">e-Factura match found: </span>
+            <span className="text-blue-600 dark:text-blue-400">
+              {efacturaMatch.partner_name} — {efacturaMatch.invoice_number}
+              {efacturaMatch.total_amount != null && ` — ${new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2 }).format(efacturaMatch.total_amount)} ${efacturaMatch.currency || ''}`}
+            </span>
+          </div>
+          <Badge variant="outline" className="text-blue-600 border-blue-300 dark:text-blue-400 dark:border-blue-700">Will auto-link on save</Badge>
+        </div>
+      )}
+
+      {/* Line items */}
+      {lineItems.length > 0 && (
+        <Card>
+          <button
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors"
+            onClick={() => setLineItemsOpen(!lineItemsOpen)}
+          >
+            {lineItemsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            Line Items ({lineItems.length})
+          </button>
+          {lineItemsOpen && (
+            <CardContent className="pt-0 pb-3">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-xs text-muted-foreground">
+                      <th className="pb-1.5 text-left font-medium">Description</th>
+                      <th className="pb-1.5 text-right font-medium w-16">Qty</th>
+                      <th className="pb-1.5 text-right font-medium w-24">Unit Price</th>
+                      <th className="pb-1.5 text-right font-medium w-24">Amount</th>
+                      <th className="pb-1.5 text-right font-medium w-16">VAT %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lineItems.map((item, i) => (
+                      <tr key={i} className="border-b last:border-0">
+                        <td className="py-1.5 pr-2">{item.description}</td>
+                        <td className="py-1.5 text-right tabular-nums">{item.quantity}</td>
+                        <td className="py-1.5 text-right tabular-nums">{new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2 }).format(item.unit_price)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{new Intl.NumberFormat('ro-RO', { minimumFractionDigits: 2 }).format(item.amount)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{item.vat_rate != null ? `${item.vat_rate}%` : '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+      {/* Department suggestion */}
+      {deptSuggestions.length > 0 && !company && (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/30">
+          <Lightbulb className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex-1 text-sm">
+            <span className="font-medium text-amber-700 dark:text-amber-300">Suggested: </span>
+            <span className="text-amber-600 dark:text-amber-400">
+              {deptSuggestions[0].company} / {deptSuggestions[0].department}
+              {deptSuggestions[0].subdepartment ? ` / ${deptSuggestions[0].subdepartment}` : ''}
+              {' '}(used {deptSuggestions[0].frequency}×)
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs border-amber-300 dark:border-amber-700"
+            onClick={() => {
+              const s = deptSuggestions[0]
+              setCompany(s.company)
+              setRows([{
+                ...newRow(),
+                brand: s.brand || '',
+                department: s.department,
+                subdepartment: s.subdepartment || '',
+                percent: 100,
+                value: effectiveValue,
+              }])
+            }}
+          >
+            Apply
+          </Button>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         {/* LEFT: Invoice Details (single card) */}

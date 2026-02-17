@@ -79,8 +79,28 @@ export interface ParseResult {
     value_ron: number | null
     value_eur: number | null
     exchange_rate: number | null
+    invoice_type?: 'standard' | 'credit_note' | 'advance_payment' | 'proforma'
+    line_items?: { description: string; quantity: number; unit_price: number; amount: number; vat_rate?: number | null }[]
+    efactura_match?: {
+      id: number
+      partner_name: string
+      partner_cif: string | null
+      invoice_number: string
+      issue_date: string | null
+      total_amount: number | null
+      currency: string | null
+      jarvis_invoice_id: number | null
+    } | null
   }
   error?: string
+}
+
+export interface DeptSuggestion {
+  company: string
+  brand: string | null
+  department: string
+  subdepartment: string | null
+  frequency: number
 }
 
 export interface InvoiceTemplate {

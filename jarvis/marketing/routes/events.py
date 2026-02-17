@@ -79,11 +79,12 @@ def api_search_hr_events():
 @login_required
 @mkt_permission_required('budget', 'view')
 def api_search_invoices():
-    """Search invoices for linking to budget transactions."""
-    from accounting.invoices.repositories.invoice_repository import InvoiceRepository
-    repo = InvoiceRepository()
+    """Search invoices for linking to budget transactions.
 
-    q = request.args.get('q', '')
+    Uses pg_trgm trigram similarity for fuzzy matching plus ILIKE fallback.
+    Splits query into words — each word must match supplier or invoice_number.
+    """
+    q = request.args.get('q', '').strip()
     company = request.args.get('company')
     limit = min(int(request.args.get('limit', 20)), 50)
 
@@ -99,9 +100,15 @@ def api_search_invoices():
         '''
         params = []
         if q:
-            sql += ' AND (i.supplier ILIKE %s OR i.invoice_number ILIKE %s)'
-            like = f'%{q}%'
-            params.extend([like, like])
+            # Split into words — each word must match somewhere (supplier OR invoice_number)
+            words = q.split()
+            for word in words:
+                like = f'%{word}%'
+                sql += '''
+                    AND (i.supplier ILIKE %s OR i.invoice_number ILIKE %s
+                         OR word_similarity(%s, i.supplier) > 0.3)
+                '''
+                params.extend([like, like, word])
         if company:
             sql += '''
                 AND EXISTS (
@@ -109,8 +116,13 @@ def api_search_invoices():
                 )
             '''
             params.append(company)
-        sql += ' ORDER BY i.invoice_date DESC LIMIT %s'
-        params.append(limit)
+        # Order by relevance when searching, by date otherwise
+        if q:
+            sql += ' ORDER BY similarity(%s, i.supplier) DESC, i.invoice_date DESC LIMIT %s'
+            params.extend([q, limit])
+        else:
+            sql += ' ORDER BY i.invoice_date DESC LIMIT %s'
+            params.append(limit)
         cursor.execute(sql, params)
         invoices = [dict(r) for r in cursor.fetchall()]
         return jsonify({'invoices': invoices})

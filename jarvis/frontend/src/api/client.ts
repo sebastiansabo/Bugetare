@@ -37,7 +37,15 @@ async function request<T>(path: string, options: ApiOptions = {}): Promise<T> {
     throw new ApiError(401, null)
   }
 
-  const data = await response.json()
+  let data: unknown
+  try {
+    data = await response.json()
+  } catch {
+    if (!response.ok) {
+      throw new ApiError(response.status, { error: `Server error (${response.status})` })
+    }
+    throw new ApiError(response.status, { error: 'Invalid response from server' })
+  }
 
   if (!response.ok) {
     throw new ApiError(response.status, data)

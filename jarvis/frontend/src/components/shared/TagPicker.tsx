@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Tags, Search, Loader2 } from 'lucide-react'
+import { Tags, Search, Loader2, Wand2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -27,6 +28,8 @@ export function TagPicker({
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
+  const [suggestedIds, setSuggestedIds] = useState<Set<number>>(new Set())
+  const [isSuggesting, setIsSuggesting] = useState(false)
   const qc = useQueryClient()
 
   const { data: allTags = [] } = useQuery({
@@ -74,8 +77,19 @@ export function TagPicker({
     setBusy(null)
   }
 
+  const handleSuggest = async () => {
+    if (!entityId) return
+    setIsSuggesting(true)
+    try {
+      const res = await tagsApi.suggestTags(entityType, entityId)
+      const ids = new Set((res.suggestions ?? []).map((s) => s.id))
+      setSuggestedIds(ids)
+    } catch { setSuggestedIds(new Set()) }
+    setIsSuggesting(false)
+  }
+
   return (
-    <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) setSearch('') }}>
+    <Popover open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setSearch(''); setSuggestedIds(new Set()) } }}>
       <PopoverTrigger asChild>
         {children}
       </PopoverTrigger>
@@ -103,12 +117,13 @@ export function TagPicker({
                 {tags.map((tag) => {
                   const isActive = currentTagIds.has(tag.id)
                   const isBusy = busy === tag.id
+                  const isSuggested = suggestedIds.has(tag.id)
                   return (
                     <button
                       key={tag.id}
                       onClick={() => toggle(tag)}
                       disabled={isBusy}
-                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent/50 disabled:opacity-50"
+                      className={`flex w-full items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent/50 disabled:opacity-50${isSuggested ? ' bg-amber-50 dark:bg-amber-950/30' : ''}`}
                     >
                       {isBusy ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
@@ -120,6 +135,7 @@ export function TagPicker({
                         style={{ backgroundColor: tag.color ?? '#6c757d' }}
                       />
                       <span className="truncate">{tag.name}</span>
+                      {isSuggested && <span className="ml-auto text-[10px] text-amber-600 dark:text-amber-400">AI</span>}
                     </button>
                   )
                 })}
@@ -127,6 +143,20 @@ export function TagPicker({
             ))
           )}
         </div>
+        {entityId && (
+          <div className="border-t px-2 py-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 w-full justify-start gap-1.5 text-xs"
+              disabled={isSuggesting}
+              onClick={handleSuggest}
+            >
+              {isSuggesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />}
+              {isSuggesting ? 'Thinking...' : 'AI Suggest'}
+            </Button>
+          </div>
+        )}
       </PopoverContent>
     </Popover>
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ClipboardCheck, Clock, CheckCircle, XCircle, RotateCcw, Send, ChevronDown, ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { approvalsApi } from '@/api/approvals'
+import { usersApi } from '@/api/users'
 import { toast } from 'sonner'
 import type { ApprovalRequest } from '@/types/approvals'
 
@@ -15,6 +16,10 @@ interface ApprovalWidgetProps {
   context?: Record<string, unknown>
   className?: string
   compact?: boolean
+  /** Show a user picker for selecting the approver */
+  showApproverPicker?: boolean
+  /** Custom submit handler — overrides default approvalsApi.submit() */
+  onSubmit?: (opts: { approverId?: number; note?: string }) => Promise<unknown>
 }
 
 const STATUS_CONFIG: Record<string, { label: string; icon: React.ElementType; className: string }> = {
@@ -26,10 +31,11 @@ const STATUS_CONFIG: Record<string, { label: string; icon: React.ElementType; cl
   expired: { label: 'Expired', icon: Clock, className: 'text-red-600 dark:text-red-400' },
 }
 
-export function ApprovalWidget({ entityType, entityId, context, className, compact = false }: ApprovalWidgetProps) {
+export function ApprovalWidget({ entityType, entityId, context, className, compact = false, showApproverPicker = false, onSubmit }: ApprovalWidgetProps) {
   const queryClient = useQueryClient()
   const [showSubmit, setShowSubmit] = useState(false)
   const [note, setNote] = useState('')
+  const [approverId, setApproverId] = useState<number | undefined>()
   const [expanded, setExpanded] = useState(false)
 
   const { data: historyData, isLoading } = useQuery({
@@ -37,17 +43,37 @@ export function ApprovalWidget({ entityType, entityId, context, className, compa
     queryFn: () => approvalsApi.getEntityHistory(entityType, entityId),
   })
 
+  // Fetch users when approver picker is needed
+  const { data: users } = useQuery({
+    queryKey: ['users-list'],
+    queryFn: () => usersApi.getUsers(),
+    enabled: showApproverPicker && showSubmit,
+  })
+
+  // Reset approverId when form closes
+  useEffect(() => {
+    if (!showSubmit) { setApproverId(undefined); setNote('') }
+  }, [showSubmit])
+
   const submitMutation = useMutation({
-    mutationFn: () => approvalsApi.submit({
-      entity_type: entityType,
-      entity_id: entityId,
-      context,
-      note: note || undefined,
-    }),
+    mutationFn: async () => {
+      if (onSubmit) {
+        return onSubmit({ approverId, note: note || undefined })
+      }
+      const ctx = { ...context }
+      if (approverId) ctx.approver_user_id = approverId
+      return approvalsApi.submit({
+        entity_type: entityType,
+        entity_id: entityId,
+        context: ctx,
+        note: note || undefined,
+      })
+    },
     onSuccess: () => {
       toast.success('Submitted for approval')
       setShowSubmit(false)
       setNote('')
+      setApproverId(undefined)
       queryClient.invalidateQueries({ queryKey: ['approval-entity-history', entityType, entityId] })
       queryClient.invalidateQueries({ queryKey: ['approval-queue'] })
       queryClient.invalidateQueries({ queryKey: ['approval-queue-count'] })
@@ -84,6 +110,8 @@ export function ApprovalWidget({ entityType, entityId, context, className, compa
     )
   }
 
+  const canSubmit = !showApproverPicker || !!approverId
+
   return (
     <div className={cn('space-y-2', className)}>
       <div className="flex items-center justify-between">
@@ -107,6 +135,21 @@ export function ApprovalWidget({ entityType, entityId, context, className, compa
       {/* Submit form */}
       {showSubmit && (
         <div className="space-y-2 rounded-md border p-3">
+          {showApproverPicker && (
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Approver *</label>
+              <select
+                className="w-full rounded-md border bg-background px-3 py-1.5 text-sm"
+                value={approverId ?? ''}
+                onChange={(e) => setApproverId(e.target.value ? Number(e.target.value) : undefined)}
+              >
+                <option value="">Select approver...</option>
+                {(users ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                ))}
+              </select>
+            </div>
+          )}
           <Textarea
             placeholder="Add a note (optional)..."
             value={note}
@@ -118,7 +161,7 @@ export function ApprovalWidget({ entityType, entityId, context, className, compa
             <Button
               size="sm"
               onClick={() => submitMutation.mutate()}
-              disabled={submitMutation.isPending}
+              disabled={submitMutation.isPending || !canSubmit}
             >
               Submit
             </Button>

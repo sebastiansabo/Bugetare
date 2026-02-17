@@ -94,8 +94,35 @@ def submit_invoice():
             payment_status=data.get('payment_status', 'not_paid'),
             subtract_vat=data.get('subtract_vat', False),
             vat_rate=data.get('vat_rate'),
-            net_value=data.get('net_value')
+            net_value=data.get('net_value'),
+            line_items=data.get('_line_items'),
+            invoice_type=data.get('_invoice_type', 'standard')
         )
+
+        # Correction tracking: compare AI parse result vs submitted values
+        parse_result = data.get('_parse_result')
+        if parse_result and data.get('invoice_template'):
+            corrections = {}
+            if parse_result.get('supplier') and parse_result['supplier'] != data['supplier']:
+                corrections['supplier'] = {'parsed': parse_result['supplier'], 'submitted': data['supplier']}
+            if parse_result.get('invoice_number') and parse_result['invoice_number'] != data['invoice_number']:
+                corrections['invoice_number'] = {'parsed': parse_result['invoice_number'], 'submitted': data['invoice_number']}
+            if parse_result.get('invoice_value') and float(parse_result['invoice_value']) != float(data['invoice_value']):
+                corrections['invoice_value'] = {'parsed': parse_result['invoice_value'], 'submitted': data['invoice_value']}
+            if corrections:
+                _log_event('parse_correction',
+                           f'User corrected {len(corrections)} field(s) from template parse: {", ".join(corrections.keys())}',
+                           entity_type='invoice', entity_id=invoice_id,
+                           details={'corrections': corrections, 'template': data.get('invoice_template')})
+
+        # e-Factura auto-link
+        efactura_match_id = data.get('_efactura_match_id')
+        if efactura_match_id:
+            try:
+                from core.connectors.efactura.repositories.invoice_repo import EFacturaInvoiceRepository
+                EFacturaInvoiceRepository().mark_allocated(int(efactura_match_id), invoice_id)
+            except Exception:
+                pass
 
         # Send email notifications to responsables
         notifications_sent = 0
@@ -201,6 +228,40 @@ def api_parse_invoice():
             result['value_eur'] = None
             result['exchange_rate'] = None
 
+        # e-Factura cross-reference: check if a matching record exists
+        try:
+            if result.get('invoice_number'):
+                from database import get_db, get_cursor, release_db
+                conn = get_db()
+                try:
+                    cur = get_cursor(conn)
+                    supplier_vat = result.get('supplier_vat', '')
+                    supplier_name = result.get('supplier', '')
+                    cur.execute('''
+                        SELECT id, partner_name, partner_cif, invoice_number, issue_date,
+                               total_amount, currency, jarvis_invoice_id
+                        FROM efactura_invoices
+                        WHERE deleted_at IS NULL AND invoice_number = %s
+                          AND (partner_cif = %s OR LOWER(partner_name) = LOWER(%s))
+                        LIMIT 1
+                    ''', (result['invoice_number'], supplier_vat, supplier_name))
+                    match = cur.fetchone()
+                    if match:
+                        result['efactura_match'] = {
+                            'id': match['id'],
+                            'partner_name': match['partner_name'],
+                            'partner_cif': match['partner_cif'],
+                            'invoice_number': match['invoice_number'],
+                            'issue_date': str(match['issue_date']) if match['issue_date'] else None,
+                            'total_amount': float(match['total_amount']) if match['total_amount'] else None,
+                            'currency': match['currency'],
+                            'jarvis_invoice_id': match['jarvis_invoice_id'],
+                        }
+                finally:
+                    release_db(conn)
+        except Exception:
+            pass
+
         from database import refresh_connection_pool
         refresh_connection_pool()
         return jsonify({'success': True, 'data': result})
@@ -222,6 +283,46 @@ def api_parse_existing(filepath):
     try:
         result = parse_invoice(file_path)
         return jsonify({'success': True, 'data': result})
+    except Exception as e:
+        return safe_error_response(e)
+
+
+@invoices_bp.route('/api/suggest-department')
+@login_required
+def api_suggest_department():
+    """Suggest department based on historical allocations for the same supplier."""
+    supplier = request.args.get('supplier', '').strip()
+    if not supplier:
+        return jsonify({'suggestions': []})
+
+    try:
+        from database import get_db, get_cursor, release_db
+        conn = get_db()
+        try:
+            cur = get_cursor(conn)
+            cur.execute('''
+                SELECT a.company, a.brand, a.department, a.subdepartment, COUNT(*) as freq
+                FROM allocations a
+                JOIN invoices i ON a.invoice_id = i.id
+                WHERE LOWER(i.supplier) = LOWER(%s) AND i.deleted_at IS NULL
+                GROUP BY a.company, a.brand, a.department, a.subdepartment
+                ORDER BY freq DESC
+                LIMIT 5
+            ''', (supplier,))
+            rows = cur.fetchall()
+            suggestions = [
+                {
+                    'company': r['company'],
+                    'brand': r['brand'],
+                    'department': r['department'],
+                    'subdepartment': r['subdepartment'],
+                    'frequency': r['freq'],
+                }
+                for r in rows
+            ]
+            return jsonify({'suggestions': suggestions})
+        finally:
+            release_db(conn)
     except Exception as e:
         return safe_error_response(e)
 

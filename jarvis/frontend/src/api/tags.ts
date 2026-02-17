@@ -67,4 +67,11 @@ export const tagsApi = {
     api.post<{ success: boolean; matched: number; tagged: number }>(`/api/auto-tag-rules/${id}/run`, {}),
   getEntityFields: () =>
     api.get<Record<string, string[]>>('/api/auto-tag-rules/entity-fields'),
+
+  // AI tag suggestions
+  suggestTags: (entityType: string, entityId: number) =>
+    api.post<{ suggestions: { id: number; name: string; group_name: string; color: string }[] }>(
+      '/api/entity-tags/suggest',
+      { entity_type: entityType, entity_id: entityId },
+    ),
 }

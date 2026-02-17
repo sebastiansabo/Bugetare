@@ -523,6 +523,19 @@ class ApprovalEngine:
         if step.get('approver_user_id') == user_id:
             return True
 
+        # Context-driven approver (ad-hoc selection at submit time)
+        if step.get('approver_type') == 'context_approver':
+            ctx = request.get('context_snapshot') or {}
+            if isinstance(ctx, str):
+                import json
+                try:
+                    ctx = json.loads(ctx)
+                except (json.JSONDecodeError, TypeError):
+                    ctx = {}
+            approver_id = ctx.get('approver_user_id')
+            if approver_id is not None and int(approver_id) == user_id:
+                return True
+
         # Role-based
         if step.get('approver_role_name'):
             conn = get_db()

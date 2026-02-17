@@ -35,17 +35,18 @@ class InvoiceRepository:
              invoice_value, currency, drive_link, distributions,
              value_ron=None, value_eur=None, exchange_rate=None,
              comment=None, payment_status='not_paid',
-             subtract_vat=False, vat_rate=None, net_value=None):
+             subtract_vat=False, vat_rate=None, net_value=None,
+             line_items=None, invoice_type='standard'):
         """Save invoice and its allocations to database. Returns the invoice ID."""
         conn = get_db()
         cursor = get_cursor(conn)
 
         try:
             cursor.execute('''
-                INSERT INTO invoices (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate, comment, payment_status, subtract_vat, vat_rate, net_value)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO invoices (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate, comment, payment_status, subtract_vat, vat_rate, net_value, line_items, invoice_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            ''', (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate, comment, payment_status, subtract_vat, vat_rate, net_value))
+            ''', (supplier, invoice_template, invoice_number, invoice_date, invoice_value, currency, drive_link, value_ron, value_eur, exchange_rate, comment, payment_status, subtract_vat, vat_rate, net_value, json.dumps(line_items) if line_items else None, invoice_type or 'standard'))
             invoice_id = cursor.fetchone()['id']
 
             # Insert allocations
@@ -416,7 +417,8 @@ class InvoiceRepository:
                 GROUP BY pi.id, pi.supplier, pi.invoice_template, pi.invoice_number, pi.invoice_date,
                          pi.invoice_value, pi.currency, pi.value_ron, pi.value_eur, pi.exchange_rate,
                          pi.drive_link, pi.comment, pi.status, pi.payment_status, pi.deleted_at,
-                         pi.created_at, pi.updated_at, pi.subtract_vat, pi.vat_rate, pi.net_value
+                         pi.created_at, pi.updated_at, pi.subtract_vat, pi.vat_rate, pi.net_value,
+                         pi.line_items, pi.invoice_type
                 ORDER BY pi.created_at DESC
                 '''
 

@@ -584,14 +584,14 @@ function BudgetTab({ projectId, currency }: { projectId: number; currency: strin
 
       {/* Link Invoice Dialog */}
       <Dialog open={!!linkLineId} onOpenChange={(open) => { if (!open) setLinkLineId(null) }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Link Invoices to Budget Line</DialogTitle>
             {linkedInvoiceIds.size > 0 && (
               <p className="text-sm text-muted-foreground">{linkedInvoiceIds.size} invoice{linkedInvoiceIds.size > 1 ? 's' : ''} linked</p>
             )}
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -602,33 +602,33 @@ function BudgetTab({ projectId, currency }: { projectId: number; currency: strin
                 autoFocus
               />
             </div>
-            {isSearching && <div className="text-center text-sm text-muted-foreground py-2">Searching...</div>}
+            {isSearching && <div className="text-center text-xs text-muted-foreground py-2">Searching...</div>}
             {invoiceResults.length > 0 && (
-              <div className="rounded-md border max-h-64 overflow-y-auto">
+              <div className="rounded-md border max-h-72 overflow-y-auto">
                 <Table>
-                  <TableHeader>
+                  <TableHeader className="sticky top-0 bg-background z-10">
                     <TableRow>
-                      <TableHead>Supplier</TableHead>
-                      <TableHead>Number</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Value</TableHead>
-                      <TableHead className="w-10" />
+                      <TableHead className="text-xs">Supplier</TableHead>
+                      <TableHead className="text-xs">Invoice Number</TableHead>
+                      <TableHead className="text-xs w-24">Date</TableHead>
+                      <TableHead className="text-xs text-right w-28">Value</TableHead>
+                      <TableHead className="w-16" />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {invoiceResults.map((inv) => {
                       const alreadyLinked = linkedInvoiceIds.has(inv.id)
                       return (
-                        <TableRow key={inv.id} className={alreadyLinked ? 'opacity-60' : ''}>
-                          <TableCell className="text-sm">{inv.supplier}</TableCell>
-                          <TableCell className="text-sm font-mono">{inv.invoice_number}</TableCell>
-                          <TableCell className="text-sm">{fmtDate(inv.invoice_date)}</TableCell>
-                          <TableCell className="text-right text-sm tabular-nums">{fmt(inv.invoice_value, inv.currency)}</TableCell>
-                          <TableCell>
+                        <TableRow key={inv.id} className={alreadyLinked ? 'opacity-50' : ''}>
+                          <TableCell className="text-xs max-w-[200px] truncate">{inv.supplier}</TableCell>
+                          <TableCell className="text-xs font-mono">{inv.invoice_number}</TableCell>
+                          <TableCell className="text-xs">{fmtDate(inv.invoice_date)}</TableCell>
+                          <TableCell className="text-right text-xs tabular-nums">{fmt(inv.invoice_value, inv.currency)}</TableCell>
+                          <TableCell className="text-right">
                             {alreadyLinked ? (
-                              <Check className="h-4 w-4 text-green-500 mx-auto" />
+                              <Check className="h-4 w-4 text-green-500 ml-auto" />
                             ) : (
-                              <Button size="sm" variant="outline" className="h-7"
+                              <Button size="sm" variant="outline" className="h-6 text-xs px-2"
                                 disabled={linkInvoiceMut.isPending}
                                 onClick={() => linkInvoiceMut.mutate(inv)}>
                                 Link
@@ -643,11 +643,11 @@ function BudgetTab({ projectId, currency }: { projectId: number; currency: strin
               </div>
             )}
             {invoiceSearch.length >= 2 && !isSearching && invoiceResults.length === 0 && (
-              <div className="text-center text-sm text-muted-foreground py-4">No invoices found.</div>
+              <div className="text-center text-xs text-muted-foreground py-4">No invoices found.</div>
             )}
           </div>
           <div className="flex justify-end">
-            <Button variant="outline" onClick={() => setLinkLineId(null)}>Done</Button>
+            <Button variant="outline" size="sm" onClick={() => setLinkLineId(null)}>Done</Button>
           </div>
         </DialogContent>
       </Dialog>

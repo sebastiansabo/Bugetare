@@ -69,6 +69,16 @@ def cleanup_old_notifications():
         logger.error(f"Notification cleanup task failed: {e}")
 
 
+def run_smart_notifications():
+    """Run smart notification checks (KPI thresholds, budget utilization, invoice anomalies, e-Factura backlog)."""
+    try:
+        from core.notifications.smart_service import SmartNotificationService
+        svc = SmartNotificationService()
+        svc.run_all_checks()
+    except Exception as e:
+        logger.error(f"Smart notification task failed: {e}")
+
+
 def _acquire_scheduler_lock():
     """Try to acquire an exclusive file lock. Returns True if this process won."""
     global _lock_file
@@ -136,6 +146,16 @@ def start_scheduler():
         hour=1,
         minute=0,
         id='cleanup_old_notifications',
+        replace_existing=True,
+        misfire_grace_time=300,
+        coalesce=True,
+    )
+
+    scheduler.add_job(
+        run_smart_notifications,
+        'interval',
+        hours=4,
+        id='smart_notifications',
         replace_existing=True,
         misfire_grace_time=300,
         coalesce=True,

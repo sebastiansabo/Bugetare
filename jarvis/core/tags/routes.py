@@ -14,7 +14,7 @@ _tag_repo = TagRepository()
 _auto_tag_repo = AutoTagRepository()
 _auto_tag_service = AutoTagService()
 
-VALID_ENTITY_TYPES = {'invoice', 'efactura_invoice', 'transaction', 'employee', 'event', 'event_bonus'}
+VALID_ENTITY_TYPES = {'invoice', 'efactura_invoice', 'transaction', 'employee', 'event', 'event_bonus', 'mkt_project'}
 
 
 # ============== TAG GROUP ENDPOINTS ==============
@@ -312,3 +312,92 @@ def api_run_auto_tag_rule(rule_id):
 @login_required
 def api_get_entity_fields():
     return jsonify(ENTITY_FIELDS)
+
+
+# ============== AI TAG SUGGESTIONS ==============
+
+@tags_bp.route('/api/entity-tags/suggest', methods=['POST'])
+@login_required
+def api_suggest_tags():
+    """Use AI to suggest tags for an entity based on its data."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'success': False, 'error': 'Missing JSON body'}), 400
+
+    entity_type = data.get('entity_type', '')
+    entity_id = data.get('entity_id')
+    if entity_type not in VALID_ENTITY_TYPES or not entity_id:
+        return jsonify({'success': False, 'error': 'Invalid entity_type or entity_id'}), 400
+
+    try:
+        # Fetch entity data
+        entity_data = _auto_tag_service._fetch_entity(entity_type, int(entity_id))
+        if not entity_data:
+            return jsonify({'success': False, 'error': 'Entity not found'}), 404
+
+        # Get available tags (global + user's private)
+        tags = _tag_repo.get_tags(user_id=current_user.id, active_only=True)
+        if not tags:
+            return jsonify({'suggestions': []})
+
+        # Get already-applied tags
+        existing = _tag_repo.get_entity_tags(entity_type, int(entity_id), current_user.id)
+        existing_ids = {t['id'] for t in existing}
+
+        # Build concise entity summary
+        relevant_fields = ENTITY_FIELDS.get(entity_type, [])
+        entity_summary = ', '.join(
+            f'{k}: {v}' for k, v in entity_data.items()
+            if k in relevant_fields and v is not None and str(v).strip()
+        )
+
+        # Build tag list (only tags not already applied)
+        available = [t for t in tags if t['id'] not in existing_ids]
+        if not available:
+            return jsonify({'suggestions': []})
+
+        tag_list = '\n'.join(f'- ID:{t["id"]} "{t["name"]}" (group: {t["group_name"]})' for t in available)
+
+        prompt = f"""Given this {entity_type.replace('_', ' ')} record:
+{entity_summary}
+
+Available tags:
+{tag_list}
+
+Return a JSON array of tag IDs that best match this record, ordered by relevance. Only include tags that clearly apply. Return at most 5.
+Example: [12, 5, 23]
+Return ONLY the JSON array, no other text."""
+
+        # Call LLM
+        import json as json_module
+        from ai_agent.services.ai_agent_service import AIAgentService
+        svc = AIAgentService()
+
+        response = svc.provider.generate(prompt, system_prompt='You are a tag classification assistant. Return ONLY a JSON array of tag IDs.')
+
+        # Parse response
+        text = response.content.strip()
+        if '```' in text:
+            text = text.split('```')[1].split('```')[0]
+            if text.startswith('json'):
+                text = text[4:]
+        suggested_ids = json_module.loads(text)
+        if not isinstance(suggested_ids, list):
+            suggested_ids = []
+
+        # Map IDs back to tag info
+        tag_map = {t['id']: t for t in available}
+        suggestions = []
+        for tid in suggested_ids:
+            if isinstance(tid, int) and tid in tag_map:
+                t = tag_map[tid]
+                suggestions.append({
+                    'id': t['id'],
+                    'name': t['name'],
+                    'group_name': t['group_name'],
+                    'color': t['color'] or t['group_color'],
+                })
+
+        return jsonify({'suggestions': suggestions})
+    except Exception as e:
+        return safe_error_response(e)

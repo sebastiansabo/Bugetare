@@ -145,7 +145,9 @@ def parse_invoice(file_path: str, api_key: Optional[str] = None) -> dict:
     "invoice_value": 123.45,
     "currency": "RON/EUR/USD etc",
     "description": "Brief description of what the invoice is for",
-    "raw_text": "Key text extracted from the invoice"
+    "raw_text": "Key text extracted from the invoice",
+    "invoice_type": "standard",
+    "line_items": []
 }
 
 CRITICAL - EXAMINE ALL PAGES CAREFULLY:
@@ -171,12 +173,25 @@ Other important notes:
 - supplier_vat is the VAT/CUI/Tax ID of the supplier (seller)
 - If you can't find a field, use null
 - For invoice_number, include any series/prefix (look for "Factura nr." or similar)
+
+INVOICE TYPE (invoice_type):
+- "credit_note" if the document is a credit note / nota de credit / storno
+- "advance_payment" if the document is an advance invoice / factura de avans / avans
+- "proforma" if the document is a proforma invoice / factura proforma
+- "standard" for all other regular invoices (default)
+
+LINE ITEMS (line_items):
+- Extract individual items from the invoice table/body as an array of objects
+- Each object: {"description": "Item text", "quantity": 1.0, "unit_price": 100.00, "amount": 100.00, "vat_rate": 19}
+- quantity, unit_price, amount should be numbers (not strings)
+- vat_rate should be the percentage (e.g., 19 for 19%), or null if not shown
+- If no itemized table is found, return an empty array []
 - Return ONLY the JSON, no other text"""
     })
 
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=1024,
+        max_tokens=2048,
         messages=[
             {"role": "user", "content": content}
         ]

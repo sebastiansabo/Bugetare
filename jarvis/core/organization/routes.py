@@ -135,7 +135,7 @@ def api_match_vat(vat):
 @login_required
 def api_get_companies_config():
     """Get all companies for configuration."""
-    return jsonify(_company_repo.get_all())
+    return jsonify(_company_repo.get_all_with_vat_and_brands())
 
 
 @org_bp.route('/api/companies-config', methods=['POST'])

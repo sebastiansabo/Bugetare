@@ -145,7 +145,7 @@ def handle_405(e):
 @app.errorhandler(500)
 def handle_500(e):
     app_logger.exception('Unhandled 500 error')
-    if request.path.startswith('/api/'):
+    if '/api/' in request.path:
         return jsonify({'success': False, 'error': 'An internal error occurred'}), 500
     return redirect('/app/dashboard')
 
@@ -158,6 +158,23 @@ if not os.environ.get('TESTING'):
     except Exception as e:
         app_logger.warning(f'Failed to start background scheduler: {e}')
 
+
+# ============== Request Timing ==============
+
+import time as _time
+
+@app.before_request
+def _start_timer():
+    request._start_time = _time.time()
+
+@app.after_request
+def _log_slow_requests(response):
+    start = getattr(request, '_start_time', None)
+    if start and request.path.startswith('/api/'):
+        elapsed = _time.time() - start
+        if elapsed > 1.0:
+            app_logger.warning(f'Slow request: {request.method} {request.path} — {elapsed:.2f}s (status={response.status_code})')
+    return response
 
 # ============== After-Request Hook ==============
 
@@ -441,6 +458,13 @@ def health_check():
         checks['database'] = False
         app_logger.error(f'Health check - database failed: {e}')
 
+    # Scheduler status (non-critical)
+    try:
+        from tasks.cleanup import scheduler
+        checks['scheduler'] = scheduler.running
+    except Exception:
+        checks['scheduler'] = False
+
     status = 'healthy' if checks.get('database') else 'unhealthy'
     http_code = 200 if status == 'healthy' else 503
 
@@ -448,7 +472,7 @@ def health_check():
         'status': status,
         'checks': checks,
         'service': 'jarvis',
-        'version': '2026-02-13'
+        'version': '2026-02-17'
     }), http_code
 
 

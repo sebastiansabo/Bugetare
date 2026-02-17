@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Invoice, InvoiceSummary, InvoiceFilters, SubmitInvoiceInput, InvoiceTemplate } from '@/types/invoices'
+import type { Invoice, InvoiceSummary, InvoiceFilters, SubmitInvoiceInput, InvoiceTemplate, DeptSuggestion } from '@/types/invoices'
 
 function buildQueryString(filters: InvoiceFilters & { limit?: number; offset?: number; include_allocations?: boolean }): string {
   const params = new URLSearchParams()
@@ -53,6 +53,10 @@ export const invoicesApi = {
   },
   listInvoiceFiles: () => api.get<string[]>('/api/invoices'),
   getTemplates: () => api.get<InvoiceTemplate[]>('/api/templates'),
+
+  // Department suggestion
+  suggestDepartment: (supplier: string) =>
+    api.get<{ suggestions: DeptSuggestion[] }>(`/api/suggest-department?supplier=${encodeURIComponent(supplier)}`),
 
   // Search
   searchInvoices: (query: string, limit = 20) =>

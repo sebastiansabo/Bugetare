@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, Send } from 'lucide-react'
+import { Save, Send, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -27,6 +27,15 @@ export default function NotificationsTab() {
     from_name: '',
     notify_on_allocation: false,
     global_cc: '',
+    // Smart alerts
+    smart_alerts_enabled: true,
+    smart_kpi_alerts_enabled: true,
+    smart_budget_alerts_enabled: true,
+    smart_invoice_anomaly_enabled: true,
+    smart_efactura_backlog_enabled: true,
+    smart_efactura_backlog_threshold: '50',
+    smart_alert_cooldown_hours: '24',
+    smart_invoice_anomaly_sigma: '2',
   })
 
   const [testEmail, setTestEmail] = useState('')
@@ -43,6 +52,14 @@ export default function NotificationsTab() {
         from_name: settings.from_name || '',
         notify_on_allocation: String(settings.notify_on_allocation) === 'true',
         global_cc: settings.global_cc || '',
+        smart_alerts_enabled: String(settings.smart_alerts_enabled ?? 'true') === 'true',
+        smart_kpi_alerts_enabled: String(settings.smart_kpi_alerts_enabled ?? 'true') === 'true',
+        smart_budget_alerts_enabled: String(settings.smart_budget_alerts_enabled ?? 'true') === 'true',
+        smart_invoice_anomaly_enabled: String(settings.smart_invoice_anomaly_enabled ?? 'true') === 'true',
+        smart_efactura_backlog_enabled: String(settings.smart_efactura_backlog_enabled ?? 'true') === 'true',
+        smart_efactura_backlog_threshold: settings.smart_efactura_backlog_threshold || '50',
+        smart_alert_cooldown_hours: settings.smart_alert_cooldown_hours || '24',
+        smart_invoice_anomaly_sigma: settings.smart_invoice_anomaly_sigma || '2',
       })
     }
   }, [settings])
@@ -73,6 +90,14 @@ export default function NotificationsTab() {
       from_name: form.from_name,
       notify_on_allocation: String(form.notify_on_allocation),
       global_cc: form.global_cc,
+      smart_alerts_enabled: String(form.smart_alerts_enabled),
+      smart_kpi_alerts_enabled: String(form.smart_kpi_alerts_enabled),
+      smart_budget_alerts_enabled: String(form.smart_budget_alerts_enabled),
+      smart_invoice_anomaly_enabled: String(form.smart_invoice_anomaly_enabled),
+      smart_efactura_backlog_enabled: String(form.smart_efactura_backlog_enabled),
+      smart_efactura_backlog_threshold: form.smart_efactura_backlog_threshold,
+      smart_alert_cooldown_hours: form.smart_alert_cooldown_hours,
+      smart_invoice_anomaly_sigma: form.smart_invoice_anomaly_sigma,
     })
   }
 
@@ -148,6 +173,128 @@ export default function NotificationsTab() {
             <Label>Global CC Address</Label>
             <Input value={form.global_cc} onChange={(e) => setForm({ ...form, global_cc: e.target.value })} placeholder="cc@example.com" />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Smart Alerts */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5" />
+            Smart Alerts
+          </CardTitle>
+          <CardDescription>Automated alerts for KPIs, budgets, invoices, and e-Factura. Checks run every 4 hours.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Enable Smart Alerts</p>
+              <p className="text-xs text-muted-foreground">Master switch for all automated alerts</p>
+            </div>
+            <Switch
+              checked={form.smart_alerts_enabled}
+              onCheckedChange={(v) => setForm({ ...form, smart_alerts_enabled: v })}
+            />
+          </div>
+
+          {form.smart_alerts_enabled && (
+            <div className="space-y-4 border-l-2 border-muted pl-4">
+              {/* KPI Alerts */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">KPI Threshold Alerts</p>
+                  <p className="text-xs text-muted-foreground">Notify project owners when KPIs breach warning/critical thresholds</p>
+                </div>
+                <Switch
+                  checked={form.smart_kpi_alerts_enabled}
+                  onCheckedChange={(v) => setForm({ ...form, smart_kpi_alerts_enabled: v })}
+                />
+              </div>
+
+              {/* Budget Alerts */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Budget Utilization Alerts</p>
+                  <p className="text-xs text-muted-foreground">Notify when budget lines reach 80% or exceed 100%</p>
+                </div>
+                <Switch
+                  checked={form.smart_budget_alerts_enabled}
+                  onCheckedChange={(v) => setForm({ ...form, smart_budget_alerts_enabled: v })}
+                />
+              </div>
+
+              {/* Invoice Anomaly */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Invoice Anomaly Detection</p>
+                    <p className="text-xs text-muted-foreground">Alert admins when invoice amounts are unusually high or low</p>
+                  </div>
+                  <Switch
+                    checked={form.smart_invoice_anomaly_enabled}
+                    onCheckedChange={(v) => setForm({ ...form, smart_invoice_anomaly_enabled: v })}
+                  />
+                </div>
+                {form.smart_invoice_anomaly_enabled && (
+                  <div className="grid gap-1.5 pl-4">
+                    <Label className="text-xs">Sensitivity (standard deviations)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="5"
+                      step="0.5"
+                      className="h-8 w-24 text-sm"
+                      value={form.smart_invoice_anomaly_sigma}
+                      onChange={(e) => setForm({ ...form, smart_invoice_anomaly_sigma: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Lower = more sensitive. Default: 2</p>
+                  </div>
+                )}
+              </div>
+
+              {/* e-Factura Backlog */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">e-Factura Backlog Alert</p>
+                    <p className="text-xs text-muted-foreground">Alert admins when unallocated e-Factura invoices pile up</p>
+                  </div>
+                  <Switch
+                    checked={form.smart_efactura_backlog_enabled}
+                    onCheckedChange={(v) => setForm({ ...form, smart_efactura_backlog_enabled: v })}
+                  />
+                </div>
+                {form.smart_efactura_backlog_enabled && (
+                  <div className="grid gap-1.5 pl-4">
+                    <Label className="text-xs">Threshold (unallocated count)</Label>
+                    <Input
+                      type="number"
+                      min="5"
+                      max="500"
+                      className="h-8 w-24 text-sm"
+                      value={form.smart_efactura_backlog_threshold}
+                      onChange={(e) => setForm({ ...form, smart_efactura_backlog_threshold: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Alert when unallocated invoices exceed this number. Default: 50</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Cooldown */}
+              <div className="grid gap-1.5 border-t pt-3">
+                <Label className="text-xs font-medium">Alert Cooldown (hours)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="168"
+                  className="h-8 w-24 text-sm"
+                  value={form.smart_alert_cooldown_hours}
+                  onChange={(e) => setForm({ ...form, smart_alert_cooldown_hours: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground">Minimum hours between repeat alerts for the same issue. Default: 24</p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
