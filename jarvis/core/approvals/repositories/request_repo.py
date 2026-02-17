@@ -169,7 +169,7 @@ class RequestRepository:
         conn = get_db()
         try:
             cursor = get_cursor(conn)
-            params = [user_id, user_id, user_id]
+            params = [user_id, user_id, user_id, user_id]
             entity_filter = ''
             if entity_type:
                 entity_filter = 'AND r.entity_type = %s'
@@ -185,6 +185,7 @@ class RequestRepository:
                 JOIN approval_steps s ON s.id = r.current_step_id
                 JOIN users u ON u.id = r.requested_by
                 WHERE r.status IN ('pending', 'in_progress')
+                AND r.requested_by != %s
                 AND (
                     -- Direct user assignment
                     s.approver_user_id = %s
@@ -233,6 +234,7 @@ class RequestRepository:
                 FROM approval_requests r
                 JOIN approval_steps s ON s.id = r.current_step_id
                 WHERE r.status IN ('pending', 'in_progress')
+                AND r.requested_by != %s
                 AND (
                     s.approver_user_id = %s
                     OR s.approver_role_name IN (
@@ -253,7 +255,7 @@ class RequestRepository:
                     WHERE ad.request_id = r.id AND ad.step_id = r.current_step_id
                     AND ad.decided_by = %s
                 )
-            ''', (user_id, user_id, user_id, user_id))
+            ''', (user_id, user_id, user_id, user_id, user_id))
             return cursor.fetchone()['cnt']
         finally:
             release_db(conn)

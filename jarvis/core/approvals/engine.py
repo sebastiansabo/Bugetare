@@ -174,6 +174,10 @@ class ApprovalEngine:
 
         step = self._flow_repo.get_step_by_id(step_id)
 
+        # Self-approval prevention — requester cannot decide on own request
+        if decided_by == req['requested_by']:
+            raise NotAuthorizedError('You cannot approve your own request')
+
         # Authorization check
         if not self._is_authorized(step, decided_by, req):
             raise NotAuthorizedError(

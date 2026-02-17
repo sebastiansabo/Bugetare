@@ -458,6 +458,17 @@ class TestEngineDecide:
         with pytest.raises(AlreadyDecidedError):
             engine.decide(100, 'approved', decided_by=1)
 
+    def test_self_approval_raises(self):
+        """Requester cannot decide on their own request."""
+        engine = _make_engine()
+        req = self._make_req()  # requested_by=2
+        engine._request_repo.get_by_id.return_value = req
+        engine._flow_repo.get_step_by_id.return_value = self._make_step()
+
+        from core.approvals.engine import NotAuthorizedError
+        with pytest.raises(NotAuthorizedError, match='cannot approve your own'):
+            engine.decide(100, 'approved', decided_by=2)
+
     def test_decide_on_wrong_status_raises(self):
         engine = _make_engine()
         req = self._make_req(status='approved')

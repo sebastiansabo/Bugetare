@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle, XCircle, RotateCcw, Clock, ArrowUpRight, MessageSquare } from 'lucide-react'
+import { CheckCircle, XCircle, RotateCcw, Clock, ArrowUpRight, MessageSquare, ShieldAlert } from 'lucide-react'
+import { useAuthStore } from '@/stores/authStore'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -113,7 +114,9 @@ export default function RequestDetail({ requestId, open, onClose }: RequestDetai
     },
   })
 
+  const currentUser = useAuthStore((s) => s.user)
   const isPending = detail?.status === 'pending'
+  const isOwnRequest = detail?.requested_by?.id === currentUser?.id
   const ctx = detail?.context_snapshot || {}
   const title = (ctx.title as string) || `${detail?.entity_type}/${detail?.entity_id}`
 
@@ -291,8 +294,19 @@ export default function RequestDetail({ requestId, open, onClose }: RequestDetai
               </>
             )}
 
+            {/* Self-approval warning */}
+            {isPending && isOwnRequest && (
+              <>
+                <Separator />
+                <div className="flex items-center gap-2 rounded-md border border-yellow-300 bg-yellow-50 p-3 text-sm dark:border-yellow-700 dark:bg-yellow-900/20">
+                  <ShieldAlert className="h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-400" />
+                  <span className="text-yellow-800 dark:text-yellow-300">You cannot approve your own request. Another approver must review it.</span>
+                </div>
+              </>
+            )}
+
             {/* Action area */}
-            {isPending && (
+            {isPending && !isOwnRequest && (
               <>
                 <Separator />
                 <div className="space-y-3">
