@@ -103,6 +103,20 @@ export interface MktBudgetTransaction {
   created_at: string
 }
 
+export interface KpiBenchmarkSegment {
+  name: string
+  average: number
+  good: number
+  excellent: number
+  source: string
+}
+
+export interface KpiBenchmarks {
+  industry: string
+  generated_at: string
+  segments: KpiBenchmarkSegment[]
+}
+
 export interface MktKpiDefinition {
   id: number
   name: string
@@ -113,6 +127,7 @@ export interface MktKpiDefinition {
   formula: string | null
   variables: string[]
   description: string | null
+  benchmarks: KpiBenchmarks | null
   is_active: boolean
   sort_order: number
   created_at: string

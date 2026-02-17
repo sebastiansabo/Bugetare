@@ -2242,7 +2242,6 @@ def create_schema(conn, cursor):
             department_structure_id INTEGER REFERENCES department_structure(id),
             added_by INTEGER NOT NULL REFERENCES users(id),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT mkt_members_role_check CHECK (role IN ('owner','manager','specialist','viewer','agency')),
             CONSTRAINT mkt_members_unique UNIQUE (project_id, user_id)
         )
     ''')
@@ -2305,6 +2304,7 @@ def create_schema(conn, cursor):
             category TEXT NOT NULL DEFAULT 'performance',
             formula TEXT,
             description TEXT,
+            benchmarks JSONB,
             is_active BOOLEAN DEFAULT TRUE,
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

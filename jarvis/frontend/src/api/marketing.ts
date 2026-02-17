@@ -253,4 +253,9 @@ export const marketingApi = {
 
   validateFormula: (formula: string) =>
     api.post<{ valid: boolean; error: string | null; variables: string[] }>(`${BASE}/kpi-formulas/validate`, { formula }),
+
+  // ---- Benchmarks ----
+
+  generateBenchmarks: (defId: number) =>
+    api.post<{ success: boolean; benchmarks: import('@/types/marketing').KpiBenchmarks }>(`${BASE}/kpi-definitions/${defId}/generate-benchmarks`),
 }

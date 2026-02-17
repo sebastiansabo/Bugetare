@@ -39,7 +39,8 @@ class KpiRepository:
             release_db(conn)
 
     def update_definition(self, def_id, **kwargs):
-        allowed = {'name', 'slug', 'unit', 'direction', 'category', 'formula', 'description', 'is_active', 'sort_order'}
+        from psycopg2.extras import Json
+        allowed = {'name', 'slug', 'unit', 'direction', 'category', 'formula', 'description', 'benchmarks', 'is_active', 'sort_order'}
         conn = get_db()
         try:
             cursor = get_cursor(conn)
@@ -48,7 +49,7 @@ class KpiRepository:
             for key, val in kwargs.items():
                 if key in allowed and val is not None:
                     updates.append(f'{key} = %s')
-                    params.append(val)
+                    params.append(Json(val) if key == 'benchmarks' and isinstance(val, dict) else val)
             if not updates:
                 return False
             params.append(def_id)
@@ -268,9 +269,9 @@ class KpiRepository:
         try:
             cursor = get_cursor(conn)
 
-            # Get KPI's formula from its definition
+            # Get KPI's formula and current value from its definition
             cursor.execute('''
-                SELECT pk.id, kd.formula
+                SELECT pk.id, pk.current_value, kd.formula
                 FROM mkt_project_kpis pk
                 JOIN mkt_kpi_definitions kd ON kd.id = pk.kpi_definition_id
                 WHERE pk.id = %s
@@ -279,6 +280,7 @@ class KpiRepository:
             if not kpi_row:
                 return {'synced': False, 'reason': 'KPI not found'}
             formula = kpi_row['formula']
+            old_value = float(kpi_row['current_value'] or 0)
 
             # Budget lines grouped by role (variable name)
             cursor.execute('''
@@ -325,17 +327,20 @@ class KpiRepository:
                 # No formula = raw KPI, sum all inputs
                 new_value = sum(variables.values())
 
+            # Always update last_synced_at, but only create snapshot if value changed
             cursor.execute('''
                 UPDATE mkt_project_kpis
                 SET current_value = %s, last_synced_at = NOW(), updated_at = NOW()
                 WHERE id = %s
             ''', (new_value, project_kpi_id))
-            cursor.execute('''
-                INSERT INTO mkt_kpi_snapshots (project_kpi_id, value, source)
-                VALUES (%s, %s, 'auto')
-            ''', (project_kpi_id, new_value))
+            value_changed = round(old_value, 4) != round(new_value, 4)
+            if value_changed:
+                cursor.execute('''
+                    INSERT INTO mkt_kpi_snapshots (project_kpi_id, value, source)
+                    VALUES (%s, %s, 'auto')
+                ''', (project_kpi_id, new_value))
             conn.commit()
-            return {'synced': True, 'value': new_value}
+            return {'synced': True, 'value': new_value, 'changed': value_changed}
         except Exception:
             conn.rollback()
             raise

@@ -288,6 +288,22 @@ def init_db():
                     SELECT 1 FROM dropdown_options WHERE dropdown_type = 'invoice_status' AND value = 'approved'
                 )
             ''')
+            # Create mkt_project_files if not exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS mkt_project_files (
+                    id SERIAL PRIMARY KEY,
+                    project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+                    file_name TEXT NOT NULL,
+                    file_type TEXT,
+                    mime_type TEXT,
+                    file_size INTEGER,
+                    storage_uri TEXT NOT NULL,
+                    uploaded_by INTEGER NOT NULL REFERENCES users(id),
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_files_project ON mkt_project_files(project_id)')
             # Create mkt_project_events if not exists
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS mkt_project_events (
@@ -400,6 +416,60 @@ def init_db():
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                    WHERE table_name = 'mkt_project_kpis' AND column_name = 'currency') THEN
                         ALTER TABLE mkt_project_kpis ADD COLUMN currency TEXT DEFAULT 'RON';
+                    END IF;
+                END $$;
+            ''')
+            # Drop hardcoded member role CHECK — roles now from global roles table
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.constraint_column_usage
+                               WHERE table_name = 'mkt_project_members' AND constraint_name = 'mkt_members_role_check') THEN
+                        ALTER TABLE mkt_project_members DROP CONSTRAINT mkt_members_role_check;
+                    END IF;
+                END $$;
+            ''')
+            # Seed marketing permissions_v2 if not present
+            cursor.execute("SELECT COUNT(*) as cnt FROM permissions_v2 WHERE module_key = 'marketing'")
+            if cursor.fetchone()['cnt'] == 0:
+                cursor.execute('''
+                    INSERT INTO permissions_v2 (module_key, module_label, module_icon, entity_key, entity_label, action_key, action_label, description, is_scope_based, sort_order) VALUES
+                    ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'view', 'View', 'View marketing projects', TRUE, 1),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'create', 'Create', 'Create marketing projects', TRUE, 2),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'edit', 'Edit', 'Edit marketing projects', TRUE, 3),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'delete', 'Delete', 'Delete marketing projects', TRUE, 4),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'project', 'Projects', 'approve', 'Submit for Approval', 'Submit projects for approval', TRUE, 5),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'budget', 'Budgets', 'view', 'View', 'View budget allocations', TRUE, 6),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'budget', 'Budgets', 'edit', 'Edit', 'Edit budgets and record spend', TRUE, 7),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'kpi', 'KPIs', 'view', 'View', 'View KPI targets and actuals', TRUE, 8),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'kpi', 'KPIs', 'edit', 'Edit', 'Set KPI targets and record values', TRUE, 9),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'report', 'Reports', 'view', 'View', 'View marketing reports', TRUE, 10)
+                ''')
+                cursor.execute('SELECT id, name FROM roles')
+                for role in cursor.fetchall():
+                    rn = role['name']
+                    cursor.execute("SELECT id, action_key FROM permissions_v2 WHERE module_key = 'marketing'")
+                    for p in cursor.fetchall():
+                        scope = 'deny'
+                        if rn == 'Admin':
+                            scope = 'all'
+                        elif rn == 'Manager':
+                            scope = 'department' if p['action_key'] != 'delete' else 'deny'
+                        elif p['action_key'] in ('view', 'create'):
+                            scope = 'own'
+                        if scope != 'deny':
+                            cursor.execute('''
+                                INSERT INTO role_permissions_v2 (role_id, permission_id, scope, granted)
+                                VALUES (%s, %s, %s, TRUE)
+                                ON CONFLICT (role_id, permission_id) DO NOTHING
+                            ''', (role['id'], p['id'], scope))
+            # M-KPI: benchmarks column on definitions
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'mkt_kpi_definitions' AND column_name = 'benchmarks') THEN
+                        ALTER TABLE mkt_kpi_definitions ADD COLUMN benchmarks JSONB;
                     END IF;
                 END $$;
             ''')

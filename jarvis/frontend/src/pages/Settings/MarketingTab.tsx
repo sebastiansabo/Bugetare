@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Pencil, Save } from 'lucide-react'
+import { Plus, Pencil, Save, Bot, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -8,13 +8,14 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Separator } from '@/components/ui/separator'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { marketingApi } from '@/api/marketing'
 import { toast } from 'sonner'
-import type { MktKpiDefinition } from '@/types/marketing'
+import type { MktKpiDefinition, KpiBenchmarks } from '@/types/marketing'
 
 const UNITS = [
   { value: 'number', label: 'Number' },
@@ -105,10 +106,9 @@ function KpiDefinitionsSection() {
                 <TableHead>Name</TableHead>
                 <TableHead>Slug</TableHead>
                 <TableHead>Unit</TableHead>
-                <TableHead>Direction</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Formula</TableHead>
-                <TableHead>Variables</TableHead>
+                <TableHead>Benchmarks</TableHead>
                 <TableHead>Active</TableHead>
                 <TableHead className="w-16">Edit</TableHead>
               </TableRow>
@@ -118,25 +118,20 @@ function KpiDefinitionsSection() {
                 <TableRow key={d.id} className={!d.is_active ? 'opacity-50' : ''}>
                   <TableCell className="font-medium">{d.name}</TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">{d.slug}</TableCell>
-                  <TableCell>{d.unit}</TableCell>
-                  <TableCell className="text-xs">
-                    {d.direction === 'higher' ? 'Higher' : 'Lower'}
-                  </TableCell>
+                  <TableCell className="text-xs">{d.unit}</TableCell>
                   <TableCell>
                     <Badge variant="outline" className="text-xs">{d.category}</Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-xs max-w-[200px] truncate">
+                  <TableCell className="font-mono text-xs max-w-[180px] truncate">
                     {d.formula || <span className="text-muted-foreground">—</span>}
                   </TableCell>
                   <TableCell>
-                    {d.variables?.length > 0 ? (
-                      <div className="flex flex-wrap gap-1">
-                        {d.variables.map((v) => (
-                          <Badge key={v} variant="secondary" className="text-[10px] h-5">{v}</Badge>
-                        ))}
-                      </div>
+                    {d.benchmarks?.segments?.length ? (
+                      <Badge variant="secondary" className="text-[10px]">
+                        {d.benchmarks.segments.length} segment{d.benchmarks.segments.length > 1 ? 's' : ''}
+                      </Badge>
                     ) : (
-                      <span className="text-xs text-muted-foreground">raw</span>
+                      <span className="text-xs text-muted-foreground">—</span>
                     )}
                   </TableCell>
                   <TableCell>
@@ -193,10 +188,23 @@ function KpiDefFormDialog({ open, definition, onClose, onSave, isPending }: {
   open: boolean; definition: MktKpiDefinition | null; onClose: () => void
   onSave: (data: Partial<MktKpiDefinition>) => void; isPending: boolean
 }) {
+  const queryClient = useQueryClient()
   const [form, setForm] = useState<FormState>(emptyForm)
   const [formulaVars, setFormulaVars] = useState<string[]>([])
   const [formulaError, setFormulaError] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
+  const [benchmarks, setBenchmarks] = useState<KpiBenchmarks | null>(null)
+
+  const benchmarkMut = useMutation({
+    mutationFn: (defId: number) => marketingApi.generateBenchmarks(defId),
+    onSuccess: (data) => {
+      setBenchmarks(data.benchmarks)
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-definitions'] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-definitions-all'] })
+      toast.success('Benchmarks generated')
+    },
+    onError: (e: any) => toast.error(e?.message || 'Failed to generate benchmarks'),
+  })
 
   const resetForm = () => {
     if (definition) {
@@ -212,10 +220,12 @@ function KpiDefFormDialog({ open, definition, onClose, onSave, isPending }: {
       })
       setFormulaVars(definition.variables ?? [])
       setFormulaError(null)
+      setBenchmarks(definition.benchmarks)
     } else {
       setForm(emptyForm)
       setFormulaVars([])
       setFormulaError(null)
+      setBenchmarks(null)
     }
   }
 
@@ -256,7 +266,7 @@ function KpiDefFormDialog({ open, definition, onClose, onSave, isPending }: {
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); else resetForm() }}>
-      <DialogContent className="sm:max-w-lg" onOpenAutoFocus={resetForm}>
+      <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto" onOpenAutoFocus={resetForm}>
         <DialogHeader>
           <DialogTitle>{definition ? 'Edit KPI Definition' : 'Add KPI Definition'}</DialogTitle>
         </DialogHeader>
@@ -351,6 +361,63 @@ function KpiDefFormDialog({ open, definition, onClose, onSave, isPending }: {
               />
               <Label className="text-sm">{form.is_active ? 'Active' : 'Inactive'}</Label>
             </div>
+          )}
+
+          {/* Benchmarks section (only for existing definitions) */}
+          {definition && (
+            <>
+              <Separator />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm font-medium">Industry Benchmarks</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={benchmarkMut.isPending}
+                    onClick={() => definition && benchmarkMut.mutate(definition.id)}
+                  >
+                    {benchmarkMut.isPending ? (
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Bot className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {benchmarkMut.isPending ? 'Generating...' : benchmarks ? 'Regenerate' : 'Generate with AI'}
+                  </Button>
+                </div>
+                {benchmarks?.segments?.length ? (
+                  <div className="space-y-2">
+                    {benchmarks.segments.map((seg, i) => (
+                      <div key={i} className="rounded-md border px-3 py-2 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">{seg.name}</span>
+                          <span className="text-[10px] text-muted-foreground">{seg.source}</span>
+                        </div>
+                        <div className="flex gap-4 text-xs">
+                          <span className="text-muted-foreground">
+                            Avg: <span className="font-medium text-foreground">{seg.average}</span>
+                          </span>
+                          <span className="text-muted-foreground">
+                            Good: <span className="font-medium text-blue-600 dark:text-blue-400">{seg.good}</span>
+                          </span>
+                          <span className="text-muted-foreground">
+                            Excellent: <span className="font-medium text-green-600 dark:text-green-400">{seg.excellent}</span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                    {benchmarks.generated_at && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Generated: {new Date(benchmarks.generated_at).toLocaleDateString('ro-RO')}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No benchmarks yet. Click "Generate with AI" to get industry-standard benchmark data for this KPI.
+                  </p>
+                )}
+              </div>
+            </>
           )}
         </div>
         <DialogFooter>

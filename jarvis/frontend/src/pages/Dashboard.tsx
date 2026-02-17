@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Calculator, Users, Bot, Settings, Plus, FileText, ArrowRight } from 'lucide-react'
+import { Calculator, Users, Bot, Settings, Plus, FileText, ArrowRight, ClipboardCheck, Clock } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -9,6 +10,7 @@ import { StatusBadge } from '@/components/shared/StatusBadge'
 import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { useAuth } from '@/hooks/useAuth'
 import { dashboardApi } from '@/api/dashboard'
+import { approvalsApi } from '@/api/approvals'
 
 const apps = [
   {
@@ -65,6 +67,14 @@ export default function Dashboard() {
     staleTime: 60_000,
     enabled: canAccounting,
   })
+
+  const { data: approvalQueue } = useQuery({
+    queryKey: ['dashboard', 'approvalQueue'],
+    queryFn: () => approvalsApi.getMyQueue(),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  })
+  const pendingApprovals = approvalQueue?.queue ?? []
 
   const totalInvoices = companySummary?.reduce((sum, c) => sum + Number(c.invoice_count), 0) ?? 0
   const totalValue = companySummary?.reduce((sum, c) => sum + Number(c.total_value_ron ?? 0), 0) ?? 0
@@ -133,6 +143,12 @@ export default function Dashboard() {
             isLoading={summaryLoading}
           />
         )}
+        <StatCard
+          title="Pending Approvals"
+          value={pendingApprovals.length}
+          icon={<ClipboardCheck className="h-4 w-4" />}
+          description={pendingApprovals.length > 0 ? 'Awaiting your decision' : undefined}
+        />
       </div>
 
       {/* Quick Navigation */}
@@ -159,6 +175,66 @@ export default function Dashboard() {
           )
         })}
       </div>
+
+      {/* Pending Approvals */}
+      {pendingApprovals.length > 0 && (
+        <Card className="border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ClipboardCheck className="h-4 w-4 text-amber-600" />
+                <CardTitle className="text-base">Pending Approvals</CardTitle>
+                <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+                  {pendingApprovals.length}
+                </Badge>
+              </div>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/app/approvals" className="text-xs">
+                  View all <ArrowRight className="ml-1 h-3 w-3" />
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {pendingApprovals.slice(0, 5).map((item) => {
+                const ctx = item.context_snapshot as Record<string, unknown> | null
+                const title = (ctx?.name as string) || (ctx?.supplier as string) || item.title || `${item.entity_type} #${item.entity_id}`
+                const link = item.entity_type === 'mkt_project'
+                  ? `/app/marketing/projects/${item.entity_id}`
+                  : item.entity_type === 'invoice'
+                    ? '/app/accounting'
+                    : '/app/approvals'
+                const hrs = Math.round(item.waiting_hours ?? 0)
+                return (
+                  <Link key={item.id} to={link} className="flex items-center justify-between rounded-lg border bg-background p-3 hover:bg-muted/50 transition-colors">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{title}</p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="capitalize">{(item.entity_type ?? '').replace('_', ' ')}</span>
+                        <span>&middot;</span>
+                        <span>by {item.requested_by?.name ?? 'Unknown'}</span>
+                        {item.priority === 'high' || item.priority === 'urgent' ? (
+                          <Badge variant="destructive" className="text-[10px] h-4 px-1">{item.priority}</Badge>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground ml-3">
+                      <Clock className="h-3 w-3" />
+                      {hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`}
+                    </div>
+                  </Link>
+                )
+              })}
+              {pendingApprovals.length > 5 && (
+                <p className="text-xs text-center text-muted-foreground pt-1">
+                  +{pendingApprovals.length - 5} more items
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Invoices + Company Summary — only for users with accounting access */}
       {canAccounting && (

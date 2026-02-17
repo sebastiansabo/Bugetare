@@ -243,7 +243,10 @@ def api_upload_file(project_id):
         project_name = proj.get('name', f'Project-{project_id}')
         clean_name = ''.join(c for c in project_name if c.isalnum() or c in ' -_').strip() or f'Project-{project_id}'
 
-        service = get_drive_service()
+        try:
+            service = get_drive_service()
+        except FileNotFoundError:
+            return jsonify({'success': False, 'error': 'Google Drive is not configured. Set up credentials in Settings > Connectors.'}), 503
         # Folder: Root / Marketing / {ProjectName}
         mkt_folder = find_or_create_folder(service, 'Marketing', ROOT_FOLDER_ID)
         proj_folder = find_or_create_folder(service, clean_name, mkt_folder)

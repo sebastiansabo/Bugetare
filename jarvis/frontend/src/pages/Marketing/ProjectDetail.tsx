@@ -18,12 +18,13 @@ import {
   ArrowLeft, Pencil, Play, Pause, CheckCircle, Send, Copy, Check, RefreshCw,
   DollarSign, Target, Users, Clock, FileText, MessageSquare,
   Plus, Trash2, BarChart3, CalendarDays, Link2, Search,
-  ChevronDown, ChevronRight, Upload,
+  ChevronDown, ChevronRight, Upload, Sparkles,
 } from 'lucide-react'
 import { marketingApi } from '@/api/marketing'
 import { usersApi } from '@/api/users'
+import { rolesApi } from '@/api/roles'
 import { settingsApi } from '@/api/settings'
-import type { MktProject, MktBudgetLine, MktProjectKpi, HrEventSearchResult, InvoiceSearchResult } from '@/types/marketing'
+import type { MktProject, MktBudgetLine, MktProjectKpi, HrEventSearchResult, InvoiceSearchResult, KpiBenchmarks } from '@/types/marketing'
 import type { UserDetail } from '@/types/users'
 import { ApprovalWidget } from '@/components/shared/ApprovalWidget'
 import ProjectForm from './ProjectForm'
@@ -267,9 +268,21 @@ function StatusActions({ project, onDone }: { project: MktProject; onDone: () =>
 // ──────────────────────────────────────────
 
 function OverviewTab({ project }: { project: MktProject }) {
+  const queryClient = useQueryClient()
   const budget = typeof project.total_budget === 'string' ? parseFloat(project.total_budget as string) : (project.total_budget ?? 0)
   const spent = typeof project.total_spent === 'string' ? parseFloat(project.total_spent as string) : (project.total_spent ?? 0)
   const burn = budget ? Math.round((spent / budget) * 100) : 0
+
+  const [editingDesc, setEditingDesc] = useState(false)
+  const [descDraft, setDescDraft] = useState(project.description ?? '')
+
+  const saveMut = useMutation({
+    mutationFn: (desc: string) => marketingApi.updateProject(project.id, { description: desc }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-project', project.id] })
+      setEditingDesc(false)
+    },
+  })
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -300,6 +313,39 @@ function OverviewTab({ project }: { project: MktProject }) {
           </div>
         </div>
 
+        {/* Project Description — editable */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-sm">Project Description</h3>
+            {!editingDesc && (
+              <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => { setDescDraft(project.description ?? ''); setEditingDesc(true) }}>
+                <Pencil className="h-3 w-3 mr-1" /> Edit
+              </Button>
+            )}
+          </div>
+          {editingDesc ? (
+            <div className="space-y-2">
+              <Textarea
+                value={descDraft}
+                onChange={(e) => setDescDraft(e.target.value)}
+                placeholder="Add project details, goals, scope, notes..."
+                rows={6}
+                className="text-sm"
+              />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" size="sm" onClick={() => setEditingDesc(false)}>Cancel</Button>
+                <Button size="sm" disabled={saveMut.isPending} onClick={() => saveMut.mutate(descDraft)}>
+                  {saveMut.isPending ? 'Saving...' : 'Save'}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+              {project.description || 'No description yet. Click Edit to add details.'}
+            </p>
+          )}
+        </div>
+
         {/* Objective & Audience */}
         {project.objective && (
           <div className="space-y-1">
@@ -311,12 +357,6 @@ function OverviewTab({ project }: { project: MktProject }) {
           <div className="space-y-1">
             <h3 className="font-semibold text-sm">Target Audience</h3>
             <p className="text-sm text-muted-foreground">{project.target_audience}</p>
-          </div>
-        )}
-        {project.description && (
-          <div className="space-y-1">
-            <h3 className="font-semibold text-sm">Description</h3>
-            <p className="text-sm text-muted-foreground whitespace-pre-wrap">{project.description}</p>
           </div>
         )}
       </div>
@@ -1043,10 +1083,7 @@ function KpisTab({ projectId }: { projectId: number }) {
   const [snapKpiId, setSnapKpiId] = useState<number | null>(null)
   const [snapValue, setSnapValue] = useState('')
   const [historyKpiId, setHistoryKpiId] = useState<number | null>(null)
-  const [linkBudgetKpiId, setLinkBudgetKpiId] = useState<number | null>(null)
-  const [blRole, setBlRole] = useState<string>('input')
-  const [linkDepKpiId, setLinkDepKpiId] = useState<number | null>(null)
-  const [depRole, setDepRole] = useState<string>('input')
+  const [linkSourcesKpiId, setLinkSourcesKpiId] = useState<number | null>(null)
 
   const { data } = useQuery({
     queryKey: ['mkt-project-kpis', projectId],
@@ -1063,7 +1100,7 @@ function KpisTab({ projectId }: { projectId: number }) {
   const { data: defsData } = useQuery({
     queryKey: ['mkt-kpi-definitions'],
     queryFn: () => marketingApi.getKpiDefinitions(),
-    enabled: showAdd || !!linkBudgetKpiId || !!linkDepKpiId || kpis.length > 0,
+    enabled: showAdd || !!linkSourcesKpiId || kpis.length > 0,
   })
   const definitions = defsData?.definitions ?? []
 
@@ -1076,18 +1113,18 @@ function KpisTab({ projectId }: { projectId: number }) {
 
   // Budget lines linked to the KPI being edited
   const { data: kpiBLData } = useQuery({
-    queryKey: ['mkt-kpi-budget-lines', linkBudgetKpiId],
-    queryFn: () => marketingApi.getKpiBudgetLines(linkBudgetKpiId!),
-    enabled: !!linkBudgetKpiId,
+    queryKey: ['mkt-kpi-budget-lines', linkSourcesKpiId],
+    queryFn: () => marketingApi.getKpiBudgetLines(linkSourcesKpiId!),
+    enabled: !!linkSourcesKpiId,
   })
   const linkedBudgetLines = kpiBLData?.budget_lines ?? []
   const linkedBLIds = new Set(linkedBudgetLines.map((l) => l.budget_line_id))
 
   // KPI dependencies for the KPI being edited
   const { data: kpiDepData } = useQuery({
-    queryKey: ['mkt-kpi-dependencies', linkDepKpiId],
-    queryFn: () => marketingApi.getKpiDependencies(linkDepKpiId!),
-    enabled: !!linkDepKpiId,
+    queryKey: ['mkt-kpi-dependencies', linkSourcesKpiId],
+    queryFn: () => marketingApi.getKpiDependencies(linkSourcesKpiId!),
+    enabled: !!linkSourcesKpiId,
   })
   const linkedDeps = kpiDepData?.dependencies ?? []
   const linkedDepIds = new Set(linkedDeps.map((d) => d.depends_on_kpi_id))
@@ -1130,31 +1167,31 @@ function KpisTab({ projectId }: { projectId: number }) {
 
   const linkBLMut = useMutation({
     mutationFn: ({ lineId, role }: { lineId: number; role: string }) =>
-      marketingApi.linkKpiBudgetLine(linkBudgetKpiId!, lineId, role),
+      marketingApi.linkKpiBudgetLine(linkSourcesKpiId!, lineId, role),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-budget-lines', linkBudgetKpiId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-budget-lines', linkSourcesKpiId] })
     },
   })
 
   const unlinkBLMut = useMutation({
-    mutationFn: (lineId: number) => marketingApi.unlinkKpiBudgetLine(linkBudgetKpiId!, lineId),
+    mutationFn: (lineId: number) => marketingApi.unlinkKpiBudgetLine(linkSourcesKpiId!, lineId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-budget-lines', linkBudgetKpiId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-budget-lines', linkSourcesKpiId] })
     },
   })
 
   const linkDepMut = useMutation({
     mutationFn: ({ depId, role }: { depId: number; role: string }) =>
-      marketingApi.linkKpiDependency(linkDepKpiId!, depId, role),
+      marketingApi.linkKpiDependency(linkSourcesKpiId!, depId, role),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-dependencies', linkDepKpiId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-dependencies', linkSourcesKpiId] })
     },
   })
 
   const unlinkDepMut = useMutation({
-    mutationFn: (depId: number) => marketingApi.unlinkKpiDependency(linkDepKpiId!, depId),
+    mutationFn: (depId: number) => marketingApi.unlinkKpiDependency(linkSourcesKpiId!, depId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-dependencies', linkDepKpiId] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-dependencies', linkSourcesKpiId] })
     },
   })
 
@@ -1171,6 +1208,13 @@ function KpisTab({ projectId }: { projectId: number }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mkt-project-kpis', projectId] })
       queryClient.invalidateQueries({ queryKey: ['mkt-kpi-snapshots'] })
+    },
+  })
+
+  const benchmarkMut = useMutation({
+    mutationFn: (defId: number) => marketingApi.generateBenchmarks(defId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-kpi-definitions'] })
     },
   })
 
@@ -1206,11 +1250,11 @@ function KpisTab({ projectId }: { projectId: number }) {
                 kpi={k}
                 statusColors={kpiStatusColors}
                 formula={def?.formula}
+                benchmarks={def?.benchmarks}
                 onRecord={() => { setSnapKpiId(k.id); setSnapValue('') }}
                 onHistory={() => setHistoryKpiId(k.id)}
                 onDelete={() => deleteMut.mutate(k.id)}
-                onLinkBudget={() => { setLinkBudgetKpiId(k.id); if (def?.variables?.length) setBlRole(def.variables[0]) }}
-                onLinkKpi={() => { setLinkDepKpiId(k.id); setDepRole(def?.variables?.[0] ?? 'input') }}
+                onLinkSources={() => setLinkSourcesKpiId(k.id)}
                 onSync={() => syncMut.mutate(k.id)}
                 isSyncing={syncMut.isPending}
               />
@@ -1261,6 +1305,40 @@ function KpisTab({ projectId }: { projectId: number }) {
                 )}
               </div>
             </div>
+            {/* Benchmark hint / generate */}
+            {addDefId && (() => {
+              const def = definitions.find((d) => String(d.id) === addDefId)
+              const segs = def?.benchmarks?.segments
+              if (segs?.length) return (
+                <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20 p-2.5 space-y-1.5">
+                  <div className="text-xs font-medium text-blue-700 dark:text-blue-300">Industry Benchmarks (Romania)</div>
+                  {segs.map((s, i) => (
+                    <div key={i} className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      <span className="font-medium">{s.name}:</span>
+                      <span>avg {s.average.toLocaleString('ro-RO')}</span>
+                      <span className="opacity-40">·</span>
+                      <span className="text-blue-600 dark:text-blue-400">good {s.good.toLocaleString('ro-RO')}</span>
+                      <span className="opacity-40">·</span>
+                      <span className="text-green-600 dark:text-green-400">exc {s.excellent.toLocaleString('ro-RO')}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+              // No benchmarks yet — offer to generate
+              return (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-xs"
+                  disabled={benchmarkMut.isPending}
+                  onClick={() => benchmarkMut.mutate(Number(addDefId))}
+                >
+                  <Sparkles className={cn('h-3.5 w-3.5 mr-1.5', benchmarkMut.isPending && 'animate-spin')} />
+                  {benchmarkMut.isPending ? 'Generating benchmarks...' : 'Suggest target with AI'}
+                </Button>
+              )
+            })()}
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
               <Button disabled={!addDefId || addMut.isPending} onClick={() => addMut.mutate()}>
@@ -1318,7 +1396,7 @@ function KpisTab({ projectId }: { projectId: number }) {
                       <TableRow key={s.id}>
                         <TableCell className="text-sm">{fmtDatetime(s.recorded_at)}</TableCell>
                         <TableCell className="text-right text-sm tabular-nums font-medium">
-                          {Number(s.value).toLocaleString('ro-RO')}
+                          {Number(s.value).toLocaleString('ro-RO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline" className="text-xs">{s.source}</Badge>
@@ -1334,168 +1412,135 @@ function KpisTab({ projectId }: { projectId: number }) {
         </DialogContent>
       </Dialog>
 
-      {/* Link Budget Lines Dialog */}
-      <Dialog open={!!linkBudgetKpiId} onOpenChange={(open) => { if (!open) setLinkBudgetKpiId(null) }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Link Budget Lines</DialogTitle>
-            {(() => {
-              const editKpi = kpis.find((k) => k.id === linkBudgetKpiId)
-              const def = editKpi ? definitions.find((d) => d.id === editKpi.kpi_definition_id) : null
-              return def?.formula
-                ? <p className="text-sm text-muted-foreground font-mono">{def.formula}</p>
-                : <p className="text-sm text-muted-foreground">Select budget lines whose spend feeds this KPI</p>
-            })()}
-          </DialogHeader>
-          {/* Linked budget lines with role badges */}
-          {linkedBudgetLines.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-xs">Linked</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {linkedBudgetLines.map((l) => (
-                  <Badge key={l.budget_line_id} variant="secondary" className="gap-1 pr-1">
-                    {(l.channel ?? '').replace('_', ' ')}
-                    <span className="text-[10px] opacity-60">({l.role})</span>
-                    <button
-                      className="ml-0.5 hover:text-destructive"
-                      onClick={() => unlinkBLMut.mutate(l.budget_line_id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {/* Variable / role selector */}
-          <div className="flex items-center gap-2">
-            <Label className="text-xs text-muted-foreground">Variable:</Label>
-            <Select value={blRole} onValueChange={setBlRole}>
-              <SelectTrigger className="w-36 h-7 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(() => {
-                  const editKpi = kpis.find((k) => k.id === linkBudgetKpiId)
-                  const def = editKpi ? definitions.find((d) => d.id === editKpi.kpi_definition_id) : null
-                  const vars = def?.variables?.length ? def.variables : ['input']
-                  return vars.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)
-                })()}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2 max-h-56 overflow-y-auto">
-            {budgetLines.length === 0 ? (
-              <div className="text-center py-4 text-sm text-muted-foreground">No budget lines. Add lines in the Budget tab first.</div>
-            ) : budgetLines.filter((bl) => !linkedBLIds.has(bl.id)).map((bl) => (
-              <div
-                key={bl.id}
-                className="flex items-center justify-between rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
-                onClick={() => linkBLMut.mutate({ lineId: bl.id, role: blRole })}
-              >
-                <div>
-                  <div className="text-sm font-medium">{(bl.channel ?? '').replace('_', ' ')}</div>
-                  {bl.description && <div className="text-xs text-muted-foreground">{bl.description}</div>}
+      {/* Unified Link Sources Dialog */}
+      <Dialog open={!!linkSourcesKpiId} onOpenChange={(open) => { if (!open) setLinkSourcesKpiId(null) }}>
+        <DialogContent className="max-w-lg">
+          {(() => {
+            const editKpi = kpis.find((k) => k.id === linkSourcesKpiId)
+            const def = editKpi ? definitions.find((d) => d.id === editKpi.kpi_definition_id) : null
+            const vars = def?.variables?.length ? def.variables : ['input']
+            const availableBL = budgetLines.filter((bl) => !linkedBLIds.has(bl.id))
+            const availableKpis = kpis.filter((k) => k.id !== linkSourcesKpiId && !linkedDepIds.has(k.id))
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>{editKpi?.kpi_name ?? 'KPI'} — Link Sources</DialogTitle>
+                  {def?.formula && <p className="text-sm text-muted-foreground font-mono">{def.formula}</p>}
+                </DialogHeader>
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                  {vars.map((varName) => {
+                    const varBLs = linkedBudgetLines.filter((l) => l.role === varName)
+                    const varDeps = linkedDeps.filter((d) => d.role === varName)
+                    const hasSources = varBLs.length > 0 || varDeps.length > 0
+                    return (
+                      <div key={varName} className="rounded-lg border p-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-semibold">{varName}</span>
+                            {hasSources
+                              ? <Badge variant="default" className="text-[10px] h-4 px-1.5">linked</Badge>
+                              : <Badge variant="outline" className="text-[10px] h-4 px-1.5 text-muted-foreground">unlinked</Badge>}
+                          </div>
+                        </div>
+                        {/* Currently linked sources for this variable */}
+                        {varBLs.map((l) => (
+                          <div key={`bl-${l.budget_line_id}`} className="flex items-center justify-between rounded-md bg-muted/50 px-2.5 py-1.5">
+                            <div className="flex items-center gap-2 text-sm">
+                              <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>{(l.channel ?? '').replace('_', ' ')}</span>
+                              <span className="text-xs tabular-nums text-muted-foreground">({fmt(l.spent_amount, l.currency)})</span>
+                            </div>
+                            <button className="hover:text-destructive" onClick={() => unlinkBLMut.mutate(l.budget_line_id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {varDeps.map((d) => (
+                          <div key={`dep-${d.depends_on_kpi_id}`} className="flex items-center justify-between rounded-md bg-muted/50 px-2.5 py-1.5">
+                            <div className="flex items-center gap-2 text-sm">
+                              <Target className="h-3.5 w-3.5 text-muted-foreground" />
+                              <span>{d.dep_kpi_name}</span>
+                              <span className="text-xs tabular-nums text-muted-foreground">({Number(d.dep_current_value || 0).toLocaleString('ro-RO')})</span>
+                            </div>
+                            <button className="hover:text-destructive" onClick={() => unlinkDepMut.mutate(d.depends_on_kpi_id)}>
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                        {/* Add source buttons */}
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm" className="w-full text-xs h-7">
+                              <Plus className="h-3 w-3 mr-1" /> Add source
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-80 p-0" align="start">
+                            <div className="max-h-64 overflow-y-auto">
+                              {availableBL.length > 0 && (
+                                <div className="p-2">
+                                  <div className="text-xs font-medium text-muted-foreground px-2 pb-1">Budget Lines</div>
+                                  {availableBL.map((bl) => (
+                                    <div
+                                      key={bl.id}
+                                      className="flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/50 text-sm"
+                                      onClick={() => linkBLMut.mutate({ lineId: bl.id, role: varName })}
+                                    >
+                                      <div className="flex items-center gap-1.5">
+                                        <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                                        {(bl.channel ?? '').replace('_', ' ')}
+                                      </div>
+                                      <span className="text-xs tabular-nums text-muted-foreground">{fmt(bl.spent_amount, bl.currency)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {availableBL.length > 0 && availableKpis.length > 0 && <Separator />}
+                              {availableKpis.length > 0 && (
+                                <div className="p-2">
+                                  <div className="text-xs font-medium text-muted-foreground px-2 pb-1">Project KPIs</div>
+                                  {availableKpis.map((pk) => (
+                                    <div
+                                      key={pk.id}
+                                      className="flex items-center justify-between rounded-md px-2 py-1.5 cursor-pointer hover:bg-muted/50 text-sm"
+                                      onClick={() => linkDepMut.mutate({ depId: pk.id, role: varName })}
+                                    >
+                                      <div className="flex items-center gap-1.5">
+                                        <Target className="h-3.5 w-3.5 text-muted-foreground" />
+                                        {pk.kpi_name}
+                                      </div>
+                                      <span className="text-xs tabular-nums text-muted-foreground">{Number(pk.current_value || 0).toLocaleString('ro-RO')}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {availableBL.length === 0 && availableKpis.length === 0 && (
+                                <div className="p-4 text-center text-sm text-muted-foreground">No sources available</div>
+                              )}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {fmt(bl.spent_amount, bl.currency)} spent
-                  </span>
-                  <Plus className="h-4 w-4 text-muted-foreground" />
+                <div className="flex justify-end">
+                  <Button variant="outline" onClick={() => setLinkSourcesKpiId(null)}>Done</Button>
                 </div>
-              </div>
-            ))}
-            {budgetLines.filter((bl) => !linkedBLIds.has(bl.id)).length === 0 && budgetLines.length > 0 && (
-              <div className="text-center py-3 text-sm text-muted-foreground">All budget lines are linked.</div>
-            )}
-          </div>
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={() => setLinkBudgetKpiId(null)}>Done</Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Link KPI Dependencies Dialog */}
-      <Dialog open={!!linkDepKpiId} onOpenChange={(open) => { if (!open) setLinkDepKpiId(null) }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Link KPI Dependencies</DialogTitle>
-            {(() => {
-              const editKpi = kpis.find((k) => k.id === linkDepKpiId)
-              const def = editKpi ? definitions.find((d) => d.id === editKpi.kpi_definition_id) : null
-              return def?.formula
-                ? <p className="text-sm text-muted-foreground font-mono">{def.formula}</p>
-                : <p className="text-sm text-muted-foreground">Select KPIs this metric depends on</p>
-            })()}
-          </DialogHeader>
-          {/* Linked deps */}
-          {linkedDeps.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-xs">Linked</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {linkedDeps.map((d) => (
-                  <Badge key={d.depends_on_kpi_id} variant="secondary" className="gap-1 pr-1">
-                    {d.dep_kpi_name}
-                    <span className="text-[10px] opacity-60">({d.role})</span>
-                    <button
-                      className="ml-0.5 hover:text-destructive"
-                      onClick={() => unlinkDepMut.mutate(d.depends_on_kpi_id)}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-          {/* Available KPIs to link */}
-          <div className="space-y-1.5">
-            <Label className="text-xs">Available KPIs</Label>
-            <div className="flex items-center gap-2 mb-2">
-              <Label className="text-xs text-muted-foreground">Variable:</Label>
-              <Select value={depRole} onValueChange={setDepRole}>
-                <SelectTrigger className="w-36 h-7 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    const editKpi = kpis.find((k) => k.id === linkDepKpiId)
-                    const def = editKpi ? definitions.find((d) => d.id === editKpi.kpi_definition_id) : null
-                    const vars = def?.variables?.length ? def.variables : ['input']
-                    return vars.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)
-                  })()}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5 max-h-48 overflow-y-auto">
-              {kpis.filter((k) => k.id !== linkDepKpiId && !linkedDepIds.has(k.id)).map((k) => (
-                <div
-                  key={k.id}
-                  className="flex items-center justify-between rounded-md border px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors"
-                  onClick={() => linkDepMut.mutate({ depId: k.id, role: depRole })}
-                >
-                  <div>
-                    <div className="text-sm font-medium">{k.kpi_name}</div>
-                    <div className="text-xs text-muted-foreground">{k.unit} — current: {Number(k.current_value || 0).toLocaleString('ro-RO')}</div>
-                  </div>
-                  <Plus className="h-4 w-4 text-muted-foreground" />
-                </div>
-              ))}
-              {kpis.filter((k) => k.id !== linkDepKpiId && !linkedDepIds.has(k.id)).length === 0 && (
-                <div className="text-center py-3 text-sm text-muted-foreground">No other KPIs available to link.</div>
-              )}
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={() => setLinkDepKpiId(null)}>Done</Button>
-          </div>
+              </>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>
   )
 }
 
-function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkBudget, onLinkKpi, onSync, isSyncing, formula }: {
+function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkSources, onSync, isSyncing, formula, benchmarks }: {
   kpi: MktProjectKpi; statusColors: Record<string, string>
   onRecord: () => void; onHistory: () => void; onDelete: () => void
-  onLinkBudget: () => void; onLinkKpi: () => void; onSync: () => void; isSyncing: boolean
+  onLinkSources: () => void; onSync: () => void; isSyncing: boolean
   formula?: string | null
+  benchmarks?: KpiBenchmarks | null
 }) {
   const { data: snapsData } = useQuery({
     queryKey: ['mkt-kpi-snapshots', k.id],
@@ -1518,11 +1563,20 @@ function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkBu
 
   const target = Number(k.target_value) || 0
   const current = Number(k.current_value) || 0
-  const pct = target ? Math.round((current / target) * 100) : 0
+  const isLowerBetter = k.direction === 'lower'
+  // Direction-aware progress: for "lower is better", invert (target/current)
+  const pct = target
+    ? Math.round(isLowerBetter ? (target / Math.max(current, 0.01)) * 100 : (current / target) * 100)
+    : 0
   const warn = Number(k.threshold_warning) || 0
   const crit = Number(k.threshold_critical) || 0
-  const isWarning = warn > 0 && current <= warn && current > crit
-  const isCritical = crit > 0 && current <= crit
+  // Direction-aware thresholds
+  const isWarning = isLowerBetter
+    ? (warn > 0 && current >= warn && (crit <= 0 || current < crit))
+    : (warn > 0 && current <= warn && current > crit)
+  const isCritical = isLowerBetter
+    ? (crit > 0 && current >= crit)
+    : (crit > 0 && current <= crit)
 
   return (
     <div className={cn(
@@ -1551,10 +1605,10 @@ function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkBu
       <div className="flex items-center justify-between">
         <div className="flex items-baseline gap-2">
           <span className="text-2xl font-bold tabular-nums">
-            {current.toLocaleString('ro-RO')}{k.unit === 'percentage' ? '%' : k.unit === 'currency' ? ` ${k.currency || 'RON'}` : ''}
+            {current.toLocaleString('ro-RO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{k.unit === 'percentage' ? '%' : k.unit === 'currency' ? ` ${k.currency || 'RON'}` : ''}
           </span>
           {target > 0 && <span className="text-sm text-muted-foreground">
-            / {target.toLocaleString('ro-RO')}{k.unit === 'percentage' ? '%' : k.unit === 'currency' ? ` ${k.currency || 'RON'}` : k.unit === 'ratio' ? '' : ` ${k.unit}`}
+            / {target.toLocaleString('ro-RO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{k.unit === 'percentage' ? '%' : k.unit === 'currency' ? ` ${k.currency || 'RON'}` : k.unit === 'ratio' ? '' : ` ${k.unit}`}
           </span>}
         </div>
         {sparkValues.length >= 2 && (
@@ -1578,19 +1632,43 @@ function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkBu
       )}
       {(isWarning || isCritical) && (
         <div className={`text-xs font-medium ${isCritical ? 'text-red-600' : 'text-yellow-600'}`}>
-          {isCritical ? 'Below critical threshold' : 'Below warning threshold'}
+          {isCritical
+            ? (isLowerBetter ? 'Above critical threshold' : 'Below critical threshold')
+            : (isLowerBetter ? 'Above warning threshold' : 'Below warning threshold')}
         </div>
       )}
+      {/* Benchmark indicator */}
+      {benchmarks?.segments?.[0] && current > 0 && (() => {
+        const seg = benchmarks.segments[0]
+        const isLower = k.direction === 'lower'
+        const isExcellent = isLower ? current <= seg.excellent : current >= seg.excellent
+        const isGood = isLower ? current <= seg.good : current >= seg.good
+        const isAvg = isLower ? current <= seg.average : current >= seg.average
+        const color = isExcellent ? 'text-green-600 dark:text-green-400'
+          : isGood ? 'text-blue-600 dark:text-blue-400'
+          : isAvg ? 'text-muted-foreground'
+          : 'text-orange-600 dark:text-orange-400'
+        const label = isExcellent ? 'Excellent' : isGood ? 'Good' : isAvg ? 'Average' : 'Below avg'
+        return (
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="text-muted-foreground">Benchmark:</span>
+            <span className={`font-medium ${color}`}>{label}</span>
+            <span className="text-muted-foreground opacity-60">
+              (avg {seg.average} · good {seg.good} · exc {seg.excellent})
+            </span>
+          </div>
+        )
+      })()}
       {/* Link indicators */}
       {hasLinks && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 cursor-pointer" onClick={onLinkSources}>
           {linkedBLCount > 0 && (
-            <Badge variant="outline" className="text-[10px] h-5 cursor-pointer" onClick={onLinkBudget}>
+            <Badge variant="outline" className="text-[10px] h-5">
               <DollarSign className="h-3 w-3 mr-0.5" /> {linkedBLCount} budget line{linkedBLCount > 1 ? 's' : ''}
             </Badge>
           )}
           {(depData?.dependencies ?? []).map((d) => (
-            <Badge key={d.depends_on_kpi_id} variant="outline" className="text-[10px] h-5 cursor-pointer" onClick={onLinkKpi}>
+            <Badge key={d.depends_on_kpi_id} variant="outline" className="text-[10px] h-5">
               <Target className="h-3 w-3 mr-0.5" /> {d.dep_kpi_name} <span className="opacity-60 ml-0.5">({d.role})</span>
             </Badge>
           ))}
@@ -1600,10 +1678,7 @@ function KpiCard({ kpi: k, statusColors, onRecord, onHistory, onDelete, onLinkBu
         <Button variant="outline" size="sm" className="flex-1 text-xs h-7" onClick={onRecord}>
           Record
         </Button>
-        <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onLinkBudget} title="Link budget lines">
-          <DollarSign className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onLinkKpi} title="Link KPIs">
+        <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={onLinkSources} title="Link sources">
           <Link2 className="h-3.5 w-3.5" />
         </Button>
         {hasLinks && (
@@ -1682,13 +1757,19 @@ function TeamTab({ projectId }: { projectId: number }) {
   const queryClient = useQueryClient()
   const [showAdd, setShowAdd] = useState(false)
   const [addUserId, setAddUserId] = useState('')
-  const [addRole, setAddRole] = useState('specialist')
+  const [addRole, setAddRole] = useState('')
 
   const { data } = useQuery({
     queryKey: ['mkt-members', projectId],
     queryFn: () => marketingApi.getMembers(projectId),
   })
   const members = data?.members ?? []
+
+  const { data: rolesData } = useQuery({
+    queryKey: ['settings', 'roles'],
+    queryFn: rolesApi.getRoles,
+  })
+  const roles = rolesData ?? []
 
   const { data: usersData } = useQuery({
     queryKey: ['users-list'],
@@ -1721,8 +1802,6 @@ function TeamTab({ projectId }: { projectId: number }) {
       marketingApi.updateMember(projectId, memberId, { role }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mkt-members', projectId] }),
   })
-
-  const roles = ['owner', 'manager', 'specialist', 'viewer', 'agency']
 
   return (
     <div className="space-y-4">
@@ -1761,7 +1840,7 @@ function TeamTab({ projectId }: { projectId: number }) {
                       </SelectTrigger>
                       <SelectContent>
                         {roles.map((r) => (
-                          <SelectItem key={r} value={r} className="text-xs capitalize">{r}</SelectItem>
+                          <SelectItem key={r.id} value={r.name} className="text-xs">{r.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1798,17 +1877,17 @@ function TeamTab({ projectId }: { projectId: number }) {
             <div className="space-y-1.5">
               <Label>Role</Label>
               <Select value={addRole} onValueChange={setAddRole}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                 <SelectContent>
                   {roles.map((r) => (
-                    <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+                    <SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
-              <Button disabled={!addUserId || addMut.isPending} onClick={() => addMut.mutate()}>
+              <Button disabled={!addUserId || !addRole || addMut.isPending} onClick={() => addMut.mutate()}>
                 {addMut.isPending ? 'Adding...' : 'Add'}
               </Button>
             </div>

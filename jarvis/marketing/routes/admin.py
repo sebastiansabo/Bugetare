@@ -74,6 +74,33 @@ def api_update_kpi_definition(def_id):
         return safe_error_response(e)
 
 
+@marketing_bp.route('/api/kpi-definitions/<int:def_id>/generate-benchmarks', methods=['POST'])
+@admin_required
+def api_generate_benchmarks(def_id):
+    """Generate AI-predicted industry benchmarks for a KPI definition."""
+    from marketing.services.benchmark_service import generate_benchmarks
+    # Fetch definition
+    defs = _kpi_repo.get_definitions(active_only=False)
+    defn = next((d for d in defs if d['id'] == def_id), None)
+    if not defn:
+        return jsonify({'success': False, 'error': 'KPI definition not found'}), 404
+
+    try:
+        benchmarks = generate_benchmarks(
+            kpi_name=defn['name'],
+            kpi_slug=defn['slug'],
+            unit=defn['unit'],
+            direction=defn['direction'],
+            formula=defn.get('formula'),
+            description=defn.get('description'),
+        )
+        _kpi_repo.update_definition(def_id, benchmarks=benchmarks)
+        return jsonify({'success': True, 'benchmarks': benchmarks})
+    except Exception as e:
+        logger.error(f'Benchmark generation failed for {def_id}: {e}')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @marketing_bp.route('/api/kpi-formulas/validate', methods=['POST'])
 @login_required
 def api_validate_formula():
