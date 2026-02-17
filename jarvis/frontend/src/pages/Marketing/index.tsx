@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 import {
   Plus, Search, LayoutGrid, List,
   DollarSign, Target, AlertTriangle, FolderOpen,
-  BarChart3, PieChart,
+  BarChart3, PieChart, Calculator,
 } from 'lucide-react'
 import { marketingApi } from '@/api/marketing'
 import { settingsApi } from '@/api/settings'
@@ -23,6 +23,7 @@ import { organizationApi } from '@/api/organization'
 import { useMarketingStore } from '@/stores/marketingStore'
 import type { MktProject, MktKpiScoreboardItem } from '@/types/marketing'
 import ProjectForm from './ProjectForm'
+import CampaignSimulator from './CampaignSimulator'
 
 const statusColors: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
@@ -45,7 +46,7 @@ function burnRate(spent: number, budget: number) {
   return Math.round((spent / budget) * 100)
 }
 
-type MainTab = 'projects' | 'dashboard'
+type MainTab = 'projects' | 'dashboard' | 'simulator'
 
 export default function Marketing() {
   const queryClient = useQueryClient()
@@ -120,6 +121,17 @@ export default function Marketing() {
           )}
         >
           <BarChart3 className="h-3.5 w-3.5" /> Dashboard
+        </button>
+        <button
+          onClick={() => setMainTab('simulator')}
+          className={cn(
+            'flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+            mainTab === 'simulator'
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <Calculator className="h-3.5 w-3.5" /> Simulator
         </button>
       </div>
 
@@ -281,6 +293,8 @@ export default function Marketing() {
       )}
 
       {mainTab === 'dashboard' && <DashboardView />}
+
+      {mainTab === 'simulator' && <CampaignSimulator />}
 
       {/* Create Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
