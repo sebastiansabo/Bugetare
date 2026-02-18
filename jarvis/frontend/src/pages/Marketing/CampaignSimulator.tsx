@@ -787,7 +787,7 @@ function BenchmarkEditor({ open, onClose, benchmarks, channelsByStage, settings,
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="max-w-[90vw] w-[90vw] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[90vw] w-[90vw] max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle className="flex items-center gap-2"><Settings2 className="h-4 w-4" /> Simulator Settings</DialogTitle></DialogHeader>
 
         {/* ── Collapsible Settings Section ── */}
