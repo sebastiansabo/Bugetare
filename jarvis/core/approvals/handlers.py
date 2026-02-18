@@ -237,6 +237,14 @@ def _get_current_step_approvers(request_id):
 
         approver_type = step.get('approver_type', '')
 
+        if approver_type == 'context_approver':
+            ctx = req.get('context_snapshot') or {}
+            stakeholder_ids = ctx.get('stakeholder_approver_ids', [])
+            if stakeholder_ids:
+                return stakeholder_ids
+            single_id = ctx.get('approver_user_id')
+            return [int(single_id)] if single_id else []
+
         if approver_type == 'specific_user' and step.get('approver_user_id'):
             return [step['approver_user_id']]
 

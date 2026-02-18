@@ -85,6 +85,19 @@ class MemberRepository:
         finally:
             release_db(conn)
 
+    def get_stakeholder_ids(self, project_id):
+        """Get user IDs of all stakeholders for a project."""
+        conn = get_db()
+        try:
+            cursor = get_cursor(conn)
+            cursor.execute(
+                'SELECT user_id FROM mkt_project_members WHERE project_id = %s AND role = %s',
+                (project_id, 'stakeholder')
+            )
+            return [r['user_id'] for r in cursor.fetchall()]
+        finally:
+            release_db(conn)
+
     def is_member(self, project_id, user_id):
         conn = get_db()
         try:

@@ -532,6 +532,11 @@ class ApprovalEngine:
                     ctx = json.loads(ctx)
                 except (json.JSONDecodeError, TypeError):
                     ctx = {}
+            # Multi-stakeholder approval
+            stakeholder_ids = ctx.get('stakeholder_approver_ids', [])
+            if user_id in stakeholder_ids:
+                return True
+            # Single approver (backward compat)
             approver_id = ctx.get('approver_user_id')
             if approver_id is not None and int(approver_id) == user_id:
                 return True
@@ -566,10 +571,19 @@ class ApprovalEngine:
         """Check if enough approvals have been recorded for this step."""
         counts = self._decision_repo.count_decisions_for_step(request_id, step['id'])
 
-        if step.get('requires_all', False):
-            # Need to resolve all approvers and check all approved
-            # For now, use min_approvals as the threshold
-            return counts['approved'] >= step.get('min_approvals', 1)
+        # Check for dynamic min_approvals override from context (stakeholder "all" mode)
+        min_approvals = step.get('min_approvals', 1)
+        req = self._request_repo.get_by_id(request_id)
+        if req:
+            ctx = req.get('context_snapshot') or {}
+            if isinstance(ctx, str):
+                import json
+                try:
+                    ctx = json.loads(ctx)
+                except (json.JSONDecodeError, TypeError):
+                    ctx = {}
+            override = ctx.get('min_approvals_override')
+            if override is not None:
+                min_approvals = int(override)
 
-        # Any-one mode: single approval is sufficient
-        return counts['approved'] >= step.get('min_approvals', 1)
+        return counts['approved'] >= min_approvals

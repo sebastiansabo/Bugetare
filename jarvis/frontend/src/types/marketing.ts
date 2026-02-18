@@ -28,6 +28,7 @@ export interface MktProject {
   objective: string | null
   target_audience: string | null
   brief: Record<string, unknown>
+  approval_mode: 'any' | 'all'
   external_ref: string | null
   metadata: Record<string, unknown>
   created_at: string
@@ -57,7 +58,7 @@ export interface MktMember {
   user_id: number
   user_name: string | null
   user_email: string | null
-  role: 'owner' | 'manager' | 'specialist' | 'viewer' | 'agency'
+  role: 'owner' | 'manager' | 'specialist' | 'viewer' | 'agency' | 'stakeholder' | 'observer'
   department_structure_id: number | null
   added_by: number
   added_by_name: string | null

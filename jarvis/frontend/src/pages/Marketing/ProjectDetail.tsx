@@ -23,7 +23,6 @@ import {
 } from 'lucide-react'
 import { marketingApi } from '@/api/marketing'
 import { usersApi } from '@/api/users'
-import { rolesApi } from '@/api/roles'
 import { settingsApi } from '@/api/settings'
 import type { MktProject, MktBudgetLine, MktProjectKpi, HrEventSearchResult, InvoiceSearchResult, KpiBenchmarks } from '@/types/marketing'
 import type { UserDetail } from '@/types/users'
@@ -196,9 +195,12 @@ function StatusActions({ project, onDone }: { project: MktProject; onDone: () =>
   const queryClient = useQueryClient()
   const [submitOpen, setSubmitOpen] = useState(false)
   const [selectedApprover, setSelectedApprover] = useState<number | undefined>()
-  const { data: allUsers } = useQuery({ queryKey: ['users-list'], queryFn: () => usersApi.getUsers(), enabled: submitOpen })
+  const { data: membersData } = useQuery({ queryKey: ['mkt-members', project.id], queryFn: () => marketingApi.getMembers(project.id) })
+  const stakeholders = (membersData?.members ?? []).filter((m) => m.role === 'stakeholder')
+  const hasStakeholders = stakeholders.length > 0
+  const { data: allUsers } = useQuery({ queryKey: ['users-list'], queryFn: () => usersApi.getUsers(), enabled: submitOpen && !hasStakeholders })
   const submitMut = useMutation({
-    mutationFn: () => marketingApi.submitApproval(project.id, selectedApprover),
+    mutationFn: () => marketingApi.submitApproval(project.id, hasStakeholders ? undefined : selectedApprover),
     onSuccess: () => { setSubmitOpen(false); setSelectedApprover(undefined); onDone() },
   })
   const activateMut = useMutation({ mutationFn: () => marketingApi.activateProject(project.id), onSuccess: onDone })
@@ -223,7 +225,12 @@ function StatusActions({ project, onDone }: { project: MktProject; onDone: () =>
   const s = project.status
   return (
     <div className="flex items-center gap-1.5">
-      {(s === 'draft' || s === 'cancelled') && (
+      {(s === 'draft' || s === 'cancelled') && hasStakeholders ? (
+        <Button size="sm" onClick={() => submitMut.mutate()} disabled={submitMut.isPending}>
+          <Send className="h-3.5 w-3.5 mr-1.5" />
+          {submitMut.isPending ? 'Submitting...' : `Submit (${stakeholders.length} stakeholder${stakeholders.length === 1 ? '' : 's'})`}
+        </Button>
+      ) : (s === 'draft' || s === 'cancelled') && (
         <Popover open={submitOpen} onOpenChange={(o) => { setSubmitOpen(o); if (!o) setSelectedApprover(undefined) }}>
           <PopoverTrigger asChild>
             <Button size="sm">
@@ -1881,11 +1888,15 @@ function TeamTab({ projectId }: { projectId: number }) {
   })
   const members = data?.members ?? []
 
-  const { data: rolesData } = useQuery({
-    queryKey: ['settings', 'roles'],
-    queryFn: rolesApi.getRoles,
-  })
-  const roles = rolesData ?? []
+  const PROJECT_ROLES = [
+    { value: 'stakeholder', label: 'Stakeholder' },
+    { value: 'observer', label: 'Observer' },
+    { value: 'owner', label: 'Owner' },
+    { value: 'manager', label: 'Manager' },
+    { value: 'specialist', label: 'Specialist' },
+    { value: 'viewer', label: 'Viewer' },
+    { value: 'agency', label: 'Agency' },
+  ]
 
   const { data: usersData } = useQuery({
     queryKey: ['users-list'],
@@ -1955,8 +1966,8 @@ function TeamTab({ projectId }: { projectId: number }) {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {roles.map((r) => (
-                          <SelectItem key={r.id} value={r.name} className="text-xs">{r.name}</SelectItem>
+                        {PROJECT_ROLES.map((r) => (
+                          <SelectItem key={r.value} value={r.value} className="text-xs">{r.label}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1995,8 +2006,8 @@ function TeamTab({ projectId }: { projectId: number }) {
               <Select value={addRole} onValueChange={setAddRole}>
                 <SelectTrigger><SelectValue placeholder="Select role" /></SelectTrigger>
                 <SelectContent>
-                  {roles.map((r) => (
-                    <SelectItem key={r.id} value={r.name}>{r.name}</SelectItem>
+                  {PROJECT_ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

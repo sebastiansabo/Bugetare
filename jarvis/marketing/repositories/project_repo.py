@@ -59,10 +59,11 @@ class ProjectRepository:
                         SELECT 1 FROM approval_requests ar
                         WHERE ar.entity_type = 'mkt_project' AND ar.entity_id = p.id
                           AND ar.status IN ('pending', 'on_hold')
-                          AND (ar.context_snapshot->>'approver_user_id')::int = %s
+                          AND ((ar.context_snapshot->>'approver_user_id')::int = %s
+                               OR ar.context_snapshot->'stakeholder_approver_ids' @> to_jsonb(%s::int))
                     )''',
                 ]
-                user_params = [uid, uid, uid]
+                user_params = [uid, uid, uid, uid]
                 if dept_cid:
                     user_clauses.append('p.company_id = %s')
                     user_params.append(int(dept_cid))
@@ -140,8 +141,9 @@ class ProjectRepository:
                      department_structure_id, department_ids,
                      project_type, channel_mix, status, start_date, end_date,
                      total_budget, currency, owner_id, created_by,
-                     objective, target_audience, brief, external_ref, metadata)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     objective, target_audience, brief, external_ref, metadata,
+                     approval_mode)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             ''', (
                 name, slug, kwargs.get('description'),
@@ -155,6 +157,7 @@ class ProjectRepository:
                 json.dumps(kwargs.get('brief', {})),
                 kwargs.get('external_ref'),
                 json.dumps(kwargs.get('metadata', {})),
+                kwargs.get('approval_mode', 'any'),
             ))
             project_id = cursor.fetchone()['id']
             conn.commit()
@@ -171,7 +174,7 @@ class ProjectRepository:
             'department_structure_id', 'department_ids',
             'project_type', 'channel_mix', 'status', 'start_date', 'end_date',
             'total_budget', 'currency', 'owner_id', 'objective', 'target_audience',
-            'brief', 'external_ref', 'metadata',
+            'brief', 'external_ref', 'metadata', 'approval_mode',
         }
         conn = get_db()
         try:
@@ -259,6 +262,7 @@ class ProjectRepository:
             objective=original.get('objective'),
             target_audience=original.get('target_audience'),
             brief=original.get('brief', {}),
+            approval_mode=original.get('approval_mode', 'any'),
         )
 
     def _generate_slug(self, cursor, name):

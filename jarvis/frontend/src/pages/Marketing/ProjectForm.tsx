@@ -12,8 +12,10 @@ import { ChevronDown } from 'lucide-react'
 import { marketingApi } from '@/api/marketing'
 import { settingsApi } from '@/api/settings'
 import { organizationApi } from '@/api/organization'
+import { usersApi } from '@/api/users'
 import type { MktProject } from '@/types/marketing'
 import type { CompanyWithBrands, DepartmentStructure } from '@/types/organization'
+import type { UserDetail } from '@/types/users'
 
 interface Props {
   project?: MktProject | null
@@ -39,8 +41,11 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
     objective: project?.objective ?? '',
     target_audience: project?.target_audience ?? '',
     external_ref: project?.external_ref ?? '',
+    approval_mode: project?.approval_mode ?? 'any',
   })
 
+  const [stakeholderIds, setStakeholderIds] = useState<number[]>([])
+  const [observerIds, setObserverIds] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
 
   // Lookups
@@ -63,6 +68,27 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
     queryKey: ['dropdown-options', 'mkt_channel'],
     queryFn: () => settingsApi.getDropdownOptions('mkt_channel'),
   })
+
+  const { data: allUsers } = useQuery({
+    queryKey: ['users-list'],
+    queryFn: () => usersApi.getUsers(),
+  })
+
+  // Load existing stakeholders/observers on edit
+  const { data: existingMembers } = useQuery({
+    queryKey: ['mkt-members', project?.id],
+    queryFn: () => marketingApi.getMembers(project!.id),
+    enabled: isEdit && !!project?.id,
+  })
+
+  // Seed stakeholder/observer IDs from existing members (once on load)
+  const [membersSeeded, setMembersSeeded] = useState(false)
+  if (isEdit && existingMembers && !membersSeeded) {
+    const members = existingMembers.members ?? []
+    setStakeholderIds(members.filter((m) => m.role === 'stakeholder').map((m) => m.user_id))
+    setObserverIds(members.filter((m) => m.role === 'observer').map((m) => m.user_id))
+    setMembersSeeded(true)
+  }
 
   // Derived: brands from selected companies
   const availableBrands = useMemo(() => {
@@ -87,8 +113,51 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
     return (structures as DepartmentStructure[]).filter((s) => form.company_ids.includes(s.company_id))
   }, [structures, form.company_ids])
 
+  async function addMembersToProject(projectId: number, sIds: number[], oIds: number[]) {
+    const adds = [
+      ...sIds.map((uid) => marketingApi.addMember(projectId, { user_id: uid, role: 'stakeholder' })),
+      ...oIds.map((uid) => marketingApi.addMember(projectId, { user_id: uid, role: 'observer' })),
+    ]
+    await Promise.all(adds)
+  }
+
+  async function syncMembers(projectId: number, sIds: number[], oIds: number[]) {
+    const members = existingMembers?.members ?? []
+    const existingStakeholders = members.filter((m) => m.role === 'stakeholder')
+    const existingObservers = members.filter((m) => m.role === 'observer')
+    const removes: Promise<unknown>[] = []
+    const adds: Promise<unknown>[] = []
+    // Remove stakeholders no longer selected
+    for (const m of existingStakeholders) {
+      if (!sIds.includes(m.user_id)) removes.push(marketingApi.removeMember(projectId, m.id))
+    }
+    // Remove observers no longer selected
+    for (const m of existingObservers) {
+      if (!oIds.includes(m.user_id)) removes.push(marketingApi.removeMember(projectId, m.id))
+    }
+    // Add new stakeholders
+    for (const uid of sIds) {
+      if (!existingStakeholders.some((m) => m.user_id === uid)) {
+        adds.push(marketingApi.addMember(projectId, { user_id: uid, role: 'stakeholder' }))
+      }
+    }
+    // Add new observers
+    for (const uid of oIds) {
+      if (!existingObservers.some((m) => m.user_id === uid)) {
+        adds.push(marketingApi.addMember(projectId, { user_id: uid, role: 'observer' }))
+      }
+    }
+    await Promise.all([...removes, ...adds])
+  }
+
   const createMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) => marketingApi.createProject(data as Partial<MktProject>),
+    mutationFn: async (data: Record<string, unknown>) => {
+      const res = await marketingApi.createProject(data as Partial<MktProject>)
+      if (res.id && (stakeholderIds.length > 0 || observerIds.length > 0)) {
+        await addMembersToProject(res.id, stakeholderIds, observerIds)
+      }
+      return res
+    },
     onSuccess: () => onSuccess(),
     onError: (err: Error & { data?: { error?: string } }) => {
       setError(err?.data?.error || err.message || 'Failed to create project')
@@ -96,7 +165,11 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) => marketingApi.updateProject(project!.id, data as Partial<MktProject>),
+    mutationFn: async (data: Record<string, unknown>) => {
+      const res = await marketingApi.updateProject(project!.id, data as Partial<MktProject>)
+      await syncMembers(project!.id, stakeholderIds, observerIds)
+      return res
+    },
     onSuccess: () => onSuccess(),
     onError: (err: Error & { data?: { error?: string } }) => {
       setError(err?.data?.error || err.message || 'Failed to update project')
@@ -143,6 +216,7 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
       channel_mix: form.channel_mix,
       currency: form.currency,
       total_budget: Number(form.total_budget) || 0,
+      approval_mode: form.approval_mode,
     }
     if (form.description) payload.description = form.description
     if (form.brand_ids.length === 1) payload.brand_id = form.brand_ids[0]
@@ -457,6 +531,104 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
           onChange={(e) => setForm((f) => ({ ...f, external_ref: e.target.value }))}
           placeholder="PO number, agency ref, etc."
         />
+      </div>
+
+      {/* Approval Settings */}
+      <div className="space-y-1.5">
+        <Label>Approval Mode</Label>
+        <Select value={form.approval_mode} onValueChange={(v) => setForm((f) => ({ ...f, approval_mode: v as 'any' | 'all' }))}>
+          <SelectTrigger><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="any">Any one stakeholder</SelectItem>
+            <SelectItem value="all">All stakeholders must approve</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Stakeholders (approvers) */}
+      <div className="space-y-1.5">
+        <Label>Stakeholders (Approvers)</Label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-full justify-between font-normal">
+              <span className="truncate">
+                {stakeholderIds.length === 0
+                  ? 'Select stakeholders...'
+                  : `${stakeholderIds.length} stakeholder${stakeholderIds.length === 1 ? '' : 's'} selected`}
+              </span>
+              <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[--radix-popover-trigger-width] p-2" align="start">
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {(allUsers ?? []).filter((u: UserDetail) => !observerIds.includes(u.id)).map((u: UserDetail) => (
+                <label key={u.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer text-sm">
+                  <Checkbox
+                    checked={stakeholderIds.includes(u.id)}
+                    onCheckedChange={() => setStakeholderIds((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
+                  />
+                  {u.name}
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+        {stakeholderIds.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {stakeholderIds.map((id) => {
+              const name = (allUsers ?? []).find((u: UserDetail) => u.id === id)?.name
+              return name ? (
+                <Badge key={id} variant="secondary" className="text-xs gap-1">
+                  {name}
+                  <button type="button" className="ml-0.5 hover:text-destructive" onClick={() => setStakeholderIds((prev) => prev.filter((x) => x !== id))}>&times;</button>
+                </Badge>
+              ) : null
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Observers (view-only) */}
+      <div className="space-y-1.5">
+        <Label>Observers (View-only)</Label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="w-full justify-between font-normal">
+              <span className="truncate">
+                {observerIds.length === 0
+                  ? 'Select observers...'
+                  : `${observerIds.length} observer${observerIds.length === 1 ? '' : 's'} selected`}
+              </span>
+              <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[--radix-popover-trigger-width] p-2" align="start">
+            <div className="max-h-48 overflow-y-auto space-y-1">
+              {(allUsers ?? []).filter((u: UserDetail) => !stakeholderIds.includes(u.id)).map((u: UserDetail) => (
+                <label key={u.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer text-sm">
+                  <Checkbox
+                    checked={observerIds.includes(u.id)}
+                    onCheckedChange={() => setObserverIds((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
+                  />
+                  {u.name}
+                </label>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+        {observerIds.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {observerIds.map((id) => {
+              const name = (allUsers ?? []).find((u: UserDetail) => u.id === id)?.name
+              return name ? (
+                <Badge key={id} variant="secondary" className="text-xs gap-1">
+                  {name}
+                  <button type="button" className="ml-0.5 hover:text-destructive" onClick={() => setObserverIds((prev) => prev.filter((x) => x !== id))}>&times;</button>
+                </Badge>
+              ) : null
+            })}
+          </div>
+        )}
       </div>
 
       {/* Actions */}

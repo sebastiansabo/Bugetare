@@ -225,9 +225,7 @@ def api_submit_approval(project_id):
     if project['status'] not in ('draft', 'cancelled', 'pending_approval'):
         return jsonify({'success': False, 'error': f"Cannot submit from status '{project['status']}'"}), 400
 
-    # Accept optional approver_id from request body (for context_approver flow)
     body = request.get_json(silent=True) or {}
-    approver_id = body.get('approver_id')
 
     try:
         from core.approvals.engine import ApprovalEngine
@@ -252,8 +250,17 @@ def api_submit_approval(project_id):
             ],
         }
 
-        if approver_id:
-            context['approver_user_id'] = int(approver_id)
+        # Auto-detect stakeholders for approval routing
+        stakeholder_ids = _member_repo.get_stakeholder_ids(project_id)
+        if stakeholder_ids:
+            context['stakeholder_approver_ids'] = stakeholder_ids
+            if project.get('approval_mode') == 'all':
+                context['min_approvals_override'] = len(stakeholder_ids)
+        else:
+            # Backward compat: single approver picker
+            approver_id = body.get('approver_id')
+            if approver_id:
+                context['approver_user_id'] = int(approver_id)
 
         result = engine.submit(
             entity_type='mkt_project',
@@ -265,8 +272,8 @@ def api_submit_approval(project_id):
         _project_repo.update_status(project_id, 'pending_approval')
         _activity_repo.log(project_id, 'approval_submitted', actor_id=current_user.id)
 
-        # Notify project members + selected approver
-        from core.notifications.notify import notify_user, notify_users
+        # Notify project members + stakeholders
+        from core.notifications.notify import notify_users
         member_ids = _member_repo.get_user_ids_for_project(project_id)
         notify_users(
             [uid for uid in member_ids if uid != current_user.id],
@@ -276,15 +283,6 @@ def api_submit_approval(project_id):
             entity_id=project_id,
             type='info',
         )
-        if approver_id and int(approver_id) not in member_ids:
-            notify_user(
-                int(approver_id),
-                title=f"You have been asked to approve '{project['name']}'",
-                link=f'/app/approvals',
-                entity_type='mkt_project',
-                entity_id=project_id,
-                type='warning',
-            )
 
         return jsonify({'success': True, 'request_id': result.get('request_id') if isinstance(result, dict) else result})
     except Exception as e:

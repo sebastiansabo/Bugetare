@@ -376,6 +376,7 @@ class TestEngineDecide:
         # After approval, return approved request
         engine._request_repo.get_by_id.side_effect = [
             req,  # First call in decide()
+            req,  # Second call in _is_step_complete()
             {**req, 'status': 'approved'},  # Return after update
         ]
 

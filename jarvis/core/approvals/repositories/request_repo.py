@@ -170,7 +170,7 @@ class RequestRepository:
         conn = get_db()
         try:
             cursor = get_cursor(conn)
-            params = [user_id, user_id, user_id, str(user_id), user_id]
+            params = [user_id, user_id, user_id, str(user_id), user_id, user_id, user_id]
             entity_filter = ''
             if entity_type:
                 entity_filter = 'AND r.entity_type = %s'
@@ -199,6 +199,9 @@ class RequestRepository:
                     -- Context-driven approver (ad-hoc selection at submit time)
                     OR (s.approver_type = 'context_approver'
                         AND r.context_snapshot->>'approver_user_id' = %s)
+                    -- Multi-stakeholder context approver
+                    OR (s.approver_type = 'context_approver'
+                        AND r.context_snapshot->'stakeholder_approver_ids' @> to_jsonb(%s::int))
                     -- Active delegation
                     OR s.approver_user_id IN (
                         SELECT d.delegator_id FROM approval_delegations d
@@ -223,7 +226,7 @@ class RequestRepository:
                         WHEN 'low' THEN 3
                     END,
                     r.requested_at ASC
-            ''', params + [user_id])
+            ''', params)
             return [dict(row) for row in cursor.fetchall()]
         finally:
             release_db(conn)
@@ -248,6 +251,8 @@ class RequestRepository:
                     )
                     OR (s.approver_type = 'context_approver'
                         AND r.context_snapshot->>'approver_user_id' = %s)
+                    OR (s.approver_type = 'context_approver'
+                        AND r.context_snapshot->'stakeholder_approver_ids' @> to_jsonb(%s::int))
                     OR s.approver_user_id IN (
                         SELECT d.delegator_id FROM approval_delegations d
                         WHERE d.delegate_id = %s AND d.is_active = TRUE
@@ -261,7 +266,7 @@ class RequestRepository:
                     WHERE ad.request_id = r.id AND ad.step_id = r.current_step_id
                     AND ad.decided_by = %s
                 )
-            ''', (user_id, user_id, user_id, str(user_id), user_id, user_id))
+            ''', (user_id, user_id, user_id, str(user_id), user_id, user_id, user_id))
             return cursor.fetchone()['cnt']
         finally:
             release_db(conn)

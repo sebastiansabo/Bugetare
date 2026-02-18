@@ -536,6 +536,16 @@ def init_db():
             if cursor.fetchone()['cnt'] == 0:
                 from migrations.init_schema import _seed_sim_benchmarks
                 _seed_sim_benchmarks(cursor)
+            # Stakeholder approval: approval_mode column on mkt_projects
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                   WHERE table_name = 'mkt_projects' AND column_name = 'approval_mode') THEN
+                        ALTER TABLE mkt_projects ADD COLUMN approval_mode TEXT NOT NULL DEFAULT 'any';
+                    END IF;
+                END $$;
+            ''')
             conn.commit()
             logger.info('Database schema already initialized — skipping init_db()')
             return
