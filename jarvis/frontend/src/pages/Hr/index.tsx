@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, NavLink } from 'react-router-dom'
-import { Award, CalendarDays, Building2, Download } from 'lucide-react'
+import { Award, CalendarDays, Download } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -12,12 +12,9 @@ import { cn } from '@/lib/utils'
 
 const BonusesTab = lazy(() => import('./BonusesTab'))
 const EventsTab = lazy(() => import('./EventsTab'))
-const StructureTab = lazy(() => import('./StructureTab'))
-
 const tabs = [
   { to: '/app/hr/bonuses', label: 'Bonuses', icon: Award },
   { to: '/app/hr/events', label: 'Events', icon: CalendarDays },
-  { to: '/app/hr/structure', label: 'Structure', icon: Building2 },
 ] as const
 
 const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -116,7 +113,6 @@ export default function Hr() {
           <Route index element={<Navigate to="bonuses" replace />} />
           <Route path="bonuses" element={<BonusesTab canViewAmounts={canViewAmounts} />} />
           <Route path="events/*" element={<EventsTab />} />
-          <Route path="structure" element={<StructureTab />} />
         </Routes>
       </Suspense>
     </div>
