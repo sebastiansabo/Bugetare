@@ -38,10 +38,10 @@ def api_sim_settings_get():
     conn = get_db()
     try:
         cursor = get_cursor(conn)
-        cursor.execute("SELECT value FROM notification_settings WHERE key = 'sim_config'")
+        cursor.execute("SELECT setting_value FROM notification_settings WHERE setting_key = 'sim_config'")
         row = cursor.fetchone()
         if row:
-            config = json.loads(row['value'])
+            config = json.loads(row['setting_value'])
             merged = {**SIM_DEFAULTS, **config}
         else:
             merged = {**SIM_DEFAULTS}
@@ -60,8 +60,8 @@ def api_sim_settings_put():
         cursor = get_cursor(conn)
         val = json.dumps(data)
         cursor.execute('''
-            INSERT INTO notification_settings (key, value) VALUES ('sim_config', %s)
-            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+            INSERT INTO notification_settings (setting_key, setting_value) VALUES ('sim_config', %s)
+            ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_at = NOW()
         ''', (val,))
         conn.commit()
         return jsonify({'success': True})
