@@ -228,6 +228,7 @@ export interface MktDashboardSummary {
   completed_count: number
   total_count: number
   total_active_budget: number
+  total_active_spent: number
   total_budget: number
   total_spent: number
   kpi_alerts: number

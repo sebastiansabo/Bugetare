@@ -35,12 +35,16 @@ def api_dashboard_summary():
 
         # Budget utilization
         cursor.execute('''
-            SELECT COALESCE(SUM(bl.spent_amount), 0) as total_spent
+            SELECT
+                COALESCE(SUM(bl.spent_amount) FILTER (WHERE p.status IN ('active', 'approved')), 0) as active_spent,
+                COALESCE(SUM(bl.spent_amount), 0) as all_spent
             FROM mkt_budget_lines bl
             JOIN mkt_projects p ON p.id = bl.project_id
-            WHERE p.deleted_at IS NULL AND p.status IN ('active', 'approved')
+            WHERE p.deleted_at IS NULL
         ''')
-        summary['total_spent'] = float(cursor.fetchone()['total_spent'])
+        spent_row = cursor.fetchone()
+        summary['total_spent'] = float(spent_row['all_spent'])
+        summary['total_active_spent'] = float(spent_row['active_spent'])
 
         # KPI alerts
         cursor.execute('''

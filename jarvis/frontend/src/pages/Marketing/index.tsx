@@ -147,7 +147,7 @@ export default function Marketing() {
             />
             <StatCard
               title="Total Budget"
-              value={formatCurrency(summary?.total_active_budget)}
+              value={formatCurrency(summary?.total_budget)}
               icon={<DollarSign className="h-4 w-4" />}
               isLoading={summaryLoading}
             />
