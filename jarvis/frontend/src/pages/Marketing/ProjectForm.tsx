@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { ChevronDown } from 'lucide-react'
 import { marketingApi } from '@/api/marketing'
 import { settingsApi } from '@/api/settings'
@@ -560,17 +561,19 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-[--radix-popover-trigger-width] p-2" align="start">
-            <div className="max-h-48 overflow-y-auto space-y-1">
-              {(allUsers ?? []).filter((u: UserDetail) => !observerIds.includes(u.id)).map((u: UserDetail) => (
-                <label key={u.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer text-sm">
-                  <Checkbox
-                    checked={stakeholderIds.includes(u.id)}
-                    onCheckedChange={() => setStakeholderIds((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
-                  />
-                  {u.name}
-                </label>
-              ))}
-            </div>
+            <ScrollArea className="h-48">
+              <div className="space-y-1 pr-3">
+                {(allUsers ?? []).filter((u: UserDetail) => !observerIds.includes(u.id)).map((u: UserDetail) => (
+                  <label key={u.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer text-sm">
+                    <Checkbox
+                      checked={stakeholderIds.includes(u.id)}
+                      onCheckedChange={() => setStakeholderIds((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
+                    />
+                    {u.name}
+                  </label>
+                ))}
+              </div>
+            </ScrollArea>
           </PopoverContent>
         </Popover>
         {stakeholderIds.length > 0 && (
@@ -603,17 +606,19 @@ export default function ProjectForm({ project, onSuccess, onCancel }: Props) {
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-[--radix-popover-trigger-width] p-2" align="start">
-            <div className="max-h-48 overflow-y-auto space-y-1">
-              {(allUsers ?? []).filter((u: UserDetail) => !stakeholderIds.includes(u.id)).map((u: UserDetail) => (
-                <label key={u.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer text-sm">
-                  <Checkbox
-                    checked={observerIds.includes(u.id)}
-                    onCheckedChange={() => setObserverIds((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
-                  />
-                  {u.name}
-                </label>
-              ))}
-            </div>
+            <ScrollArea className="h-48">
+              <div className="space-y-1 pr-3">
+                {(allUsers ?? []).filter((u: UserDetail) => !stakeholderIds.includes(u.id)).map((u: UserDetail) => (
+                  <label key={u.id} className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-accent cursor-pointer text-sm">
+                    <Checkbox
+                      checked={observerIds.includes(u.id)}
+                      onCheckedChange={() => setObserverIds((prev) => prev.includes(u.id) ? prev.filter((x) => x !== u.id) : [...prev, u.id])}
+                    />
+                    {u.name}
+                  </label>
+                ))}
+              </div>
+            </ScrollArea>
           </PopoverContent>
         </Popover>
         {observerIds.length > 0 && (
