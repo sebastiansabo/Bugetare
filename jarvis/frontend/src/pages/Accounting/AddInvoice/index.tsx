@@ -383,7 +383,7 @@ export default function AddInvoice() {
   const hasParsedData = !!(supplier || invoiceNumber)
 
   return (
-    <div className="space-y-4 pb-20">
+    <div className="space-y-4">
       <PageHeader
         title="Add Invoice"
         description="Create a new invoice and distribute costs."
@@ -871,8 +871,8 @@ export default function AddInvoice() {
       </div>
 
       {/* Sticky bottom action bar */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto flex items-center justify-between gap-3 px-6 py-3 max-w-screen-2xl">
+      <div className="sticky bottom-0 -mx-6 -mb-6 z-40 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex items-center justify-between gap-3 px-6 py-3">
           <Button variant="outline" onClick={clearForm}>
             Clear Form
           </Button>
