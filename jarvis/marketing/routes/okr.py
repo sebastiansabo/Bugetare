@@ -21,7 +21,7 @@ _activity_repo = ActivityRepository()
 
 @marketing_bp.route('/api/projects/<int:project_id>/objectives', methods=['GET'])
 @login_required
-@mkt_permission_required('kpi', 'view')
+@mkt_permission_required('okr', 'view')
 def api_get_objectives(project_id):
     """Get all objectives with nested key results for a project."""
     objectives = _okr_repo.get_by_project(project_id)
@@ -30,7 +30,7 @@ def api_get_objectives(project_id):
 
 @marketing_bp.route('/api/projects/<int:project_id>/objectives', methods=['POST'])
 @login_required
-@mkt_permission_required('kpi', 'edit')
+@mkt_permission_required('okr', 'edit')
 def api_create_objective(project_id):
     """Create a new objective."""
     data, error = get_json_or_error()
@@ -56,6 +56,7 @@ def api_create_objective(project_id):
 
 @marketing_bp.route('/api/objectives/<int:objective_id>', methods=['PUT'])
 @login_required
+@mkt_permission_required('okr', 'edit')
 def api_update_objective(objective_id):
     """Update an objective."""
     data, error = get_json_or_error()
@@ -73,6 +74,7 @@ def api_update_objective(objective_id):
 
 @marketing_bp.route('/api/objectives/<int:objective_id>', methods=['DELETE'])
 @login_required
+@mkt_permission_required('okr', 'edit')
 def api_delete_objective(objective_id):
     """Delete an objective and its key results."""
     try:
@@ -88,6 +90,7 @@ def api_delete_objective(objective_id):
 
 @marketing_bp.route('/api/objectives/<int:objective_id>/key-results', methods=['POST'])
 @login_required
+@mkt_permission_required('okr', 'edit')
 def api_create_key_result(objective_id):
     """Create a key result under an objective."""
     data, error = get_json_or_error()
@@ -113,6 +116,7 @@ def api_create_key_result(objective_id):
 
 @marketing_bp.route('/api/key-results/<int:kr_id>', methods=['PUT'])
 @login_required
+@mkt_permission_required('okr', 'edit')
 def api_update_key_result(kr_id):
     """Update a key result."""
     data, error = get_json_or_error()
@@ -130,6 +134,7 @@ def api_update_key_result(kr_id):
 
 @marketing_bp.route('/api/key-results/<int:kr_id>', methods=['DELETE'])
 @login_required
+@mkt_permission_required('okr', 'edit')
 def api_delete_key_result(kr_id):
     """Delete a key result."""
     try:
@@ -145,7 +150,7 @@ def api_delete_key_result(kr_id):
 
 @marketing_bp.route('/api/projects/<int:project_id>/objectives/<int:objective_id>/suggest-krs', methods=['POST'])
 @login_required
-@mkt_permission_required('kpi', 'edit')
+@mkt_permission_required('okr', 'edit')
 def api_suggest_key_results(project_id, objective_id):
     """Use AI to suggest key results for an objective based on its title and available KPIs."""
     conn = get_db()
@@ -162,7 +167,7 @@ def api_suggest_key_results(project_id, objective_id):
 
         # 2. Get project KPIs
         cursor.execute('''
-            SELECT pk.id, kd.name, pk.current_value, pk.target_value, pk.unit
+            SELECT pk.id, kd.name, pk.current_value, pk.target_value, kd.unit
             FROM mkt_project_kpis pk
             JOIN mkt_kpi_definitions kd ON pk.kpi_definition_id = kd.id
             WHERE pk.project_id = %s
@@ -243,7 +248,7 @@ Return ONLY a JSON array:
 
 @marketing_bp.route('/api/projects/<int:project_id>/objectives/sync-kpis', methods=['POST'])
 @login_required
-@mkt_permission_required('kpi', 'edit')
+@mkt_permission_required('okr', 'edit')
 def api_sync_okr_kpis(project_id):
     """Sync linked KPI values to key results."""
     try:

@@ -579,6 +579,7 @@ function OkrCard({ projectId, kpis }: { projectId: number; kpis: MktProjectKpi[]
   const [newKr, setNewKr] = useState({ title: '', target_value: '100', unit: 'number', linked_kpi_id: '' })
   const [editingKrId, setEditingKrId] = useState<number | null>(null)
   const [editKrValue, setEditKrValue] = useState('')
+  const [editingKrFull, setEditingKrFull] = useState<{ id: number; title: string; target_value: string; unit: string } | null>(null)
   const [suggestions, setSuggestions] = useState<Record<number, SuggestedKr[]>>({})
 
   const { data } = useQuery({
@@ -771,52 +772,111 @@ function OkrCard({ projectId, kpis }: { projectId: number; kpis: MktProjectKpi[]
               {expanded && (
                 <div className="px-3 pb-3 space-y-1.5">
                   {obj.key_results.map((kr) => (
-                    <div key={kr.id} className="flex items-center gap-2 group">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 text-xs">
-                          {kr.linked_kpi_id && <span title={`Linked to KPI: ${kr.linked_kpi_name}`}><Link2 className="h-3 w-3 text-blue-500 shrink-0" /></span>}
-                          <span className="truncate text-muted-foreground">{kr.title}</span>
-                          <span className="ml-auto tabular-nums font-medium shrink-0">
-                            {editingKrId === kr.id ? (
-                              <Input
-                                autoFocus
-                                type="number"
-                                value={editKrValue}
-                                onChange={(e) => setEditKrValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') { updateKrMut.mutate({ id: kr.id, data: { current_value: parseFloat(editKrValue) || 0 } }); setEditingKrId(null) }
-                                  if (e.key === 'Escape') setEditingKrId(null)
-                                }}
-                                onBlur={() => { updateKrMut.mutate({ id: kr.id, data: { current_value: parseFloat(editKrValue) || 0 } }); setEditingKrId(null) }}
-                                className="h-5 w-16 text-xs px-1 inline"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            ) : (
-                              <button
-                                className={cn('hover:underline', kr.linked_kpi_id ? 'cursor-default' : 'cursor-pointer')}
-                                onClick={() => { if (!kr.linked_kpi_id) { setEditingKrId(kr.id); setEditKrValue(String(kr.current_value ?? 0)) } }}
-                                disabled={!!kr.linked_kpi_id}
-                                title={kr.linked_kpi_id ? 'Synced from KPI — click Sync to update' : 'Click to edit value'}
-                              >
-                                {Number(kr.current_value ?? 0).toLocaleString('ro-RO', { maximumFractionDigits: 1 })}
-                              </button>
-                            )}
-                            <span className="text-muted-foreground">/{Number(kr.target_value ?? 0).toLocaleString('ro-RO')}</span>
-                            {kr.unit === 'percentage' && '%'}
-                          </span>
-                          <span className="text-[10px] tabular-nums w-8 text-right shrink-0">{Math.round(kr.progress)}%</span>
+                    <div key={kr.id}>
+                      {editingKrFull?.id === kr.id ? (
+                        /* Full KR edit row */
+                        <div className="flex items-center gap-1.5 py-1">
+                          <Input
+                            autoFocus
+                            value={editingKrFull.title}
+                            onChange={(e) => setEditingKrFull((p) => p ? { ...p, title: e.target.value } : p)}
+                            className="h-7 text-xs flex-1"
+                            placeholder="Key result title"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') setEditingKrFull(null)
+                              if (e.key === 'Enter' && editingKrFull.title.trim()) {
+                                updateKrMut.mutate({ id: kr.id, data: { title: editingKrFull.title.trim(), target_value: parseFloat(editingKrFull.target_value) || 100, unit: editingKrFull.unit } })
+                                setEditingKrFull(null)
+                              }
+                            }}
+                          />
+                          <Input
+                            type="number"
+                            value={editingKrFull.target_value}
+                            onChange={(e) => setEditingKrFull((p) => p ? { ...p, target_value: e.target.value } : p)}
+                            className="h-7 text-xs w-20"
+                            placeholder="Target"
+                          />
+                          <Select value={editingKrFull.unit} onValueChange={(v) => setEditingKrFull((p) => p ? { ...p, unit: v } : p)}>
+                            <SelectTrigger className="h-7 text-xs w-24"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="number">Number</SelectItem>
+                              <SelectItem value="currency">Currency</SelectItem>
+                              <SelectItem value="percentage">%</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            variant="ghost" size="sm" className="h-6 w-6 p-0"
+                            onClick={() => {
+                              if (editingKrFull.title.trim()) {
+                                updateKrMut.mutate({ id: kr.id, data: { title: editingKrFull.title.trim(), target_value: parseFloat(editingKrFull.target_value) || 100, unit: editingKrFull.unit } })
+                              }
+                              setEditingKrFull(null)
+                            }}
+                          >
+                            <Check className="h-3 w-3 text-green-600" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => setEditingKrFull(null)}>
+                            <X className="h-3 w-3" />
+                          </Button>
                         </div>
-                        <div className="w-full h-1 rounded-full bg-muted overflow-hidden mt-0.5">
-                          <div className={`h-full rounded-full ${progressColor(kr.progress)}`} style={{ width: `${Math.min(kr.progress, 100)}%` }} />
+                      ) : (
+                        /* Normal KR display row */
+                        <div className="flex items-center gap-2 group">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 text-xs">
+                              {kr.linked_kpi_id && <span title={`Linked to KPI: ${kr.linked_kpi_name}`}><Link2 className="h-3 w-3 text-blue-500 shrink-0" /></span>}
+                              <span className="truncate text-muted-foreground">{kr.title}</span>
+                              <span className="ml-auto tabular-nums font-medium shrink-0">
+                                {editingKrId === kr.id ? (
+                                  <Input
+                                    autoFocus
+                                    type="number"
+                                    value={editKrValue}
+                                    onChange={(e) => setEditKrValue(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') { updateKrMut.mutate({ id: kr.id, data: { current_value: parseFloat(editKrValue) || 0 } }); setEditingKrId(null) }
+                                      if (e.key === 'Escape') setEditingKrId(null)
+                                    }}
+                                    onBlur={() => { updateKrMut.mutate({ id: kr.id, data: { current_value: parseFloat(editKrValue) || 0 } }); setEditingKrId(null) }}
+                                    className="h-5 w-16 text-xs px-1 inline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                ) : (
+                                  <button
+                                    className={cn('hover:underline', kr.linked_kpi_id ? 'cursor-default' : 'cursor-pointer')}
+                                    onClick={() => { if (!kr.linked_kpi_id) { setEditingKrId(kr.id); setEditKrValue(String(kr.current_value ?? 0)) } }}
+                                    disabled={!!kr.linked_kpi_id}
+                                    title={kr.linked_kpi_id ? 'Synced from KPI — click Sync to update' : 'Click to edit value'}
+                                  >
+                                    {Number(kr.current_value ?? 0).toLocaleString('ro-RO', { maximumFractionDigits: 1 })}
+                                  </button>
+                                )}
+                                <span className="text-muted-foreground">/{Number(kr.target_value ?? 0).toLocaleString('ro-RO')}</span>
+                                {kr.unit === 'percentage' && '%'}
+                              </span>
+                              <span className="text-[10px] tabular-nums w-8 text-right shrink-0">{Math.round(kr.progress)}%</span>
+                            </div>
+                            <div className="w-full h-1 rounded-full bg-muted overflow-hidden mt-0.5">
+                              <div className={`h-full rounded-full ${progressColor(kr.progress)}`} style={{ width: `${Math.min(kr.progress, 100)}%` }} />
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 shrink-0"
+                            onClick={() => setEditingKrFull({ id: kr.id, title: kr.title, target_value: String(kr.target_value ?? 100), unit: kr.unit })}
+                          >
+                            <Pencil className="h-2.5 w-2.5" />
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive shrink-0"
+                            onClick={() => deleteKrMut.mutate(kr.id)}
+                          >
+                            <Trash2 className="h-2.5 w-2.5" />
+                          </Button>
                         </div>
-                      </div>
-                      <Button
-                        variant="ghost" size="sm"
-                        className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive shrink-0"
-                        onClick={() => deleteKrMut.mutate(kr.id)}
-                      >
-                        <Trash2 className="h-2.5 w-2.5" />
-                      </Button>
+                      )}
                     </div>
                   ))}
 

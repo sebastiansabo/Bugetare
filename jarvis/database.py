@@ -566,6 +566,34 @@ def init_db():
             ''')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_key_results_objective ON mkt_key_results(objective_id)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_key_results_kpi ON mkt_key_results(linked_kpi_id)')
+            # OKR permissions
+            cursor.execute("SELECT COUNT(*) as cnt FROM permissions_v2 WHERE module_key = 'marketing' AND entity_key = 'okr'")
+            if cursor.fetchone()['cnt'] == 0:
+                cursor.execute('''
+                    INSERT INTO permissions_v2 (module_key, module_label, module_icon, entity_key, entity_label, action_key, action_label, description, is_scope_based, sort_order) VALUES
+                    ('marketing', 'Marketing', 'bi-megaphone', 'okr', 'OKR', 'view', 'View', 'View objectives & key results', TRUE, 11),
+                    ('marketing', 'Marketing', 'bi-megaphone', 'okr', 'OKR', 'edit', 'Edit', 'Edit objectives & key results', TRUE, 12)
+                ''')
+                cursor.execute('SELECT id, name FROM roles')
+                for role in cursor.fetchall():
+                    rn = role['name']
+                    cursor.execute("SELECT id, action_key FROM permissions_v2 WHERE module_key = 'marketing' AND entity_key = 'okr'")
+                    for p in cursor.fetchall():
+                        scope = 'deny'
+                        if rn == 'Admin':
+                            scope = 'all'
+                        elif rn == 'Manager':
+                            scope = 'department'
+                        elif p['action_key'] == 'view':
+                            scope = 'own'
+                        elif p['action_key'] == 'edit':
+                            scope = 'own'
+                        if scope != 'deny':
+                            cursor.execute('''
+                                INSERT INTO role_permissions_v2 (role_id, permission_id, scope, granted)
+                                VALUES (%s, %s, %s, TRUE)
+                                ON CONFLICT (role_id, permission_id) DO NOTHING
+                            ''', (role['id'], p['id'], scope))
             # Stakeholder approval: approval_mode column on mkt_projects
             cursor.execute('''
                 DO $$
