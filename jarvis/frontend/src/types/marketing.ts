@@ -308,6 +308,36 @@ export interface MktKpiDependency {
   created_at: string
 }
 
+// ── OKR ──
+
+export interface MktObjective {
+  id: number
+  project_id: number
+  title: string
+  description: string | null
+  sort_order: number
+  created_by: number
+  created_at: string
+  updated_at: string | null
+  progress: number
+  key_results: MktKeyResult[]
+}
+
+export interface MktKeyResult {
+  id: number
+  objective_id: number
+  title: string
+  target_value: number
+  current_value: number
+  unit: string
+  linked_kpi_id: number | null
+  linked_kpi_name: string | null
+  sort_order: number
+  created_at: string
+  updated_at: string | null
+  progress: number
+}
+
 export interface InvoiceSearchResult {
   id: number
   supplier: string

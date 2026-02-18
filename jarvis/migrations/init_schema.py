@@ -2604,6 +2604,37 @@ def create_schema(conn, cursor):
         )
     ''')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_sim_bench_stage ON mkt_sim_benchmarks(funnel_stage)')
+
+    # OKR tables
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_objectives (
+            id SERIAL PRIMARY KEY,
+            project_id INTEGER NOT NULL REFERENCES mkt_projects(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            description TEXT,
+            sort_order INTEGER DEFAULT 0,
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_objectives_project ON mkt_objectives(project_id)')
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS mkt_key_results (
+            id SERIAL PRIMARY KEY,
+            objective_id INTEGER NOT NULL REFERENCES mkt_objectives(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            target_value NUMERIC(15,4) NOT NULL DEFAULT 100,
+            current_value NUMERIC(15,4) NOT NULL DEFAULT 0,
+            unit TEXT NOT NULL DEFAULT 'number',
+            linked_kpi_id INTEGER REFERENCES mkt_project_kpis(id) ON DELETE SET NULL,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_key_results_objective ON mkt_key_results(objective_id)')
+    cursor.execute('CREATE INDEX IF NOT EXISTS idx_mkt_key_results_kpi ON mkt_key_results(linked_kpi_id)')
     conn.commit()
 
     # Seed simulator benchmarks from exercitiu.xlsx Foaie2

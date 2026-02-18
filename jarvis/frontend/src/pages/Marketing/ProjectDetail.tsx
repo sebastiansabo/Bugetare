@@ -24,7 +24,7 @@ import {
 import { marketingApi } from '@/api/marketing'
 import { usersApi } from '@/api/users'
 import { settingsApi } from '@/api/settings'
-import type { MktProject, MktBudgetLine, MktProjectKpi, HrEventSearchResult, InvoiceSearchResult, KpiBenchmarks } from '@/types/marketing'
+import type { MktProject, MktBudgetLine, MktProjectKpi, MktKeyResult, HrEventSearchResult, InvoiceSearchResult, KpiBenchmarks } from '@/types/marketing'
 import type { UserDetail } from '@/types/users'
 import { approvalsApi } from '@/api/approvals'
 import { ApprovalWidget } from '@/components/shared/ApprovalWidget'
@@ -419,6 +419,9 @@ function OverviewTab({ project }: { project: MktProject }) {
           </div>
         )}
 
+        {/* OKR Card */}
+        <OkrCard projectId={project.id} kpis={kpisData?.kpis ?? []} />
+
         {/* Project Description — editable */}
         <div className="rounded-lg border p-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -554,6 +557,308 @@ function OverviewTab({ project }: { project: MktProject }) {
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+
+// ──────────────────────────────────────────
+// OKR Card (inline in Overview)
+// ──────────────────────────────────────────
+
+function OkrCard({ projectId, kpis }: { projectId: number; kpis: MktProjectKpi[] }) {
+  const queryClient = useQueryClient()
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+  const [addingObjective, setAddingObjective] = useState(false)
+  const [newObjTitle, setNewObjTitle] = useState('')
+  const [editingObjId, setEditingObjId] = useState<number | null>(null)
+  const [editObjTitle, setEditObjTitle] = useState('')
+  const [addingKrForObj, setAddingKrForObj] = useState<number | null>(null)
+  const [newKr, setNewKr] = useState({ title: '', target_value: '100', unit: 'number', linked_kpi_id: '' })
+  const [editingKrId, setEditingKrId] = useState<number | null>(null)
+  const [editKrValue, setEditKrValue] = useState('')
+
+  const { data } = useQuery({
+    queryKey: ['mkt-objectives', projectId],
+    queryFn: () => marketingApi.getObjectives(projectId),
+  })
+  const objectives = data?.objectives ?? []
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['mkt-objectives', projectId] })
+
+  const createObjMut = useMutation({
+    mutationFn: (title: string) => marketingApi.createObjective(projectId, { title }),
+    onSuccess: () => { invalidate(); setAddingObjective(false); setNewObjTitle('') },
+  })
+  const updateObjMut = useMutation({
+    mutationFn: ({ id, title }: { id: number; title: string }) => marketingApi.updateObjective(id, { title }),
+    onSuccess: () => { invalidate(); setEditingObjId(null) },
+  })
+  const deleteObjMut = useMutation({
+    mutationFn: (id: number) => marketingApi.deleteObjective(id),
+    onSuccess: invalidate,
+  })
+  const createKrMut = useMutation({
+    mutationFn: ({ objId, data: d }: { objId: number; data: { title: string; target_value: number; unit: string; linked_kpi_id?: number | null } }) =>
+      marketingApi.createKeyResult(objId, d),
+    onSuccess: () => { invalidate(); setAddingKrForObj(null); setNewKr({ title: '', target_value: '100', unit: 'number', linked_kpi_id: '' }) },
+  })
+  const updateKrMut = useMutation({
+    mutationFn: ({ id, data: d }: { id: number; data: Partial<MktKeyResult> }) => marketingApi.updateKeyResult(id, d),
+    onSuccess: () => { invalidate(); setEditingKrId(null) },
+  })
+  const deleteKrMut = useMutation({
+    mutationFn: (id: number) => marketingApi.deleteKeyResult(id),
+    onSuccess: invalidate,
+  })
+  const syncMut = useMutation({
+    mutationFn: () => marketingApi.syncOkrKpis(projectId),
+    onSuccess: invalidate,
+  })
+
+  const toggleExpand = (id: number) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const progressColor = (pct: number) =>
+    pct >= 100 ? 'bg-green-500' : pct >= 70 ? 'bg-blue-500' : pct >= 40 ? 'bg-yellow-500' : 'bg-red-500'
+
+  const hasLinkedKpis = objectives.some((o) => o.key_results.some((kr) => kr.linked_kpi_id))
+
+  return (
+    <div className="rounded-lg border p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-sm">Objectives & Key Results</h3>
+        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setAddingObjective(true)}>
+          <Plus className="h-3 w-3 mr-1" /> Add Objective
+        </Button>
+      </div>
+
+      {objectives.length === 0 && !addingObjective && (
+        <p className="text-sm text-muted-foreground">No objectives yet. Add one to start tracking OKRs.</p>
+      )}
+
+      <div className="space-y-2">
+        {objectives.map((obj) => {
+          const expanded = expandedIds.has(obj.id) || expandedIds.size === 0
+          return (
+            <div key={obj.id} className="rounded-lg border">
+              {/* Objective header */}
+              <div
+                className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-muted/50"
+                onClick={() => toggleExpand(obj.id)}
+              >
+                {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                {editingObjId === obj.id ? (
+                  <Input
+                    autoFocus
+                    value={editObjTitle}
+                    onChange={(e) => setEditObjTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && editObjTitle.trim()) updateObjMut.mutate({ id: obj.id, title: editObjTitle.trim() })
+                      if (e.key === 'Escape') setEditingObjId(null)
+                    }}
+                    onBlur={() => { if (editObjTitle.trim() && editObjTitle.trim() !== obj.title) updateObjMut.mutate({ id: obj.id, title: editObjTitle.trim() }); else setEditingObjId(null) }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-7 text-sm font-medium"
+                  />
+                ) : (
+                  <span
+                    className="text-sm font-medium flex-1 truncate"
+                    onDoubleClick={(e) => { e.stopPropagation(); setEditingObjId(obj.id); setEditObjTitle(obj.title) }}
+                  >
+                    {obj.title}
+                  </span>
+                )}
+                <span className="text-xs font-medium tabular-nums ml-auto shrink-0">{Math.round(obj.progress)}%</span>
+                <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden shrink-0">
+                  <div className={`h-full rounded-full ${progressColor(obj.progress)}`} style={{ width: `${Math.min(obj.progress, 100)}%` }} />
+                </div>
+                <div className="flex items-center gap-0.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <Button
+                    variant="ghost" size="sm" className="h-6 w-6 p-0"
+                    onClick={() => { setEditingObjId(obj.id); setEditObjTitle(obj.title) }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-destructive hover:text-destructive">
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Objective</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will delete the objective and all its key results. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => deleteObjMut.mutate(obj.id)}>Delete</AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </div>
+
+              {/* Key Results */}
+              {expanded && (
+                <div className="px-3 pb-3 space-y-1.5">
+                  {obj.key_results.map((kr) => (
+                    <div key={kr.id} className="flex items-center gap-2 group">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs">
+                          {kr.linked_kpi_id && <span title={`Linked to KPI: ${kr.linked_kpi_name}`}><Link2 className="h-3 w-3 text-blue-500 shrink-0" /></span>}
+                          <span className="truncate text-muted-foreground">{kr.title}</span>
+                          <span className="ml-auto tabular-nums font-medium shrink-0">
+                            {editingKrId === kr.id ? (
+                              <Input
+                                autoFocus
+                                type="number"
+                                value={editKrValue}
+                                onChange={(e) => setEditKrValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') { updateKrMut.mutate({ id: kr.id, data: { current_value: parseFloat(editKrValue) || 0 } }); setEditingKrId(null) }
+                                  if (e.key === 'Escape') setEditingKrId(null)
+                                }}
+                                onBlur={() => { updateKrMut.mutate({ id: kr.id, data: { current_value: parseFloat(editKrValue) || 0 } }); setEditingKrId(null) }}
+                                className="h-5 w-16 text-xs px-1 inline"
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <button
+                                className={cn('hover:underline', kr.linked_kpi_id ? 'cursor-default' : 'cursor-pointer')}
+                                onClick={() => { if (!kr.linked_kpi_id) { setEditingKrId(kr.id); setEditKrValue(String(kr.current_value ?? 0)) } }}
+                                disabled={!!kr.linked_kpi_id}
+                                title={kr.linked_kpi_id ? 'Synced from KPI — click Sync to update' : 'Click to edit value'}
+                              >
+                                {Number(kr.current_value ?? 0).toLocaleString('ro-RO', { maximumFractionDigits: 1 })}
+                              </button>
+                            )}
+                            <span className="text-muted-foreground">/{Number(kr.target_value ?? 0).toLocaleString('ro-RO')}</span>
+                            {kr.unit === 'percentage' && '%'}
+                          </span>
+                          <span className="text-[10px] tabular-nums w-8 text-right shrink-0">{Math.round(kr.progress)}%</span>
+                        </div>
+                        <div className="w-full h-1 rounded-full bg-muted overflow-hidden mt-0.5">
+                          <div className={`h-full rounded-full ${progressColor(kr.progress)}`} style={{ width: `${Math.min(kr.progress, 100)}%` }} />
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost" size="sm"
+                        className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive shrink-0"
+                        onClick={() => deleteKrMut.mutate(kr.id)}
+                      >
+                        <Trash2 className="h-2.5 w-2.5" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {/* Add KR inline form */}
+                  {addingKrForObj === obj.id ? (
+                    <div className="space-y-1.5 pt-1 border-t">
+                      <Input
+                        autoFocus placeholder="Key result title" value={newKr.title}
+                        onChange={(e) => setNewKr((p) => ({ ...p, title: e.target.value }))}
+                        className="h-7 text-xs"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') setAddingKrForObj(null)
+                        }}
+                      />
+                      <div className="flex gap-1.5">
+                        <Input
+                          type="number" placeholder="Target" value={newKr.target_value}
+                          onChange={(e) => setNewKr((p) => ({ ...p, target_value: e.target.value }))}
+                          className="h-7 text-xs w-20"
+                        />
+                        <Select value={newKr.unit} onValueChange={(v) => setNewKr((p) => ({ ...p, unit: v }))}>
+                          <SelectTrigger className="h-7 text-xs w-24">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="number">Number</SelectItem>
+                            <SelectItem value="currency">Currency</SelectItem>
+                            <SelectItem value="percentage">Percentage</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Select value={newKr.linked_kpi_id} onValueChange={(v) => setNewKr((p) => ({ ...p, linked_kpi_id: v }))}>
+                          <SelectTrigger className="h-7 text-xs flex-1">
+                            <SelectValue placeholder="Link KPI (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No KPI link</SelectItem>
+                            {kpis.map((k) => (
+                              <SelectItem key={k.id} value={String(k.id)}>{k.kpi_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex justify-end gap-1">
+                        <Button variant="outline" size="sm" className="h-6 text-xs" onClick={() => setAddingKrForObj(null)}>Cancel</Button>
+                        <Button
+                          size="sm" className="h-6 text-xs"
+                          disabled={!newKr.title.trim() || createKrMut.isPending}
+                          onClick={() => {
+                            const linkedId = newKr.linked_kpi_id && newKr.linked_kpi_id !== 'none' ? parseInt(newKr.linked_kpi_id) : null
+                            createKrMut.mutate({
+                              objId: obj.id,
+                              data: { title: newKr.title.trim(), target_value: parseFloat(newKr.target_value) || 100, unit: newKr.unit, linked_kpi_id: linkedId },
+                            })
+                          }}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 pt-1"
+                      onClick={() => { setAddingKrForObj(obj.id); setNewKr({ title: '', target_value: '100', unit: 'number', linked_kpi_id: '' }) }}
+                    >
+                      <Plus className="h-3 w-3" /> Add Key Result
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Add Objective inline */}
+      {addingObjective && (
+        <div className="flex gap-2">
+          <Input
+            autoFocus placeholder="Objective title" value={newObjTitle}
+            onChange={(e) => setNewObjTitle(e.target.value)}
+            className="h-8 text-sm"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newObjTitle.trim()) createObjMut.mutate(newObjTitle.trim())
+              if (e.key === 'Escape') { setAddingObjective(false); setNewObjTitle('') }
+            }}
+          />
+          <Button size="sm" className="h-8" disabled={!newObjTitle.trim() || createObjMut.isPending} onClick={() => createObjMut.mutate(newObjTitle.trim())}>
+            Add
+          </Button>
+          <Button variant="outline" size="sm" className="h-8" onClick={() => { setAddingObjective(false); setNewObjTitle('') }}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {/* Sync button */}
+      {hasLinkedKpis && (
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => syncMut.mutate()} disabled={syncMut.isPending}>
+          <RefreshCw className={cn('h-3 w-3 mr-1', syncMut.isPending && 'animate-spin')} />
+          Sync KPI Values
+        </Button>
+      )}
     </div>
   )
 }

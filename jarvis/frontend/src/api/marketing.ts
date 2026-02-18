@@ -19,6 +19,8 @@ import type {
   MktProjectEvent,
   HrEventSearchResult,
   InvoiceSearchResult,
+  MktObjective,
+  MktKeyResult,
   SimBenchmark,
   SimSettings,
 } from '@/types/marketing'
@@ -295,4 +297,30 @@ export const marketingApi = {
 
   updateSimSettings: (data: Partial<SimSettings>) =>
     api.put<{ success: boolean }>(`${BASE}/simulator/settings`, data),
+
+  // ---- OKRs ----
+
+  getObjectives: (projectId: number) =>
+    api.get<{ objectives: MktObjective[] }>(`${BASE}/projects/${projectId}/objectives`),
+
+  createObjective: (projectId: number, data: { title: string; description?: string; sort_order?: number }) =>
+    api.post<{ success: boolean; id: number }>(`${BASE}/projects/${projectId}/objectives`, data),
+
+  updateObjective: (objectiveId: number, data: Partial<MktObjective>) =>
+    api.put<{ success: boolean }>(`${BASE}/objectives/${objectiveId}`, data),
+
+  deleteObjective: (objectiveId: number) =>
+    api.delete<{ success: boolean }>(`${BASE}/objectives/${objectiveId}`),
+
+  createKeyResult: (objectiveId: number, data: { title: string; target_value?: number; unit?: string; linked_kpi_id?: number | null }) =>
+    api.post<{ success: boolean; id: number }>(`${BASE}/objectives/${objectiveId}/key-results`, data),
+
+  updateKeyResult: (krId: number, data: Partial<MktKeyResult>) =>
+    api.put<{ success: boolean }>(`${BASE}/key-results/${krId}`, data),
+
+  deleteKeyResult: (krId: number) =>
+    api.delete<{ success: boolean }>(`${BASE}/key-results/${krId}`),
+
+  syncOkrKpis: (projectId: number) =>
+    api.post<{ success: boolean; synced: number }>(`${BASE}/projects/${projectId}/objectives/sync-kpis`),
 }

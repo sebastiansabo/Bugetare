@@ -7,9 +7,10 @@ from .activity_repo import ActivityRepository
 from .comment_repo import CommentRepository
 from .file_repo import FileRepository
 from .event_repo import ProjectEventRepository
+from .okr_repo import OkrRepository
 
 __all__ = [
     'ProjectRepository', 'MemberRepository', 'BudgetRepository',
     'KpiRepository', 'ActivityRepository', 'CommentRepository', 'FileRepository',
-    'ProjectEventRepository',
+    'ProjectEventRepository', 'OkrRepository',
 ]
