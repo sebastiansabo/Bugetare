@@ -4,13 +4,10 @@ Handles all database operations for the hr.event_bonuses and hr.bonus_types tabl
 """
 from typing import Optional, List, Dict, Any
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-from database import get_db, get_cursor, release_db, dict_from_row
+from core.base_repository import BaseRepository
 
 
-class BonusRepository:
+class BonusRepository(BaseRepository):
     """Repository for event bonus data access operations."""
 
     # ============== Event Bonuses ==============
@@ -24,22 +21,7 @@ class BonusRepository:
         scope: str = 'all',
         user_context: Dict[str, Any] = None
     ) -> List[Dict[str, Any]]:
-        """Get event bonuses with optional filters and scope-based access control.
-
-        Args:
-            year: Filter by year
-            month: Filter by month
-            employee_id: Filter by employee
-            event_id: Filter by event
-            scope: Permission scope ('own', 'department', 'all')
-            user_context: Dict with user_id, company, department for scope filtering
-
-        Returns:
-            List of bonus dictionaries
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Get event bonuses with optional filters and scope-based access control."""
         query = '''
             SELECT b.*, u.name as employee_name, u.department, u.brand, u.company,
                    ev.name as event_name, ev.start_date as event_start, ev.end_date as event_end,
@@ -66,38 +48,21 @@ class BonusRepository:
             query += ' AND b.event_id = %s'
             params.append(event_id)
 
-        # Apply scope-based filtering
         if scope == 'own' and user_context:
-            # User can only see bonuses for themselves
             query += ' AND b.user_id = %s'
             params.append(user_context.get('user_id'))
         elif scope == 'department' and user_context:
-            # User can see bonuses for users in same company + department
             if user_context.get('department') and user_context.get('company'):
                 query += ' AND u.department = %s AND u.company = %s'
                 params.append(user_context['department'])
                 params.append(user_context['company'])
-        # 'all' scope = no additional filtering
 
         query += ' ORDER BY b.year DESC, b.month DESC, u.name'
-
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        release_db(conn)
-        return [dict_from_row(row) for row in rows]
+        return self.query_all(query, params)
 
     def get_by_id(self, bonus_id: int) -> Optional[Dict[str, Any]]:
-        """Get a single event bonus by ID.
-
-        Args:
-            bonus_id: The bonus ID
-
-        Returns:
-            Bonus dict or None if not found
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('''
+        """Get a single event bonus by ID."""
+        return self.query_one('''
             SELECT b.*, u.name as employee_name, u.department, u.brand, u.company,
                    ev.name as event_name, ev.start_date as event_start, ev.end_date as event_end,
                    b.user_id as effective_employee_id
@@ -106,161 +71,66 @@ class BonusRepository:
             JOIN hr.events ev ON b.event_id = ev.id
             WHERE b.id = %s
         ''', (bonus_id,))
-        row = cursor.fetchone()
-        release_db(conn)
-        return dict_from_row(row) if row else None
 
-    def can_access(
-        self,
-        bonus_id: int,
-        scope: str,
-        user_context: Dict[str, Any]
-    ) -> bool:
-        """Check if user can access a bonus based on their scope.
-
-        Args:
-            bonus_id: The bonus ID to check
-            scope: Permission scope ('own', 'department', 'all')
-            user_context: Dict with user_id, company, department
-
-        Returns:
-            True if user can access, False otherwise
-        """
+    def can_access(self, bonus_id: int, scope: str, user_context: Dict[str, Any]) -> bool:
+        """Check if user can access a bonus based on their scope."""
         if scope == 'all':
             return True
-
         bonus = self.get_by_id(bonus_id)
         if not bonus:
             return False
-
         if scope == 'own':
-            # User can only access their own bonuses
             return bonus.get('user_id') == user_context.get('user_id')
-
         if scope == 'department':
-            # User can access bonuses in their company + department
             return (bonus.get('company') == user_context.get('company') and
                     bonus.get('department') == user_context.get('department'))
-
         return False
 
     def create(
-        self,
-        employee_id: int,
-        event_id: int,
-        year: int,
-        month: int,
-        participation_start: str = None,
-        participation_end: str = None,
-        bonus_days: int = None,
-        hours_free: float = None,
-        bonus_net: float = None,
-        details: str = None,
-        allocation_month: int = None,
-        created_by: int = None
+        self, employee_id: int, event_id: int, year: int, month: int,
+        participation_start: str = None, participation_end: str = None,
+        bonus_days: int = None, hours_free: float = None, bonus_net: float = None,
+        details: str = None, allocation_month: int = None, created_by: int = None
     ) -> int:
-        """Create a new event bonus record.
-
-        Args:
-            employee_id: The employee/user ID
-            event_id: The event ID
-            year: Bonus year
-            month: Bonus month
-            participation_start: Start date of participation
-            participation_end: End date of participation
-            bonus_days: Number of bonus days
-            hours_free: Hours free
-            bonus_net: Net bonus amount
-            details: Additional details
-            allocation_month: Month for allocation
-            created_by: User ID who created the bonus
-
-        Returns:
-            The new bonus ID
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('''
+        """Create a new event bonus record. Returns the new bonus ID."""
+        result = self.execute('''
             INSERT INTO hr.event_bonuses
             (user_id, event_id, year, month, participation_start, participation_end,
              bonus_days, hours_free, bonus_net, details, allocation_month, created_by)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         ''', (employee_id, event_id, year, month, participation_start, participation_end,
-              bonus_days, hours_free, bonus_net, details, allocation_month, created_by))
-        bonus_id = cursor.fetchone()['id']
-        conn.commit()
-        release_db(conn)
-        return bonus_id
+              bonus_days, hours_free, bonus_net, details, allocation_month, created_by),
+            returning=True)
+        return result['id']
 
     def create_bulk(self, bonuses: List[Dict[str, Any]], created_by: int = None) -> List[int]:
-        """Bulk create event bonus records.
-
-        Args:
-            bonuses: List of bonus dictionaries
-            created_by: User ID who created the bonuses
-
-        Returns:
-            List of new bonus IDs
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        created_ids = []
-        for b in bonuses:
-            cursor.execute('''
-                INSERT INTO hr.event_bonuses
-                (user_id, event_id, year, month, participation_start, participation_end,
-                 bonus_days, hours_free, bonus_net, details, allocation_month, created_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (b['employee_id'], b['event_id'], b['year'], b['month'],
-                  b.get('participation_start'), b.get('participation_end'),
-                  b.get('bonus_days'), b.get('hours_free'), b.get('bonus_net'),
-                  b.get('details'), b.get('allocation_month'), created_by))
-            created_ids.append(cursor.fetchone()['id'])
-
-        conn.commit()
-        release_db(conn)
-        return created_ids
+        """Bulk create event bonus records. Returns list of new bonus IDs."""
+        def _work(cursor):
+            created_ids = []
+            for b in bonuses:
+                cursor.execute('''
+                    INSERT INTO hr.event_bonuses
+                    (user_id, event_id, year, month, participation_start, participation_end,
+                     bonus_days, hours_free, bonus_net, details, allocation_month, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                ''', (b['employee_id'], b['event_id'], b['year'], b['month'],
+                      b.get('participation_start'), b.get('participation_end'),
+                      b.get('bonus_days'), b.get('hours_free'), b.get('bonus_net'),
+                      b.get('details'), b.get('allocation_month'), created_by))
+                created_ids.append(cursor.fetchone()['id'])
+            return created_ids
+        return self.execute_many(_work)
 
     def update(
-        self,
-        bonus_id: int,
-        employee_id: int,
-        event_id: int,
-        year: int,
-        month: int,
-        participation_start: str = None,
-        participation_end: str = None,
-        bonus_days: int = None,
-        hours_free: float = None,
-        bonus_net: float = None,
-        details: str = None,
-        allocation_month: int = None
+        self, bonus_id: int, employee_id: int, event_id: int, year: int, month: int,
+        participation_start: str = None, participation_end: str = None,
+        bonus_days: int = None, hours_free: float = None, bonus_net: float = None,
+        details: str = None, allocation_month: int = None
     ) -> bool:
-        """Update an event bonus record.
-
-        Args:
-            bonus_id: The bonus ID
-            employee_id: The employee/user ID
-            event_id: The event ID
-            year: Bonus year
-            month: Bonus month
-            participation_start: Start date of participation
-            participation_end: End date of participation
-            bonus_days: Number of bonus days
-            hours_free: Hours free
-            bonus_net: Net bonus amount
-            details: Additional details
-            allocation_month: Month for allocation
-
-        Returns:
-            True if successful
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('''
+        """Update an event bonus record."""
+        self.execute('''
             UPDATE hr.event_bonuses
             SET user_id = %s, event_id = %s, year = %s, month = %s,
                 participation_start = %s, participation_end = %s, bonus_days = %s,
@@ -269,40 +139,17 @@ class BonusRepository:
             WHERE id = %s
         ''', (employee_id, event_id, year, month, participation_start, participation_end,
               bonus_days, hours_free, bonus_net, details, allocation_month, bonus_id))
-        conn.commit()
-        release_db(conn)
         return True
 
     def delete(self, bonus_id: int) -> bool:
-        """Delete an event bonus record.
-
-        Args:
-            bonus_id: The bonus ID
-
-        Returns:
-            True if successful
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('DELETE FROM hr.event_bonuses WHERE id = %s', (bonus_id,))
-        conn.commit()
-        release_db(conn)
+        """Delete an event bonus record."""
+        self.execute('DELETE FROM hr.event_bonuses WHERE id = %s', (bonus_id,))
         return True
 
     # ============== Summary/Stats ==============
 
     def get_summary(self, year: int = None) -> Dict[str, Any]:
-        """Get summary stats for event bonuses.
-
-        Args:
-            year: Filter by year
-
-        Returns:
-            Summary statistics dictionary
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Get summary stats for event bonuses."""
         query = '''
             SELECT
                 COUNT(DISTINCT b.user_id) as total_employees,
@@ -317,47 +164,20 @@ class BonusRepository:
         if year:
             query += ' WHERE b.year = %s'
             params.append(year)
-
-        cursor.execute(query, params)
-        row = cursor.fetchone()
-        release_db(conn)
-        return dict_from_row(row)
+        return self.query_one(query, params)
 
     def get_by_month(self, year: int) -> List[Dict[str, Any]]:
-        """Get bonus totals grouped by month for a year.
-
-        Args:
-            year: The year to filter by
-
-        Returns:
-            List of monthly totals
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('''
+        """Get bonus totals grouped by month for a year."""
+        return self.query_all('''
             SELECT month, COUNT(*) as count, SUM(bonus_net) as total
             FROM hr.event_bonuses
             WHERE year = %s
             GROUP BY month
             ORDER BY month
         ''', (year,))
-        rows = cursor.fetchall()
-        release_db(conn)
-        return [dict_from_row(row) for row in rows]
 
     def get_by_employee(self, year: int = None, month: int = None) -> List[Dict[str, Any]]:
-        """Get bonus totals grouped by employee.
-
-        Args:
-            year: Filter by year
-            month: Filter by month
-
-        Returns:
-            List of employee bonus totals
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Get bonus totals grouped by employee."""
         query = '''
             SELECT u.id, u.name, u.department, u.company, u.brand,
                    COUNT(*) as bonus_count,
@@ -375,27 +195,11 @@ class BonusRepository:
         if month:
             query += ' AND b.month = %s'
             params.append(month)
-
         query += ' GROUP BY u.id, u.name, u.department, u.company, u.brand ORDER BY total_bonus DESC'
-
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        release_db(conn)
-        return [dict_from_row(row) for row in rows]
+        return self.query_all(query, params)
 
     def get_by_event(self, year: int = None, month: int = None) -> List[Dict[str, Any]]:
-        """Get bonus totals grouped by event.
-
-        Args:
-            year: Filter by year
-            month: Filter by month
-
-        Returns:
-            List of event bonus totals
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Get bonus totals grouped by event."""
         query = '''
             SELECT e.id, e.name, e.start_date, e.end_date, e.company, e.brand,
                    b.year, b.month,
@@ -415,131 +219,43 @@ class BonusRepository:
         if month:
             query += ' AND b.month = %s'
             params.append(month)
-
         query += ' GROUP BY e.id, e.name, e.start_date, e.end_date, e.company, e.brand, b.year, b.month ORDER BY b.year DESC, b.month DESC, total_bonus DESC'
-
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
-        release_db(conn)
-        return [dict_from_row(row) for row in rows]
+        return self.query_all(query, params)
 
     # ============== Bonus Types ==============
 
     def get_all_types(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        """Get all bonus types.
-
-        Args:
-            active_only: If True, only return active types
-
-        Returns:
-            List of bonus type dictionaries
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Get all bonus types."""
         query = 'SELECT * FROM hr.bonus_types'
         if active_only:
             query += ' WHERE is_active = TRUE'
         query += ' ORDER BY name'
-
-        cursor.execute(query)
-        rows = cursor.fetchall()
-        release_db(conn)
-        return [dict_from_row(row) for row in rows]
+        return self.query_all(query)
 
     def get_type_by_id(self, bonus_type_id: int) -> Optional[Dict[str, Any]]:
-        """Get a single bonus type by ID.
+        """Get a single bonus type by ID."""
+        return self.query_one('SELECT * FROM hr.bonus_types WHERE id = %s', (bonus_type_id,))
 
-        Args:
-            bonus_type_id: The bonus type ID
-
-        Returns:
-            Bonus type dict or None if not found
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('SELECT * FROM hr.bonus_types WHERE id = %s', (bonus_type_id,))
-        row = cursor.fetchone()
-        release_db(conn)
-        return dict_from_row(row) if row else None
-
-    def create_type(
-        self,
-        name: str,
-        amount: float,
-        days_per_amount: int = 1,
-        description: str = None
-    ) -> int:
-        """Create a new bonus type.
-
-        Args:
-            name: Bonus type name
-            amount: Amount per bonus
-            days_per_amount: Days per amount
-            description: Description
-
-        Returns:
-            The new bonus type ID
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('''
+    def create_type(self, name: str, amount: float, days_per_amount: int = 1, description: str = None) -> int:
+        """Create a new bonus type. Returns the new bonus type ID."""
+        result = self.execute('''
             INSERT INTO hr.bonus_types (name, amount, days_per_amount, description)
             VALUES (%s, %s, %s, %s)
             RETURNING id
-        ''', (name, amount, days_per_amount, description))
-        bonus_type_id = cursor.fetchone()['id']
-        conn.commit()
-        release_db(conn)
-        return bonus_type_id
+        ''', (name, amount, days_per_amount, description), returning=True)
+        return result['id']
 
-    def update_type(
-        self,
-        bonus_type_id: int,
-        name: str,
-        amount: float,
-        days_per_amount: int = 1,
-        description: str = None,
-        is_active: bool = True
-    ) -> bool:
-        """Update a bonus type.
-
-        Args:
-            bonus_type_id: The bonus type ID
-            name: Bonus type name
-            amount: Amount per bonus
-            days_per_amount: Days per amount
-            description: Description
-            is_active: Whether type is active
-
-        Returns:
-            True if successful
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('''
+    def update_type(self, bonus_type_id: int, name: str, amount: float,
+                    days_per_amount: int = 1, description: str = None, is_active: bool = True) -> bool:
+        """Update a bonus type."""
+        self.execute('''
             UPDATE hr.bonus_types
             SET name = %s, amount = %s, days_per_amount = %s, description = %s, is_active = %s
             WHERE id = %s
         ''', (name, amount, days_per_amount, description, is_active, bonus_type_id))
-        conn.commit()
-        release_db(conn)
         return True
 
     def delete_type(self, bonus_type_id: int) -> bool:
-        """Soft delete a bonus type.
-
-        Args:
-            bonus_type_id: The bonus type ID
-
-        Returns:
-            True if successful
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-        cursor.execute('''
-            UPDATE hr.bonus_types SET is_active = FALSE WHERE id = %s
-        ''', (bonus_type_id,))
-        conn.commit()
-        release_db(conn)
+        """Soft delete a bonus type."""
+        self.execute('UPDATE hr.bonus_types SET is_active = FALSE WHERE id = %s', (bonus_type_id,))
         return True
