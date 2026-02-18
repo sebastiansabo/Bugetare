@@ -411,9 +411,9 @@ class KpiRepository:
                 VALUES (%s, %s, %s, %s, %s) RETURNING id
             ''', (project_kpi_id, value, source, recorded_by, notes))
             snap_id = cursor.fetchone()['id']
-            # Update current_value on project_kpi
+            # Update current_value on project_kpi (cumulative — add to existing)
             cursor.execute('''
-                UPDATE mkt_project_kpis SET current_value = %s, last_synced_at = NOW(), updated_at = NOW()
+                UPDATE mkt_project_kpis SET current_value = COALESCE(current_value, 0) + %s, last_synced_at = NOW(), updated_at = NOW()
                 WHERE id = %s
             ''', (value, project_kpi_id))
             conn.commit()
