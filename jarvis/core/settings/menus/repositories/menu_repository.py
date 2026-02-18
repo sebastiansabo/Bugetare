@@ -7,7 +7,7 @@ import time
 import logging
 from typing import Optional
 
-from database import get_db, get_cursor, release_db
+from core.base_repository import BaseRepository
 from core.cache import _cache_lock
 
 logger = logging.getLogger('jarvis.core.settings.menus.repository')
@@ -28,7 +28,7 @@ def clear_module_menu_cache():
     logger.debug('Module menu cache cleared')
 
 
-class MenuRepository:
+class MenuRepository(BaseRepository):
 
     def _row_to_dict(self, row, include_timestamps=False) -> dict:
         """Convert a menu row to a dictionary."""
@@ -63,25 +63,17 @@ class MenuRepository:
                    (time.time() - _module_menu_cache['timestamp']) < _module_menu_cache['ttl']:
                     return _module_menu_cache['data']
 
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        if include_hidden:
+            status_filter = ""
+        else:
+            status_filter = "WHERE status != 'hidden'"
 
-            if include_hidden:
-                status_filter = ""
-            else:
-                status_filter = "WHERE status != 'hidden'"
-
-            cursor.execute(f'''
-                SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order
-                FROM module_menu_items
-                {status_filter}
-                ORDER BY sort_order, name
-            ''')
-
-            rows = cursor.fetchall()
-        finally:
-            release_db(conn)
+        rows = self.query_all(f'''
+            SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order
+            FROM module_menu_items
+            {status_filter}
+            ORDER BY sort_order, name
+        ''')
 
         # Build hierarchical structure
         items_by_id = {}
@@ -114,41 +106,27 @@ class MenuRepository:
 
     def get_all_flat(self) -> list:
         """Get all module menu items as a flat list (for admin UI)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute('''
-                SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order,
-                       created_at, updated_at
-                FROM module_menu_items
-                ORDER BY parent_id NULLS FIRST, sort_order, name
-            ''')
-            return [self._row_to_dict(row, include_timestamps=True) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        rows = self.query_all('''
+            SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order,
+                   created_at, updated_at
+            FROM module_menu_items
+            ORDER BY parent_id NULLS FIRST, sort_order, name
+        ''')
+        return [self._row_to_dict(row, include_timestamps=True) for row in rows]
 
     def get_by_id(self, item_id: int) -> Optional[dict]:
         """Get a single module menu item by ID."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute('''
-                SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order,
-                       created_at, updated_at
-                FROM module_menu_items
-                WHERE id = %s
-            ''', (item_id,))
-            row = cursor.fetchone()
-            return self._row_to_dict(row, include_timestamps=True) if row else None
-        finally:
-            release_db(conn)
+        row = self.query_one('''
+            SELECT id, parent_id, module_key, name, description, icon, url, color, status, sort_order,
+                   created_at, updated_at
+            FROM module_menu_items
+            WHERE id = %s
+        ''', (item_id,))
+        return self._row_to_dict(row, include_timestamps=True) if row else None
 
     def save(self, item_id: Optional[int], data: dict) -> Optional[dict]:
         """Create or update a module menu item."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-
+        def _work(cursor):
             if item_id:
                 cursor.execute('''
                     UPDATE module_menu_items
@@ -185,26 +163,15 @@ class MenuRepository:
                     data.get('status', 'active'),
                     data.get('sort_order', 0)
                 ))
+            return cursor.fetchone()
 
-            result = cursor.fetchone()
-            conn.commit()
-        finally:
-            release_db(conn)
-
+        result = self.execute_many(_work)
         clear_module_menu_cache()
         return self.get_by_id(result['id']) if result else None
 
     def delete(self, item_id: int) -> bool:
         """Delete a module menu item and all its children (cascades)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute('DELETE FROM module_menu_items WHERE id = %s', (item_id,))
-            deleted = cursor.rowcount > 0
-            conn.commit()
-        finally:
-            release_db(conn)
-
+        deleted = self.execute('DELETE FROM module_menu_items WHERE id = %s', (item_id,)) > 0
         if deleted:
             clear_module_menu_cache()
         return deleted
@@ -215,18 +182,13 @@ class MenuRepository:
         Args:
             items: List of dicts with 'id' and 'sort_order' keys
         """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        def _work(cursor):
             for item in items:
                 cursor.execute('''
                     UPDATE module_menu_items
                     SET sort_order = %s, updated_at = CURRENT_TIMESTAMP
                     WHERE id = %s
                 ''', (item['sort_order'], item['id']))
-            conn.commit()
-        finally:
-            release_db(conn)
-
+        self.execute_many(_work)
         clear_module_menu_cache()
         return True

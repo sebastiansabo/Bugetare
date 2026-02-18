@@ -5,10 +5,11 @@ invoices (by responsible), HR event bonuses, and activity log.
 """
 from typing import Optional
 
-from database import get_db, get_cursor, release_db, dict_from_row
+from core.base_repository import BaseRepository
+from database import dict_from_row
 
 
-class ProfileRepository:
+class ProfileRepository(BaseRepository):
     """Read-only aggregation queries for the user profile page."""
 
     # ------------------------------------------------------------------
@@ -26,9 +27,7 @@ class ProfileRepository:
         offset: int = 0,
     ) -> list[dict]:
         """Get invoices where the user (by email) is listed as responsible in allocations."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
+        def _work(cursor):
             cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
             user_row = cursor.fetchone()
             if not user_row:
@@ -69,8 +68,7 @@ class ProfileRepository:
 
             cursor.execute(query, params)
             return [dict_from_row(dict(row)) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_user_invoices_count(
         self,
@@ -81,9 +79,7 @@ class ProfileRepository:
         search: Optional[str] = None,
     ) -> int:
         """Count invoices where the user (by email) is listed as responsible."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
+        def _work(cursor):
             cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
             user_row = cursor.fetchone()
             if not user_row:
@@ -117,14 +113,11 @@ class ProfileRepository:
             cursor.execute(query, params)
             row = cursor.fetchone()
             return row['count'] if row else 0
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_user_invoices_summary(self, user_email: str) -> dict:
         """Get invoice summary stats for a user (by email)."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
+        def _work(cursor):
             cursor.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(%s)', [user_email])
             user_row = cursor.fetchone()
             if not user_row:
@@ -158,8 +151,7 @@ class ProfileRepository:
                 'total_value': float(totals['total_value']) if totals else 0,
                 'by_status': by_status,
             }
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     # ------------------------------------------------------------------
     # HR event bonuses
@@ -175,9 +167,7 @@ class ProfileRepository:
         offset: int = 0,
     ) -> list[dict]:
         """Get HR event bonuses for a user."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
+        def _work(cursor):
             query = '''
                 SELECT
                     eb.id, eb.year, eb.month, eb.bonus_days, eb.hours_free,
@@ -208,33 +198,25 @@ class ProfileRepository:
 
             cursor.execute(query, params)
             return [dict_from_row(dict(row)) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_user_event_bonuses_summary(self, user_id: int) -> dict:
         """Get summary of HR event bonuses for a user."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
-            cursor.execute('''
-                SELECT
-                    COUNT(*) as total_bonuses,
-                    COALESCE(SUM(eb.bonus_net), 0) as total_amount,
-                    COUNT(DISTINCT eb.event_id) as events_count
-                FROM hr.event_bonuses eb
-                WHERE eb.user_id = %s
-            ''', (user_id,))
-
-            row = cursor.fetchone()
-            if row:
-                return {
-                    'total_bonuses': row['total_bonuses'],
-                    'total_amount': float(row['total_amount']),
-                    'events_count': row['events_count'],
-                }
-            return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
-        finally:
-            release_db(conn)
+        row = self.query_one('''
+            SELECT
+                COUNT(*) as total_bonuses,
+                COALESCE(SUM(eb.bonus_net), 0) as total_amount,
+                COUNT(DISTINCT eb.event_id) as events_count
+            FROM hr.event_bonuses eb
+            WHERE eb.user_id = %s
+        ''', (user_id,))
+        if row:
+            return {
+                'total_bonuses': row['total_bonuses'],
+                'total_amount': float(row['total_amount']),
+                'events_count': row['events_count'],
+            }
+        return {'total_bonuses': 0, 'total_amount': 0, 'events_count': 0}
 
     def get_user_event_bonuses_count(
         self,
@@ -244,9 +226,7 @@ class ProfileRepository:
         search: Optional[str] = None,
     ) -> int:
         """Get count of HR event bonuses for a user with filters."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
+        def _work(cursor):
             query = '''
                 SELECT COUNT(*) as count
                 FROM hr.event_bonuses eb
@@ -269,8 +249,7 @@ class ProfileRepository:
             cursor.execute(query, params)
             row = cursor.fetchone()
             return row['count'] if row else 0
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     # ------------------------------------------------------------------
     # User activity log
@@ -284,9 +263,7 @@ class ProfileRepository:
         offset: int = 0,
     ) -> list[dict]:
         """Get activity log for a user."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
+        def _work(cursor):
             query = '''
                 SELECT id, event_type, details, ip_address, user_agent, created_at
                 FROM user_events
@@ -303,21 +280,13 @@ class ProfileRepository:
 
             cursor.execute(query, params)
             return [dict_from_row(dict(row)) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_user_activity_count(self, user_id: int) -> int:
         """Count activity events for a user."""
-        conn = get_db()
-        cursor = get_cursor(conn)
-        try:
-            cursor.execute('''
-                SELECT COUNT(*) as count
-                FROM user_events
-                WHERE user_id = %s
-            ''', (user_id,))
-
-            row = cursor.fetchone()
-            return row['count'] if row else 0
-        finally:
-            release_db(conn)
+        row = self.query_one('''
+            SELECT COUNT(*) as count
+            FROM user_events
+            WHERE user_id = %s
+        ''', (user_id,))
+        return row['count'] if row else 0
