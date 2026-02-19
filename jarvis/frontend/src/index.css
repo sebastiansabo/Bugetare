@@ -124,3 +124,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* react-grid-layout overrides */
+.react-grid-item.react-grid-placeholder {
+  background: hsl(var(--primary) / 0.1);
+  border: 2px dashed hsl(var(--primary) / 0.4);
+  border-radius: var(--radius);
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-color: hsl(var(--muted-foreground) / 0.4);
+}
+.react-grid-item.react-draggable-dragging {
+  box-shadow: 0 8px 25px -5px rgb(0 0 0 / 0.15);
+  z-index: 50;
+}

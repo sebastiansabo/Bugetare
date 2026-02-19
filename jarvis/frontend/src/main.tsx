@@ -48,6 +48,9 @@ const queryClient = new QueryClient({
   }),
 })
 
+// Keep-alive ping every 10 minutes to prevent DO App Platform cold starts
+setInterval(() => { fetch('/health').catch(() => {}) }, 10 * 60 * 1000)
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>

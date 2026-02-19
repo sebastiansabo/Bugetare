@@ -4,21 +4,32 @@ import {
 } from 'lucide-react'
 import type { User } from '@/types'
 
+export interface WidgetLayout {
+  i: string
+  x: number
+  y: number
+  w: number
+  h: number
+  minW?: number
+  maxW?: number
+  minH?: number
+  maxH?: number
+}
+
 export interface WidgetDef {
   id: string
   name: string
   icon: typeof FileText
-  permission?: keyof User       // boolean flag on User
-  colSpan: 1 | 2
+  permission?: keyof User
+  defaultLayout: { w: number; h: number; minW?: number; minH?: number }
   defaultVisible: boolean
-  /** Which stat cards this widget contributes to the top row */
   statCards: { key: string; title: string; icon: typeof FileText }[]
 }
 
 export interface WidgetPref {
   id: string
   visible: boolean
-  order: number
+  layout: WidgetLayout
 }
 
 export interface DashboardPreferences {
@@ -32,7 +43,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     name: 'Recent Invoices',
     icon: FileText,
     permission: 'can_access_accounting',
-    colSpan: 2,
+    defaultLayout: { w: 6, h: 4, minW: 3, minH: 3 },
     defaultVisible: true,
     statCards: [
       { key: 'total_invoices', title: 'Total Invoices', icon: FileText },
@@ -43,7 +54,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     name: 'Bank Statements',
     icon: CreditCard,
     permission: 'can_access_statements',
-    colSpan: 1,
+    defaultLayout: { w: 2, h: 3, minW: 2, minH: 2 },
     defaultVisible: true,
     statCards: [{ key: 'pending_txns', title: 'Pending Txns', icon: CreditCard }],
   },
@@ -52,7 +63,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     name: 'e-Factura',
     icon: Receipt,
     permission: 'can_access_efactura',
-    colSpan: 1,
+    defaultLayout: { w: 2, h: 3, minW: 2, minH: 2 },
     defaultVisible: true,
     statCards: [{ key: 'unallocated_efactura', title: 'Unallocated e-Factura', icon: Receipt }],
   },
@@ -61,7 +72,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     name: 'HR Overview',
     icon: CalendarDays,
     permission: 'can_access_hr',
-    colSpan: 1,
+    defaultLayout: { w: 2, h: 3, minW: 2, minH: 2 },
     defaultVisible: true,
     statCards: [{ key: 'hr_events', title: 'HR Events', icon: CalendarDays }],
   },
@@ -69,7 +80,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     id: 'marketing_summary',
     name: 'Marketing',
     icon: Megaphone,
-    colSpan: 1,
+    defaultLayout: { w: 2, h: 3, minW: 2, minH: 2 },
     defaultVisible: true,
     statCards: [{ key: 'active_projects', title: 'Active Projects', icon: Megaphone }],
   },
@@ -77,7 +88,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     id: 'approvals_queue',
     name: 'Pending Approvals',
     icon: ClipboardCheck,
-    colSpan: 2,
+    defaultLayout: { w: 6, h: 4, minW: 3, minH: 3 },
     defaultVisible: true,
     statCards: [{ key: 'pending_approvals', title: 'Pending Approvals', icon: ClipboardCheck }],
   },
@@ -85,7 +96,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     id: 'online_users',
     name: 'Online Users',
     icon: Users,
-    colSpan: 1,
+    defaultLayout: { w: 2, h: 2, minW: 1, minH: 2 },
     defaultVisible: true,
     statCards: [{ key: 'online_users', title: 'Online Users', icon: Users }],
   },
@@ -93,7 +104,7 @@ export const WIDGET_CATALOG: WidgetDef[] = [
     id: 'notifications_recent',
     name: 'Notifications',
     icon: Bell,
-    colSpan: 1,
+    defaultLayout: { w: 2, h: 3, minW: 2, minH: 2 },
     defaultVisible: true,
     statCards: [],
   },

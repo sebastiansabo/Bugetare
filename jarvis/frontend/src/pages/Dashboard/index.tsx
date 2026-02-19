@@ -1,15 +1,23 @@
-import { Link } from 'react-router-dom'
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import {
+  ResponsiveGridLayout,
+  useContainerWidth,
+  verticalCompactor,
+  type Layout,
+} from 'react-grid-layout'
 import { Bot, CreditCard, Receipt, CalendarDays, Megaphone, ClipboardCheck, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { StatCard } from '@/components/shared/StatCard'
 import { useAuth } from '@/hooks/useAuth'
-import { dashboardApi } from '@/api/dashboard'
 import { approvalsApi } from '@/api/approvals'
 import { statementsApi } from '@/api/statements'
 import { efacturaApi } from '@/api/efactura'
 import { hrApi } from '@/api/hr'
 import { marketingApi } from '@/api/marketing'
+import { dashboardApi } from '@/api/dashboard'
+import { useAiAgentStore } from '@/stores/aiAgentStore'
+import type { WidgetLayout } from './types'
 import { useDashboardPrefs } from './useDashboardPrefs'
 import { CustomizeSheet } from './CustomizeSheet'
 import {
@@ -36,7 +44,9 @@ const WIDGET_COMPONENTS: Record<string, React.ComponentType<{ enabled: boolean }
 
 export default function Dashboard() {
   const { user } = useAuth()
-  const { permittedWidgets, visibleWidgets, toggleWidget, moveWidget, resetDefaults, isVisible } = useDashboardPrefs(user)
+  const { permittedWidgets, visibleWidgets, toggleWidget, updateLayout, setWidgetWidth, resetDefaults, isVisible } = useDashboardPrefs(user)
+  const toggleAiWidget = useAiAgentStore(s => s.toggleWidget)
+  const { width, containerRef } = useContainerWidth()
 
   const canStatements = !!user?.can_access_statements
   const canEfactura = !!user?.can_access_efactura
@@ -145,6 +155,14 @@ export default function Dashboard() {
     })
   }
 
+  // Build layouts for react-grid-layout
+  const lgLayouts = useMemo(() => {
+    return visibleWidgets.map(wp => ({
+      ...wp.layout,
+      i: wp.id,
+    }))
+  }, [visibleWidgets])
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -157,14 +175,12 @@ export default function Dashboard() {
           <CustomizeSheet
             permittedWidgets={permittedWidgets}
             toggleWidget={toggleWidget}
-            moveWidget={moveWidget}
+            setWidgetWidth={setWidgetWidth}
             resetDefaults={resetDefaults}
           />
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/app/ai-agent">
-              <Bot className="mr-1.5 h-4 w-4" />
-              New Chat
-            </Link>
+          <Button variant="outline" size="sm" onClick={toggleAiWidget}>
+            <Bot className="mr-1.5 h-4 w-4" />
+            New Chat
           </Button>
         </div>
       </div>
@@ -185,13 +201,30 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Widget Grid */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {visibleWidgets.map(wp => {
-          const Component = WIDGET_COMPONENTS[wp.id]
-          if (!Component) return null
-          return <Component key={wp.id} enabled />
-        })}
+      {/* Widget Grid — drag & resize */}
+      <div ref={containerRef}>
+        <ResponsiveGridLayout
+          width={width}
+          layouts={{ lg: lgLayouts }}
+          breakpoints={{ lg: 1024, md: 768, sm: 0 }}
+          cols={{ lg: 6, md: 4, sm: 1 }}
+          rowHeight={80}
+          dragConfig={{ enabled: true, handle: '.widget-drag-handle', bounded: false, threshold: 3 }}
+          resizeConfig={{ enabled: true, handles: ['se'] }}
+          compactor={verticalCompactor}
+          onLayoutChange={(layout: Layout) => updateLayout(layout as unknown as WidgetLayout[])}
+          margin={[16, 16]}
+        >
+          {visibleWidgets.map(wp => {
+            const Component = WIDGET_COMPONENTS[wp.id]
+            if (!Component) return null
+            return (
+              <div key={wp.id}>
+                <Component enabled />
+              </div>
+            )
+          })}
+        </ResponsiveGridLayout>
       </div>
     </div>
   )

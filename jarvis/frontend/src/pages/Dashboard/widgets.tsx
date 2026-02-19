@@ -9,7 +9,7 @@ import { CurrencyDisplay } from '@/components/shared/CurrencyDisplay'
 import { QueryError } from '@/components/QueryError'
 import { TableSkeleton } from '@/components/shared/TableSkeleton'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArrowRight, Clock, CreditCard, Receipt, CalendarDays, Megaphone, Bell, AlertTriangle } from 'lucide-react'
+import { ArrowRight, Clock, GripVertical, CreditCard, Receipt, CalendarDays, Megaphone, Bell, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { dashboardApi } from '@/api/dashboard'
 import { approvalsApi } from '@/api/approvals'
@@ -28,15 +28,15 @@ interface WidgetShellProps {
   linkLabel?: string
   children: React.ReactNode
   className?: string
-  colSpan?: 1 | 2
 }
 
-export function WidgetShell({ title, icon, linkTo, linkLabel = 'View all', children, className, colSpan }: WidgetShellProps) {
+export function WidgetShell({ title, icon, linkTo, linkLabel = 'View all', children, className }: WidgetShellProps) {
   return (
-    <Card className={cn(colSpan === 2 && 'md:col-span-2 lg:col-span-4', className)}>
-      <CardHeader>
+    <Card className={cn('h-full flex flex-col', className)}>
+      <CardHeader className="widget-drag-handle cursor-grab">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
+            <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50" />
             {icon}
             <CardTitle className="text-base">{title}</CardTitle>
           </div>
@@ -49,7 +49,7 @@ export function WidgetShell({ title, icon, linkTo, linkLabel = 'View all', child
           )}
         </div>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="flex-1 overflow-auto">{children}</CardContent>
     </Card>
   )
 }
@@ -65,7 +65,7 @@ export function AccountingInvoicesWidget({ enabled }: { enabled: boolean }) {
   })
 
   return (
-    <WidgetShell title="Recent Invoices" icon={<span />} linkTo="/app/accounting" colSpan={2}>
+    <WidgetShell title="Recent Invoices" icon={<span />} linkTo="/app/accounting">
       {isError ? (
         <QueryError message="Failed to load invoices" onRetry={() => refetch()} />
       ) : isLoading ? (
@@ -288,25 +288,17 @@ export function ApprovalsQueueWidget({ enabled }: { enabled: boolean }) {
     enabled,
   })
   const items = data?.queue ?? []
-  if (!enabled || items.length === 0) return null
 
   return (
-    <Card className="md:col-span-2 lg:col-span-4 border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span />
-            <CardTitle className="text-base">Pending Approvals</CardTitle>
-            <Badge variant="secondary" className="bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-              {items.length}
-            </Badge>
-          </div>
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/app/approvals" className="text-xs">View all <ArrowRight className="ml-1 h-3 w-3" /></Link>
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
+    <WidgetShell
+      title="Pending Approvals"
+      icon={<span />}
+      linkTo="/app/approvals"
+      className={items.length > 0 ? 'border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/20' : undefined}
+    >
+      {items.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">No pending approvals</p>
+      ) : (
         <div className="space-y-2">
           {items.slice(0, 5).map((item) => {
             const ctx = item.context_snapshot as Record<string, unknown> | null
@@ -341,8 +333,8 @@ export function ApprovalsQueueWidget({ enabled }: { enabled: boolean }) {
             <p className="text-xs text-center text-muted-foreground pt-1">+{items.length - 5} more items</p>
           )}
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </WidgetShell>
   )
 }
 
