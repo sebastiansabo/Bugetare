@@ -184,9 +184,6 @@ def api_archive_project(project_id):
     project = _project_repo.get_by_id(project_id)
     if not project:
         return jsonify({'success': False, 'error': 'Project not found'}), 404
-    if project['status'] in ('pending_approval',):
-        return jsonify({'success': False, 'error': 'Cannot archive a project pending approval'}), 400
-
     _project_repo.archive(project_id)
     _activity_repo.log(project_id, 'status_changed', actor_id=current_user.id,
                        details={'from': project['status'], 'to': 'archived'})

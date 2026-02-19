@@ -479,7 +479,7 @@ function ProjectTable({ projects, onSelect, onArchive, onDelete }: {
                 {(onArchive || onDelete) && (
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      {onArchive && p.status !== 'pending_approval' && p.status !== 'archived' && (
+                      {onArchive && p.status !== 'archived' && (
                         <button
                           type="button"
                           className="p-1 rounded hover:bg-accent cursor-pointer transition-colors"
@@ -581,7 +581,7 @@ function ProjectCards({ projects, onSelect, onArchive, onDelete }: {
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>{p.owner_name}</span>
               <div className="flex items-center gap-1">
-                {onArchive && p.status !== 'pending_approval' && p.status !== 'archived' && (
+                {onArchive && p.status !== 'archived' && (
                   <button
                     type="button"
                     className="p-1 rounded hover:bg-accent cursor-pointer transition-colors"
