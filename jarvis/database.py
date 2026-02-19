@@ -604,6 +604,24 @@ def init_db():
                     END IF;
                 END $$;
             ''')
+            # AI: context_window column on ai_agent.model_configs
+            cursor.execute('''
+                DO $$
+                BEGIN
+                    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'ai_agent')
+                       AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                       WHERE table_schema = 'ai_agent'
+                                       AND table_name = 'model_configs'
+                                       AND column_name = 'context_window') THEN
+                        ALTER TABLE ai_agent.model_configs ADD COLUMN context_window INTEGER DEFAULT 200000;
+                        UPDATE ai_agent.model_configs SET context_window = 200000 WHERE model_name LIKE 'claude-%';
+                        UPDATE ai_agent.model_configs SET context_window = 128000 WHERE model_name = 'gpt-4-turbo';
+                        UPDATE ai_agent.model_configs SET context_window = 16385 WHERE model_name = 'gpt-3.5-turbo';
+                        UPDATE ai_agent.model_configs SET context_window = 32768 WHERE model_name IN ('mixtral-8x7b-32768', 'gemini-pro');
+                        UPDATE ai_agent.model_configs SET context_window = 128000 WHERE model_name = 'llama-3.3-70b-versatile';
+                    END IF;
+                END $$;
+            ''')
             conn.commit()
             logger.info('Database schema already initialized — skipping init_db()')
             return
