@@ -361,7 +361,7 @@ export function BudgetTab({ projectId, currency }: { projectId: number; currency
 
       {/* Link Invoice Dialog */}
       <Dialog open={!!linkLineId} onOpenChange={(open) => { if (!open) setLinkLineId(null) }}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Link Invoices to Budget Line</DialogTitle>
             {linkedInvoiceIds.size > 0 && (
@@ -431,7 +431,7 @@ export function BudgetTab({ projectId, currency }: { projectId: number; currency
 
       {/* Link Invoice to Transaction Dialog */}
       <Dialog open={!!linkTxId} onOpenChange={(open) => { if (!open) { setLinkTxId(null); setTxInvoiceSearch(''); setTxInvoiceResults([]) } }}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-3xl" aria-describedby={undefined}>
           <DialogHeader>
             <DialogTitle>Link Invoice to Transaction</DialogTitle>
           </DialogHeader>
@@ -491,7 +491,7 @@ export function BudgetTab({ projectId, currency }: { projectId: number; currency
 
       {/* Edit Transaction Dialog */}
       <Dialog open={!!editTxId} onOpenChange={(open) => { if (!open) setEditTxId(null) }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
           <DialogHeader><DialogTitle>Edit Transaction</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -521,7 +521,7 @@ export function BudgetTab({ projectId, currency }: { projectId: number; currency
 
       {/* Record Spend Dialog */}
       <Dialog open={!!spendLineId} onOpenChange={(open) => { if (!open) setSpendLineId(null) }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
           <DialogHeader><DialogTitle>Record Spend</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -551,7 +551,7 @@ export function BudgetTab({ projectId, currency }: { projectId: number; currency
 
       {/* Add Budget Line Dialog */}
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" aria-describedby={undefined}>
           <DialogHeader><DialogTitle>Add Budget Line</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1.5">

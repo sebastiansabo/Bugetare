@@ -116,7 +116,7 @@ export function FilesTab({ projectId }: { projectId: number }) {
 
       {/* Upload Confirmation Dialog */}
       <Dialog open={showUpload} onOpenChange={(open) => { if (!open) { setShowUpload(false); setSelectedFile(null); setFileDesc('') } }}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="max-w-sm" aria-describedby={undefined}>
           <DialogHeader><DialogTitle>Upload to Google Drive</DialogTitle></DialogHeader>
           <div className="space-y-4">
             {selectedFile && (

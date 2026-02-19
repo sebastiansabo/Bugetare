@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
-import { Play, Pause, CheckCircle, Send, Copy, Trash2 } from 'lucide-react'
+import { Play, Pause, CheckCircle, Send, Copy, Archive, Trash2 } from 'lucide-react'
 import { marketingApi } from '@/api/marketing'
 import { usersApi } from '@/api/users'
 import type { MktProject } from '@/types/marketing'
@@ -33,10 +33,19 @@ export function StatusActions({ project, onDone }: { project: MktProject; onDone
       else onDone()
     },
   })
+  const archiveMut = useMutation({
+    mutationFn: () => marketingApi.archiveProject(project.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['mkt-projects'] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-archived'] })
+      navigate('/app/marketing')
+    },
+  })
   const deleteMut = useMutation({
     mutationFn: () => marketingApi.deleteProject(project.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mkt-projects'] })
+      queryClient.invalidateQueries({ queryKey: ['mkt-trash'] })
       navigate('/app/marketing')
     },
   })
@@ -99,7 +108,12 @@ export function StatusActions({ project, onDone }: { project: MktProject; onDone
           </Button>
         </>
       )}
-      <Button size="sm" variant="ghost" onClick={() => dupMut.mutate()} disabled={dupMut.isPending}>
+      {s !== 'archived' && (
+        <Button size="sm" variant="ghost" onClick={() => archiveMut.mutate()} disabled={archiveMut.isPending} title="Archive">
+          <Archive className="h-3.5 w-3.5" />
+        </Button>
+      )}
+      <Button size="sm" variant="ghost" onClick={() => dupMut.mutate()} disabled={dupMut.isPending} title="Duplicate">
         <Copy className="h-3.5 w-3.5" />
       </Button>
       <AlertDialog>

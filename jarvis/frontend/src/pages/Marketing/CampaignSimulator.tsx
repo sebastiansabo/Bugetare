@@ -787,7 +787,7 @@ function BenchmarkEditor({ open, onClose, benchmarks, channelsByStage, settings,
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent className="sm:max-w-[90vw] w-[90vw] max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[90vw] w-[90vw] max-h-[85vh] overflow-y-auto" aria-describedby={undefined}>
         <DialogHeader><DialogTitle className="flex items-center gap-2"><Settings2 className="h-4 w-4" /> Simulator Settings</DialogTitle></DialogHeader>
 
         {/* ── Collapsible Settings Section ── */}
@@ -981,7 +981,7 @@ function AddChannelDialog({ stage, onClose, onCreated }: {
 
   return (
     <Dialog open={!!stage} onOpenChange={v => { if (!v) { resetForm(); onClose() } }}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Plus className="h-4 w-4" /> Add Channel to {stage ? STAGE_CONFIG[stage].label : ''}

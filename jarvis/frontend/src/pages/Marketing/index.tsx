@@ -286,6 +286,18 @@ export default function Marketing() {
             <ProjectTable
               projects={projects}
               onSelect={(p) => navigate(`/app/marketing/projects/${p.id}`)}
+              onArchive={async (p) => {
+                await marketingApi.archiveProject(p.id)
+                queryClient.invalidateQueries({ queryKey: ['mkt-projects'] })
+                queryClient.invalidateQueries({ queryKey: ['mkt-archived'] })
+                queryClient.invalidateQueries({ queryKey: ['mkt-dashboard-summary'] })
+              }}
+              onDelete={async (p) => {
+                await marketingApi.deleteProject(p.id)
+                queryClient.invalidateQueries({ queryKey: ['mkt-projects'] })
+                queryClient.invalidateQueries({ queryKey: ['mkt-trash'] })
+                queryClient.invalidateQueries({ queryKey: ['mkt-dashboard-summary'] })
+              }}
             />
           ) : (
             <ProjectCards
@@ -389,9 +401,11 @@ export default function Marketing() {
 
 // ---- Table View ----
 
-function ProjectTable({ projects, onSelect }: {
+function ProjectTable({ projects, onSelect, onArchive, onDelete }: {
   projects: MktProject[]
   onSelect: (p: MktProject) => void
+  onArchive?: (p: MktProject) => void
+  onDelete?: (p: MktProject) => void
 }) {
   if (!projects.length) {
     return (
@@ -415,6 +429,7 @@ function ProjectTable({ projects, onSelect }: {
             <TableHead>Burn</TableHead>
             <TableHead>Owner</TableHead>
             <TableHead>Dates</TableHead>
+            {(onArchive || onDelete) && <TableHead className="w-[80px]" />}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -461,6 +476,32 @@ function ProjectTable({ projects, onSelect }: {
                 <TableCell className="text-sm text-muted-foreground">
                   {p.start_date ? new Date(p.start_date).toLocaleDateString('ro-RO') : '—'}
                 </TableCell>
+                {(onArchive || onDelete) && (
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      {onArchive && (
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-muted"
+                          title="Archive"
+                          onClick={(e) => { e.stopPropagation(); onArchive(p) }}
+                        >
+                          <Archive className="h-3.5 w-3.5 text-muted-foreground" />
+                        </button>
+                      )}
+                      {onDelete && (
+                        <button
+                          type="button"
+                          className="p-1 rounded hover:bg-muted"
+                          title="Delete"
+                          onClick={(e) => { e.stopPropagation(); onDelete(p) }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                        </button>
+                      )}
+                    </div>
+                  </TableCell>
+                )}
               </TableRow>
             )
           })}
