@@ -88,9 +88,9 @@ export default function Accounting() {
   const [filterTagIds, setFilterTagIds] = useState<number[]>([])
 
   const filters = useAccountingStore((s) => s.filters)
-  const selectedInvoiceIds = useAccountingStore((s) => s.selectedInvoiceIds)
-  const setSelectedInvoiceIds = useAccountingStore((s) => s.setSelectedInvoiceIds)
-  const toggleInvoiceSelected = useAccountingStore((s) => s.toggleInvoiceSelected)
+  const selectedInvoiceIds = useAccountingStore((s) => s.selectedIds)
+  const setSelectedInvoiceIds = useAccountingStore((s) => s.setSelectedIds)
+  const toggleInvoiceSelected = useAccountingStore((s) => s.toggleSelected)
   const clearSelected = useAccountingStore((s) => s.clearSelected)
   const updateFilter = useAccountingStore((s) => s.updateFilter)
   const visibleColumns = useAccountingStore((s) => s.visibleColumns)
