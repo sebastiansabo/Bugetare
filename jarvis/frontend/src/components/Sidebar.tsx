@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Bot, Calculator, Users, Landmark, FileText, Settings, LogOut, UserCircle, PanelLeftClose, PanelLeft, ChevronDown, ChevronRight, ClipboardCheck, Megaphone } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -53,6 +53,23 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const { user } = useAuth()
   const location = useLocation()
   const toggleWidget = useAiAgentStore((s) => s.toggleWidget)
+
+  // Easter egg: 7-click logo reveal
+  const clickCount = useRef(0)
+  const clickTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const [logoText, setLogoText] = useState('JARVIS')
+  const handleLogoClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    clickCount.current++
+    clearTimeout(clickTimer.current)
+    if (clickCount.current >= 7) {
+      clickCount.current = 0
+      setLogoText("Seba's System")
+      setTimeout(() => setLogoText('JARVIS'), 3000)
+    } else {
+      clickTimer.current = setTimeout(() => { clickCount.current = 0 }, 800)
+    }
+  }, [])
 
   // Wire up AI Agent action
   const navItems: NavItem[] = navItemsDef.map((item) =>
@@ -260,9 +277,13 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
       <div className="flex h-full flex-col">
         {/* Header */}
         <div className={cn('flex h-14 items-center border-b', collapsed ? 'justify-center px-2' : 'justify-between px-4')}>
-          <Link to="/app/dashboard" className="flex items-center gap-2 text-lg font-semibold">
+          <Link to="/app/dashboard" className="flex items-center gap-2 text-lg font-semibold" onClick={handleLogoClick}>
             <Bot className="h-5 w-5 shrink-0 text-primary" />
-            {!collapsed && <span>JARVIS</span>}
+            {!collapsed && (
+              <span className={logoText !== 'JARVIS' ? 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 bg-clip-text text-transparent transition-all duration-500' : ''}>
+                {logoText}
+              </span>
+            )}
           </Link>
           {!collapsed && <NotificationBell />}
         </div>

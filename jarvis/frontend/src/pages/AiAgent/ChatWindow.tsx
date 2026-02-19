@@ -59,9 +59,69 @@ export function ChatWindow({ conversationId: selectedConversationId }: ChatWindo
     inputRef.current?.focus()
   }, [selectedConversationId])
 
+  // Easter egg: secret /seba command
+  const [easterEggMsg, setEasterEggMsg] = useState<Message | null>(null)
+
+  // Easter egg: Seba joke every 10 prompts + 30s idle nudge
+  const sendCount = useRef(0)
+  const idleTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const idleFired = useRef(false)
+  const sebaJokes = [
+    "Fun fact: Sebastian once debugged a production issue in his sleep. Literally. He woke up and the fix was committed.",
+    "Seba's debugging technique: stare at the code until it confesses.",
+    "Legend says Sebastian doesn't use Stack Overflow. Stack Overflow uses Sebastian.",
+    "Sebastian doesn't deploy on Fridays. Fridays deploy on Sebastian.",
+    "Seba's code doesn't have bugs. It has surprise features.",
+    "Sebastian doesn't need a rubber duck. The duck needs Sebastian.",
+    "Rumor has it Sebastian once wrote a regex that was actually readable. Nobody believed him.",
+    "Seba doesn't refactor code. He just looks at it disapprovingly until it fixes itself.",
+    "Sebastian's keyboard has two keys: 0 and 1. Everything else is a macro.",
+    "When Sebastian pushes to production, production says 'thank you'.",
+  ]
+  const idleNudges = [
+    "Still thinking? Seba would've shipped it by now.",
+    "30 seconds of silence... Sebastian is disappointed.",
+    "JARVIS is getting lonely. Seba wouldn't leave me hanging like this.",
+    "Writer's block? Seba once wrote 20 backend phases without pausing.",
+    "Take your time. Unlike Sebastian, I have all day.",
+  ]
+
+  // Reset idle timer on every keystroke in the input
+  const resetIdleTimer = useCallback(() => {
+    clearTimeout(idleTimer.current)
+    idleFired.current = false
+    idleTimer.current = setTimeout(() => {
+      if (!idleFired.current) {
+        idleFired.current = true
+        const nudge = idleNudges[Math.floor(Math.random() * idleNudges.length)]
+        toast('💤 ' + nudge, { duration: 5000 })
+      }
+    }, 30_000)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSend = useCallback(() => {
     const content = input.trim()
     if (!content || !selectedConversationId || isStreaming) return
+
+    // Easter egg intercept
+    if (content.toLowerCase() === '/seba' || content.toLowerCase() === '/sebastian') {
+      setInput('')
+      setEasterEggMsg({
+        id: -42,
+        role: 'assistant',
+        content: '🥚 **Easter egg found!**\n\nYou discovered a secret about the creator.\n\n> *"Behind every great system, there\'s a Seba who stayed up too late coding it."*\n\n**J.A.R.V.I.S.** was built from scratch by **Sebastian** — designer, developer, and the person who talks to me the most.\n\nFun facts about the author:\n- Prefers dark mode (obviously)\n- Has mass-fed me the entire company\'s data\n- Once refactored 20 backend phases in a row without breaking a single test\n- His initials are in the system name if you squint hard enough: **S**eba\'s **V**ery **I**ntelligent **S**ystem\n\n*Type normally to continue chatting. This message will self-destruct... just kidding, it won\'t.*',
+        input_tokens: 0,
+        output_tokens: 0,
+        cost: '0',
+        response_time_ms: 0,
+        created_at: new Date().toISOString(),
+      })
+      return
+    }
+
+    sendCount.current++
+    clearTimeout(idleTimer.current)
+    idleFired.current = false
     setInput('')
     setIsStreaming(true)
     setStreamingContent('')
@@ -85,6 +145,11 @@ export function ChatWindow({ conversationId: selectedConversationId }: ChatWindo
         }
         if (data.tools_used?.length) {
           setToolsUsed((prev) => ({ ...prev, [data.message_id]: data.tools_used! }))
+        }
+        // Easter egg: Seba joke every 10 prompts
+        if (sendCount.current > 0 && sendCount.current % 10 === 0) {
+          const joke = sebaJokes[Math.floor(Math.random() * sebaJokes.length)]
+          toast('🥚 ' + joke, { duration: 6000 })
         }
       },
       // onError
@@ -147,7 +212,8 @@ export function ChatWindow({ conversationId: selectedConversationId }: ChatWindo
         <div className="space-y-4 p-4">
           {messages.length === 0 && !isStreaming && (
             <div className="py-12 text-center text-sm text-muted-foreground">
-              Send a message to start the conversation
+              <p>Send a message to start the conversation</p>
+              <p className="mt-2 text-xs italic opacity-60">Powered by caffeine and Sebastian's stubbornness</p>
             </div>
           )}
 
@@ -174,6 +240,11 @@ export function ChatWindow({ conversationId: selectedConversationId }: ChatWindo
             />
           )}
 
+          {/* Easter egg message */}
+          {easterEggMsg && (
+            <MessageBubble message={easterEggMsg} />
+          )}
+
           {/* Typing indicator (before first token arrives) */}
           {isStreaming && !streamingContent && (
             <div className="flex items-center gap-3">
@@ -195,7 +266,7 @@ export function ChatWindow({ conversationId: selectedConversationId }: ChatWindo
           <TextareaAutosize
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => { setInput(e.target.value); resetIdleTimer() }}
             onKeyDown={handleKeyDown}
             placeholder="Ask JARVIS anything..."
             minRows={1}

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ResponsiveGridLayout,
   useContainerWidth,
@@ -41,6 +41,18 @@ export default function Dashboard() {
   const toggleAiWidget = useAiAgentStore(s => s.toggleWidget)
   const { width, containerRef } = useContainerWidth()
 
+  // Easter egg: special greeting for Sebastian
+  const isSeba = user?.name?.toLowerCase().includes('seba') || user?.name?.toLowerCase().includes('sebastian')
+  const sebaGreetings = [
+    "Welcome back, boss.",
+    "Reporting for duty, Seba.",
+    "All systems nominal, Creator.",
+    "The system you built is running smoothly, Seba.",
+    "At your service, as always.",
+  ]
+  const [greetingIdx] = useState(() => Math.floor(Math.random() * sebaGreetings.length))
+  const greeting = isSeba ? sebaGreetings[greetingIdx] : `Welcome, ${user?.name}.`
+
   // Build layouts for react-grid-layout
   const lgLayouts = useMemo(() => {
     return visibleWidgets.map(wp => ({
@@ -55,7 +67,7 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="mt-1 text-muted-foreground">Welcome, {user?.name}.</p>
+          <p className="mt-1 text-muted-foreground">{greeting}</p>
         </div>
         <div className="flex items-center gap-2">
           <CustomizeSheet

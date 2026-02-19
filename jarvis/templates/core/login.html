@@ -251,11 +251,11 @@
     <div class="login-container">
         <div class="login-card">
             <div class="login-header">
-                <div class="logo">
+                <div class="logo" id="loginLogo" title="Just Another Really Very Intelligent System — by Seba" style="cursor:default">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
-                    JARVIS
+                    <span id="logoLabel">JARVIS</span>
                 </div>
-                <p>Sign in to continue</p>
+                <p id="loginSubtitle">Sign in to continue</p>
             </div>
 
             {% with messages = get_flashed_messages(with_categories=true) %}
@@ -300,6 +300,23 @@
         });
         document.getElementById('loginForm').addEventListener('submit', function() {
             document.getElementById('loadingOverlay').classList.add('show');
+        });
+        // Easter egg: double-click logo
+        document.getElementById('loginLogo').addEventListener('dblclick', function() {
+            var label = document.getElementById('logoLabel');
+            var subtitle = document.getElementById('loginSubtitle');
+            label.textContent = "Seba's V.I.S.";
+            label.style.background = 'linear-gradient(135deg, #6366f1, #a855f7, #ec4899)';
+            label.style.webkitBackgroundClip = 'text';
+            label.style.webkitTextFillColor = 'transparent';
+            subtitle.textContent = 'Seba\'s Very Intelligent System';
+            setTimeout(function() {
+                label.textContent = 'JARVIS';
+                label.style.background = '';
+                label.style.webkitBackgroundClip = '';
+                label.style.webkitTextFillColor = '';
+                subtitle.textContent = 'Sign in to continue';
+            }, 4000);
         });
     </script>
 </body>

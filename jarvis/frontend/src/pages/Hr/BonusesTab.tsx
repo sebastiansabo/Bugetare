@@ -623,31 +623,18 @@ function BonusDialog({
                 onValueChange={(v) => {
                   setEventId(v)
                   const ev = events.find((e) => String(e.id) === v)
-                  if (ev?.start_date) setPartStart(ev.start_date)
+                  if (ev?.start_date) {
+                    setPartStart(ev.start_date)
+                    const d = new Date(ev.start_date)
+                    setYear(String(d.getFullYear()))
+                    setMonth(String(d.getMonth() + 1))
+                  }
                   if (ev?.end_date) setPartEnd(ev.end_date)
                 }}
                 options={events.map((ev) => ({ value: String(ev.id), label: ev.name }))}
                 placeholder="Select event..."
                 searchPlaceholder="Search event..."
               />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Year</Label>
-              <Input type="number" min={2020} max={2030} value={year} onChange={(e) => setYear(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Month</Label>
-              <Select value={month} onValueChange={setMonth}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {MONTHS.slice(1).map((m, i) => (
-                    <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
           </div>
 
