@@ -287,8 +287,17 @@ class ProjectService:
 
         try:
             from ai_agent.services.ai_agent_service import AIAgentService
+            from ai_agent.models import LLMProvider
             svc = AIAgentService()
-            model_config = svc.model_config_repo.get_default()
+            # Prefer fastest Claude model for structured output (Sonnet over Opus)
+            model_config = None
+            claude_models = svc.model_config_repo.get_by_provider(LLMProvider.CLAUDE)
+            for m in claude_models:
+                if 'sonnet' in m.model_name:
+                    model_config = m
+                    break
+            if not model_config:
+                model_config = svc.model_config_repo.get_default()
             if not model_config:
                 return ServiceResult(success=False, error='No AI model configured', status_code=503)
 
@@ -300,7 +309,16 @@ class ProjectService:
                 temperature=0.5,
                 system='You are a marketing OKR assistant. Return ONLY valid JSON arrays.',
             )
-            suggestions = result if isinstance(result, list) else []
+            # generate_structured returns a dict (tool_use schema is object)
+            # Extract the array from whichever key contains it
+            if isinstance(result, list):
+                suggestions = result
+            elif isinstance(result, dict):
+                suggestions = next(
+                    (v for v in result.values() if isinstance(v, list)), []
+                )
+            else:
+                suggestions = []
 
             valid_kpi_ids = {k['id'] for k in kpis}
             validated = []
