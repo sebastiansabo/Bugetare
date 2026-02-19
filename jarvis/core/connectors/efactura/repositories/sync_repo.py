@@ -8,30 +8,18 @@ import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
-from core.database import get_db, get_cursor, release_db
+from core.base_repository import BaseRepository
 from core.utils.logging_config import get_logger
 from ..models import SyncRun, SyncError
 
 logger = get_logger('jarvis.accounting.efactura.repo.sync')
 
 
-class SyncRepository:
+class SyncRepository(BaseRepository):
     """Repository for SyncRun and SyncError entities."""
 
     def create_run(self, company_cif: str, direction: str = 'both') -> SyncRun:
-        """
-        Create a new sync run.
-
-        Args:
-            company_cif: Company being synced
-            direction: 'received', 'sent', or 'both'
-
-        Returns:
-            Created SyncRun
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Create a new sync run."""
         run = SyncRun(
             run_id=str(uuid.uuid4()),
             company_cif=company_cif,
@@ -39,7 +27,7 @@ class SyncRepository:
             started_at=datetime.now(),
         )
 
-        try:
+        def _work(cursor):
             cursor.execute("""
                 INSERT INTO efactura_sync_runs (
                     run_id, company_cif, direction, started_at
@@ -53,12 +41,7 @@ class SyncRepository:
                 'direction': run.direction,
                 'started_at': run.started_at,
             })
-
-            row = cursor.fetchone()
-            run.id = row['id']
-
-            conn.commit()
-
+            run.id = cursor.fetchone()['id']
             logger.info(
                 "Sync run started",
                 extra={
@@ -67,15 +50,8 @@ class SyncRepository:
                     'direction': direction,
                 }
             )
-
             return run
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to create sync run: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def complete_run(
         self,
@@ -83,79 +59,54 @@ class SyncRepository:
         success: bool = True,
         error_summary: Optional[str] = None,
     ) -> SyncRun:
-        """
-        Mark sync run as complete.
-
-        Args:
-            run: SyncRun to complete
-            success: Whether sync was successful
-            error_summary: Summary of errors if any
-
-        Returns:
-            Updated SyncRun
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Mark sync run as complete."""
         run.finished_at = datetime.now()
         run.success = success
         run.error_summary = error_summary
 
-        try:
-            cursor.execute("""
-                UPDATE efactura_sync_runs SET
-                    finished_at = %(finished_at)s,
-                    success = %(success)s,
-                    messages_checked = %(messages_checked)s,
-                    invoices_fetched = %(invoices_fetched)s,
-                    invoices_created = %(invoices_created)s,
-                    invoices_updated = %(invoices_updated)s,
-                    invoices_skipped = %(invoices_skipped)s,
-                    errors_count = %(errors_count)s,
-                    cursor_before = %(cursor_before)s,
-                    cursor_after = %(cursor_after)s,
-                    error_summary = %(error_summary)s
-                WHERE run_id = %(run_id)s
-            """, {
+        self.execute("""
+            UPDATE efactura_sync_runs SET
+                finished_at = %(finished_at)s,
+                success = %(success)s,
+                messages_checked = %(messages_checked)s,
+                invoices_fetched = %(invoices_fetched)s,
+                invoices_created = %(invoices_created)s,
+                invoices_updated = %(invoices_updated)s,
+                invoices_skipped = %(invoices_skipped)s,
+                errors_count = %(errors_count)s,
+                cursor_before = %(cursor_before)s,
+                cursor_after = %(cursor_after)s,
+                error_summary = %(error_summary)s
+            WHERE run_id = %(run_id)s
+        """, {
+            'run_id': run.run_id,
+            'finished_at': run.finished_at,
+            'success': run.success,
+            'messages_checked': run.messages_checked,
+            'invoices_fetched': run.invoices_fetched,
+            'invoices_created': run.invoices_created,
+            'invoices_updated': run.invoices_updated,
+            'invoices_skipped': run.invoices_skipped,
+            'errors_count': run.errors_count,
+            'cursor_before': run.cursor_before,
+            'cursor_after': run.cursor_after,
+            'error_summary': run.error_summary,
+        })
+
+        duration_ms = int(
+            (run.finished_at - run.started_at).total_seconds() * 1000
+        )
+        logger.info(
+            "Sync run completed",
+            extra={
                 'run_id': run.run_id,
-                'finished_at': run.finished_at,
-                'success': run.success,
-                'messages_checked': run.messages_checked,
-                'invoices_fetched': run.invoices_fetched,
+                'success': success,
+                'duration_ms': duration_ms,
                 'invoices_created': run.invoices_created,
-                'invoices_updated': run.invoices_updated,
-                'invoices_skipped': run.invoices_skipped,
                 'errors_count': run.errors_count,
-                'cursor_before': run.cursor_before,
-                'cursor_after': run.cursor_after,
-                'error_summary': run.error_summary,
-            })
-
-            conn.commit()
-
-            duration_ms = int(
-                (run.finished_at - run.started_at).total_seconds() * 1000
-            )
-
-            logger.info(
-                "Sync run completed",
-                extra={
-                    'run_id': run.run_id,
-                    'success': success,
-                    'duration_ms': duration_ms,
-                    'invoices_created': run.invoices_created,
-                    'errors_count': run.errors_count,
-                }
-            )
-
-            return run
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to complete sync run: {e}")
-            raise
-        finally:
-            release_db(conn)
+            }
+        )
+        return run
 
     def record_error(
         self,
@@ -170,41 +121,21 @@ class SyncRepository:
         stack_trace: Optional[str] = None,
         is_retryable: bool = False,
     ) -> SyncError:
-        """
-        Record a sync error.
-
-        Args:
-            run_id: ID of the sync run
-            error_type: Type of error (AUTH, NETWORK, VALIDATION, API, PARSE)
-            error_message: Human-readable error message
-            message_id: ANAF message ID if applicable
-            invoice_ref: Invoice reference if known
-            error_code: Error code if applicable
-            request_hash: Hash of request (never raw data)
-            response_hash: Hash of response (never raw data)
-            stack_trace: Truncated stack trace
-            is_retryable: Whether error is recoverable
-
-        Returns:
-            Created SyncError
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
+        """Record a sync error."""
         error = SyncError(
             run_id=run_id,
             message_id=message_id,
             invoice_ref=invoice_ref,
             error_type=error_type,
             error_code=error_code,
-            error_message=error_message[:500] if error_message else None,  # Truncate
+            error_message=error_message[:500] if error_message else None,
             request_hash=request_hash,
             response_hash=response_hash,
-            stack_trace=stack_trace[:2000] if stack_trace else None,  # Truncate
+            stack_trace=stack_trace[:2000] if stack_trace else None,
             is_retryable=is_retryable,
         )
 
-        try:
+        def _work(cursor):
             cursor.execute("""
                 INSERT INTO efactura_sync_errors (
                     run_id, message_id, invoice_ref,
@@ -230,13 +161,9 @@ class SyncRepository:
                 'stack_trace': error.stack_trace,
                 'is_retryable': error.is_retryable,
             })
-
             row = cursor.fetchone()
             error.id = row['id']
             error.created_at = row['created_at']
-
-            conn.commit()
-
             logger.warning(
                 "Sync error recorded",
                 extra={
@@ -246,31 +173,15 @@ class SyncRepository:
                     'is_retryable': is_retryable,
                 }
             )
-
             return error
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to record sync error: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_run_by_id(self, run_id: str) -> Optional[SyncRun]:
         """Get sync run by ID."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_sync_runs
-                WHERE run_id = %s
-            """, (run_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_run(row)
-        finally:
-            release_db(conn)
+        row = self.query_one(
+            'SELECT * FROM efactura_sync_runs WHERE run_id = %s', (run_id,)
+        )
+        return self._row_to_run(row) if row else None
 
     def get_recent_runs(
         self,
@@ -278,39 +189,29 @@ class SyncRepository:
         limit: int = 20,
     ) -> List[SyncRun]:
         """Get recent sync runs."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            if company_cif:
-                cursor.execute("""
-                    SELECT * FROM efactura_sync_runs
-                    WHERE company_cif = %s
-                    ORDER BY started_at DESC
-                    LIMIT %s
-                """, (company_cif, limit))
-            else:
-                cursor.execute("""
-                    SELECT * FROM efactura_sync_runs
-                    ORDER BY started_at DESC
-                    LIMIT %s
-                """, (limit,))
-            return [self._row_to_run(row) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        if company_cif:
+            rows = self.query_all("""
+                SELECT * FROM efactura_sync_runs
+                WHERE company_cif = %s
+                ORDER BY started_at DESC
+                LIMIT %s
+            """, (company_cif, limit))
+        else:
+            rows = self.query_all("""
+                SELECT * FROM efactura_sync_runs
+                ORDER BY started_at DESC
+                LIMIT %s
+            """, (limit,))
+        return [self._row_to_run(row) for row in rows]
 
     def get_run_errors(self, run_id: str) -> List[SyncError]:
         """Get errors for a sync run."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_sync_errors
-                WHERE run_id = %s
-                ORDER BY created_at
-            """, (run_id,))
-            return [self._row_to_error(row) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        rows = self.query_all("""
+            SELECT * FROM efactura_sync_errors
+            WHERE run_id = %s
+            ORDER BY created_at
+        """, (run_id,))
+        return [self._row_to_error(row) for row in rows]
 
     def get_last_successful_run(
         self,
@@ -318,32 +219,24 @@ class SyncRepository:
         direction: Optional[str] = None,
     ) -> Optional[SyncRun]:
         """Get last successful sync run for a company."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            if direction:
-                cursor.execute("""
-                    SELECT * FROM efactura_sync_runs
-                    WHERE company_cif = %s
-                    AND direction = %s
-                    AND success = TRUE
-                    ORDER BY finished_at DESC
-                    LIMIT 1
-                """, (company_cif, direction))
-            else:
-                cursor.execute("""
-                    SELECT * FROM efactura_sync_runs
-                    WHERE company_cif = %s
-                    AND success = TRUE
-                    ORDER BY finished_at DESC
-                    LIMIT 1
-                """, (company_cif,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_run(row)
-        finally:
-            release_db(conn)
+        if direction:
+            row = self.query_one("""
+                SELECT * FROM efactura_sync_runs
+                WHERE company_cif = %s
+                AND direction = %s
+                AND success = TRUE
+                ORDER BY finished_at DESC
+                LIMIT 1
+            """, (company_cif, direction))
+        else:
+            row = self.query_one("""
+                SELECT * FROM efactura_sync_runs
+                WHERE company_cif = %s
+                AND success = TRUE
+                ORDER BY finished_at DESC
+                LIMIT 1
+            """, (company_cif,))
+        return self._row_to_run(row) if row else None
 
     def get_error_stats(
         self,
@@ -351,59 +244,40 @@ class SyncRepository:
         hours: int = 24,
     ) -> Dict[str, Any]:
         """Get error statistics for monitoring."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        cif_filter = 'AND r.company_cif = %s' if company_cif else ''
+        params = [hours]
+        if company_cif:
+            params.append(company_cif)
 
-            cif_filter = 'AND r.company_cif = %s' if company_cif else ''
-            params = [hours]
-            if company_cif:
-                params.append(company_cif)
+        rows = self.query_all(f"""
+            SELECT
+                e.error_type,
+                COUNT(*) as count,
+                COUNT(DISTINCT r.company_cif) as affected_companies
+            FROM efactura_sync_errors e
+            JOIN efactura_sync_runs r ON r.run_id = e.run_id
+            WHERE r.started_at > NOW() - INTERVAL '%s hours'
+            {cif_filter}
+            GROUP BY e.error_type
+            ORDER BY count DESC
+        """, params)
 
-            cursor.execute(f"""
-                SELECT
-                    e.error_type,
-                    COUNT(*) as count,
-                    COUNT(DISTINCT r.company_cif) as affected_companies
-                FROM efactura_sync_errors e
-                JOIN efactura_sync_runs r ON r.run_id = e.run_id
-                WHERE r.started_at > NOW() - INTERVAL '%s hours'
-                {cif_filter}
-                GROUP BY e.error_type
-                ORDER BY count DESC
-            """, params)
-
-            stats = {
-                'by_type': {},
-                'total_errors': 0,
-                'hours': hours,
+        stats = {
+            'by_type': {},
+            'total_errors': 0,
+            'hours': hours,
+        }
+        for row in rows:
+            stats['by_type'][row['error_type']] = {
+                'count': row['count'],
+                'affected_companies': row['affected_companies'],
             }
-
-            for row in cursor.fetchall():
-                stats['by_type'][row['error_type']] = {
-                    'count': row['count'],
-                    'affected_companies': row['affected_companies'],
-                }
-                stats['total_errors'] += row['count']
-
-            return stats
-        finally:
-            release_db(conn)
+            stats['total_errors'] += row['count']
+        return stats
 
     def cleanup_old_runs(self, days: int = 90) -> int:
-        """
-        Delete old sync runs and errors.
-
-        Args:
-            days: Keep runs newer than this many days
-
-        Returns:
-            Number of runs deleted
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
+        """Delete old sync runs and errors."""
+        def _work(cursor):
             # Delete old errors first (FK constraint)
             cursor.execute("""
                 DELETE FROM efactura_sync_errors
@@ -418,23 +292,13 @@ class SyncRepository:
                 DELETE FROM efactura_sync_runs
                 WHERE started_at < NOW() - INTERVAL '%s days'
             """, (days,))
-
             deleted = cursor.rowcount
-            conn.commit()
-
             logger.info(
                 "Cleaned up old sync runs",
                 extra={'deleted': deleted, 'older_than_days': days}
             )
-
             return deleted
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to cleanup old runs: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def _row_to_run(self, row: Dict[str, Any]) -> SyncRun:
         """Convert database row to SyncRun model."""

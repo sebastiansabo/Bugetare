@@ -4,12 +4,11 @@ Invoice Repository
 Database operations for e-Factura invoices and related entities.
 """
 
-import json
-from datetime import datetime, date
+from datetime import date
 from decimal import Decimal
 from typing import Optional, List, Dict, Any, Tuple
 
-from core.database import get_db, get_cursor, release_db
+from core.base_repository import BaseRepository
 from core.utils.logging_config import get_logger
 from ..config import InvoiceDirection, ArtifactType
 from ..models import (
@@ -21,7 +20,7 @@ from ..models import (
 logger = get_logger('jarvis.accounting.efactura.repo.invoice')
 
 
-class InvoiceRepository:
+class InvoiceRepository(BaseRepository):
     """Repository for Invoice and related entities."""
 
     def create(
@@ -30,23 +29,8 @@ class InvoiceRepository:
         external_ref: InvoiceExternalRef,
         artifacts: List[InvoiceArtifact],
     ) -> Invoice:
-        """
-        Create invoice with external reference and artifacts.
-
-        Uses a transaction to ensure atomicity.
-
-        Args:
-            invoice: Invoice to create
-            external_ref: External reference from ANAF
-            artifacts: List of artifacts to store
-
-        Returns:
-            Created Invoice with ID
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
+        """Create invoice with external reference and artifacts atomically."""
+        def _work(cursor):
             # Insert invoice
             cursor.execute("""
                 INSERT INTO efactura_invoices (
@@ -139,8 +123,6 @@ class InvoiceRepository:
                 artifact.id = art_row['id']
                 artifact.created_at = art_row['created_at']
 
-            conn.commit()
-
             logger.info(
                 "Invoice created",
                 extra={
@@ -150,31 +132,15 @@ class InvoiceRepository:
                     'artifact_count': len(artifacts),
                 }
             )
-
             return invoice
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to create invoice: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_by_id(self, invoice_id: int) -> Optional[Invoice]:
         """Get invoice by ID."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_invoices
-                WHERE id = %s
-            """, (invoice_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_invoice(row)
-        finally:
-            release_db(conn)
+        row = self.query_one(
+            'SELECT * FROM efactura_invoices WHERE id = %s', (invoice_id,)
+        )
+        return self._row_to_invoice(row) if row else None
 
     def get_by_message_id(
         self,
@@ -183,22 +149,14 @@ class InvoiceRepository:
         message_id: str,
     ) -> Optional[Invoice]:
         """Get invoice by ANAF message ID (for deduplication)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT i.* FROM efactura_invoices i
-                JOIN efactura_invoice_refs r ON r.invoice_id = i.id
-                WHERE i.cif_owner = %s
-                AND i.direction = %s
-                AND r.message_id = %s
-            """, (cif_owner, direction.value, message_id))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_invoice(row)
-        finally:
-            release_db(conn)
+        row = self.query_one("""
+            SELECT i.* FROM efactura_invoices i
+            JOIN efactura_invoice_refs r ON r.invoice_id = i.id
+            WHERE i.cif_owner = %s
+            AND i.direction = %s
+            AND r.message_id = %s
+        """, (cif_owner, direction.value, message_id))
+        return self._row_to_invoice(row) if row else None
 
     def exists_by_message_id(
         self,
@@ -207,20 +165,14 @@ class InvoiceRepository:
         message_id: str,
     ) -> bool:
         """Check if invoice exists (fast dedup check)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT 1 FROM efactura_invoices i
-                JOIN efactura_invoice_refs r ON r.invoice_id = i.id
-                WHERE i.cif_owner = %s
-                AND i.direction = %s
-                AND r.message_id = %s
-                LIMIT 1
-            """, (cif_owner, direction.value, message_id))
-            return cursor.fetchone() is not None
-        finally:
-            release_db(conn)
+        return self.query_one("""
+            SELECT 1 FROM efactura_invoices i
+            JOIN efactura_invoice_refs r ON r.invoice_id = i.id
+            WHERE i.cif_owner = %s
+            AND i.direction = %s
+            AND r.message_id = %s
+            LIMIT 1
+        """, (cif_owner, direction.value, message_id)) is not None
 
     def list_invoices(
         self,
@@ -232,139 +184,71 @@ class InvoiceRepository:
         limit: int = 100,
         offset: int = 0,
     ) -> Tuple[List[Invoice], int]:
-        """
-        List invoices with filters.
+        """List invoices with filters. Returns (invoices, total_count)."""
+        conditions = ['cif_owner = %(cif_owner)s']
+        params = {'cif_owner': cif_owner, 'limit': limit, 'offset': offset}
 
-        Args:
-            cif_owner: Company CIF
-            direction: Filter by direction
-            start_date: Filter by issue date start
-            end_date: Filter by issue date end
-            partner_cif: Filter by partner CIF
-            limit: Page size
-            offset: Page offset
+        if direction is not None:
+            conditions.append('direction = %(direction)s')
+            params['direction'] = direction.value
+        if start_date is not None:
+            conditions.append('issue_date >= %(start_date)s')
+            params['start_date'] = start_date
+        if end_date is not None:
+            conditions.append('issue_date <= %(end_date)s')
+            params['end_date'] = end_date
+        if partner_cif is not None:
+            conditions.append('partner_cif = %(partner_cif)s')
+            params['partner_cif'] = partner_cif
 
-        Returns:
-            Tuple of (invoices, total_count)
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        where_clause = ' AND '.join(conditions)
 
-            # Build WHERE clause
-            conditions = ['cif_owner = %(cif_owner)s']
-            params = {'cif_owner': cif_owner, 'limit': limit, 'offset': offset}
-
-            if direction is not None:
-                conditions.append('direction = %(direction)s')
-                params['direction'] = direction.value
-
-            if start_date is not None:
-                conditions.append('issue_date >= %(start_date)s')
-                params['start_date'] = start_date
-
-            if end_date is not None:
-                conditions.append('issue_date <= %(end_date)s')
-                params['end_date'] = end_date
-
-            if partner_cif is not None:
-                conditions.append('partner_cif = %(partner_cif)s')
-                params['partner_cif'] = partner_cif
-
-            where_clause = ' AND '.join(conditions)
-
-            # Get total count
+        def _work(cursor):
             cursor.execute(f"""
                 SELECT COUNT(*) as total FROM efactura_invoices
                 WHERE {where_clause}
             """, params)
             total = cursor.fetchone()['total']
 
-            # Get invoices
             cursor.execute(f"""
                 SELECT * FROM efactura_invoices
                 WHERE {where_clause}
                 ORDER BY issue_date DESC, id DESC
                 LIMIT %(limit)s OFFSET %(offset)s
             """, params)
-
             invoices = [self._row_to_invoice(row) for row in cursor.fetchall()]
-
             return invoices, total
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_external_ref(self, invoice_id: int) -> Optional[InvoiceExternalRef]:
         """Get external reference for an invoice."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_invoice_refs
-                WHERE invoice_id = %s
-            """, (invoice_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return InvoiceExternalRef(
-                id=row['id'],
-                invoice_id=row['invoice_id'],
-                external_system=row['external_system'],
-                message_id=row['message_id'],
-                upload_id=row.get('upload_id'),
-                download_id=row.get('download_id'),
-                xml_hash=row.get('xml_hash'),
-                signature_hash=row.get('signature_hash'),
-                raw_response_hash=row.get('raw_response_hash'),
-                created_at=row['created_at'],
-            )
-        finally:
-            release_db(conn)
+        row = self.query_one(
+            'SELECT * FROM efactura_invoice_refs WHERE invoice_id = %s', (invoice_id,)
+        )
+        if row is None:
+            return None
+        return InvoiceExternalRef(
+            id=row['id'],
+            invoice_id=row['invoice_id'],
+            external_system=row['external_system'],
+            message_id=row['message_id'],
+            upload_id=row.get('upload_id'),
+            download_id=row.get('download_id'),
+            xml_hash=row.get('xml_hash'),
+            signature_hash=row.get('signature_hash'),
+            raw_response_hash=row.get('raw_response_hash'),
+            created_at=row['created_at'],
+        )
 
     def get_artifacts(self, invoice_id: int) -> List[InvoiceArtifact]:
         """Get artifacts for an invoice."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_invoice_artifacts
-                WHERE invoice_id = %s
-                ORDER BY artifact_type
-            """, (invoice_id,))
-            return [
-                InvoiceArtifact(
-                    id=row['id'],
-                    invoice_id=row['invoice_id'],
-                    artifact_type=ArtifactType(row['artifact_type']),
-                    storage_uri=row['storage_uri'],
-                    original_filename=row.get('original_filename'),
-                    mime_type=row.get('mime_type'),
-                    checksum=row.get('checksum'),
-                    size_bytes=row.get('size_bytes', 0),
-                    created_at=row['created_at'],
-                )
-                for row in cursor.fetchall()
-            ]
-        finally:
-            release_db(conn)
-
-    def get_artifact_by_type(
-        self,
-        invoice_id: int,
-        artifact_type: ArtifactType,
-    ) -> Optional[InvoiceArtifact]:
-        """Get specific artifact type for an invoice."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_invoice_artifacts
-                WHERE invoice_id = %s AND artifact_type = %s
-            """, (invoice_id, artifact_type.value))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return InvoiceArtifact(
+        rows = self.query_all("""
+            SELECT * FROM efactura_invoice_artifacts
+            WHERE invoice_id = %s
+            ORDER BY artifact_type
+        """, (invoice_id,))
+        return [
+            InvoiceArtifact(
                 id=row['id'],
                 invoice_id=row['invoice_id'],
                 artifact_type=ArtifactType(row['artifact_type']),
@@ -375,30 +259,40 @@ class InvoiceRepository:
                 size_bytes=row.get('size_bytes', 0),
                 created_at=row['created_at'],
             )
-        finally:
-            release_db(conn)
+            for row in rows
+        ]
 
-    def update_artifact_uri(
+    def get_artifact_by_type(
         self,
-        artifact_id: int,
-        storage_uri: str,
-    ):
+        invoice_id: int,
+        artifact_type: ArtifactType,
+    ) -> Optional[InvoiceArtifact]:
+        """Get specific artifact type for an invoice."""
+        row = self.query_one("""
+            SELECT * FROM efactura_invoice_artifacts
+            WHERE invoice_id = %s AND artifact_type = %s
+        """, (invoice_id, artifact_type.value))
+        if row is None:
+            return None
+        return InvoiceArtifact(
+            id=row['id'],
+            invoice_id=row['invoice_id'],
+            artifact_type=ArtifactType(row['artifact_type']),
+            storage_uri=row['storage_uri'],
+            original_filename=row.get('original_filename'),
+            mime_type=row.get('mime_type'),
+            checksum=row.get('checksum'),
+            size_bytes=row.get('size_bytes', 0),
+            created_at=row['created_at'],
+        )
+
+    def update_artifact_uri(self, artifact_id: int, storage_uri: str):
         """Update artifact storage URI after upload."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                UPDATE efactura_invoice_artifacts
-                SET storage_uri = %s
-                WHERE id = %s
-            """, (storage_uri, artifact_id))
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to update artifact URI: {e}")
-            raise
-        finally:
-            release_db(conn)
+        self.execute("""
+            UPDATE efactura_invoice_artifacts
+            SET storage_uri = %s
+            WHERE id = %s
+        """, (storage_uri, artifact_id))
 
     def get_summary(
         self,
@@ -407,51 +301,43 @@ class InvoiceRepository:
         end_date: Optional[date] = None,
     ) -> Dict[str, Any]:
         """Get invoice summary statistics."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        params = {'cif_owner': cif_owner}
+        date_filter = ''
 
-            params = {'cif_owner': cif_owner}
-            date_filter = ''
+        if start_date:
+            date_filter += ' AND issue_date >= %(start_date)s'
+            params['start_date'] = start_date
+        if end_date:
+            date_filter += ' AND issue_date <= %(end_date)s'
+            params['end_date'] = end_date
 
-            if start_date:
-                date_filter += ' AND issue_date >= %(start_date)s'
-                params['start_date'] = start_date
-            if end_date:
-                date_filter += ' AND issue_date <= %(end_date)s'
-                params['end_date'] = end_date
+        rows = self.query_all(f"""
+            SELECT
+                direction,
+                COUNT(*) as count,
+                SUM(total_amount) as total_amount,
+                SUM(total_vat) as total_vat,
+                MIN(issue_date) as earliest_date,
+                MAX(issue_date) as latest_date
+            FROM efactura_invoices
+            WHERE cif_owner = %(cif_owner)s {date_filter}
+            GROUP BY direction
+        """, params)
 
-            cursor.execute(f"""
-                SELECT
-                    direction,
-                    COUNT(*) as count,
-                    SUM(total_amount) as total_amount,
-                    SUM(total_vat) as total_vat,
-                    MIN(issue_date) as earliest_date,
-                    MAX(issue_date) as latest_date
-                FROM efactura_invoices
-                WHERE cif_owner = %(cif_owner)s {date_filter}
-                GROUP BY direction
-            """, params)
-
-            summary = {
-                'received': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
-                'sent': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
+        summary = {
+            'received': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
+            'sent': {'count': 0, 'total': Decimal('0'), 'vat': Decimal('0')},
+        }
+        for row in rows:
+            direction = row['direction']
+            summary[direction] = {
+                'count': row['count'],
+                'total': Decimal(str(row['total_amount'] or 0)),
+                'vat': Decimal(str(row['total_vat'] or 0)),
+                'earliest_date': row['earliest_date'],
+                'latest_date': row['latest_date'],
             }
-
-            for row in cursor.fetchall():
-                direction = row['direction']
-                summary[direction] = {
-                    'count': row['count'],
-                    'total': Decimal(str(row['total_amount'] or 0)),
-                    'vat': Decimal(str(row['total_vat'] or 0)),
-                    'earliest_date': row['earliest_date'],
-                    'latest_date': row['latest_date'],
-                }
-
-            return summary
-        finally:
-            release_db(conn)
+        return summary
 
     # ============================================
     # Unallocated Invoices (for JARVIS integration)
@@ -459,72 +345,40 @@ class InvoiceRepository:
 
     def get_by_message_id_simple(self, message_id: str) -> Optional[Invoice]:
         """Get invoice by ANAF message ID only (simpler version for import)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT i.* FROM efactura_invoices i
-                JOIN efactura_invoice_refs r ON r.invoice_id = i.id
-                WHERE r.message_id = %s
-            """, (message_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_invoice(row)
-        finally:
-            release_db(conn)
+        row = self.query_one("""
+            SELECT i.* FROM efactura_invoices i
+            JOIN efactura_invoice_refs r ON r.invoice_id = i.id
+            WHERE r.message_id = %s
+        """, (message_id,))
+        return self._row_to_invoice(row) if row else None
 
     def ignore_invoice(self, invoice_id: int, ignored: bool = True) -> bool:
-        """
-        Mark an invoice as ignored (soft delete).
-
-        Args:
-            invoice_id: ID of the invoice to ignore
-            ignored: True to ignore, False to restore
-
-        Returns:
-            True if successful, False otherwise
-        """
-        conn = get_db()
+        """Mark an invoice as ignored (soft delete)."""
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
+            self.execute("""
                 UPDATE efactura_invoices
                 SET ignored = %s, updated_at = NOW()
                 WHERE id = %s
             """, (ignored, invoice_id))
-            conn.commit()
             logger.info(
                 f"Invoice {'ignored' if ignored else 'restored'}",
                 extra={'invoice_id': invoice_id}
             )
             return True
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to ignore invoice: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def supplier_has_hidden_types(self, partner_name: str) -> bool:
         """
         Check if a partner has ONLY hidden types (all types have hide_in_filter=TRUE).
-
         Returns False if the partner has any non-hidden type (mixed types = not hidden).
-
-        Args:
-            partner_name: Name of the partner (supplier/customer)
-
-        Returns:
-            True if partner has types AND all are hidden, False otherwise
         """
         if not partner_name:
             return False
 
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
+            result = self.query_one("""
                 SELECT
                     EXISTS (
                         SELECT 1
@@ -547,43 +401,23 @@ class InvoiceRepository:
                             AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
                     ) as has_visible_types
             """, (partner_name, partner_name))
-            result = cursor.fetchone()
             if not result:
                 return False
-            # Only hidden if has hidden types AND no visible types
             return result['has_hidden_types'] and not result['has_visible_types']
         except Exception as e:
             logger.error(f"Failed to check partner hidden types: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def auto_hide_if_typed(self, invoice_id: int, partner_name: str) -> bool:
         """
         Automatically hide an invoice if its partner has types with hide_in_filter=TRUE.
-
-        Skips invoices that have a manual type override (type_override IS NOT NULL).
-
-        Args:
-            invoice_id: ID of the invoice
-            partner_name: Name of the partner
-
-        Returns:
-            True if invoice was auto-hidden, False otherwise
+        Skips invoices that have a manual type override.
         """
-        # Check if invoice has manual type override - don't auto-hide if so
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute(
-                'SELECT type_override FROM efactura_invoices WHERE id = %s',
-                (invoice_id,)
-            )
-            row = cursor.fetchone()
-            if row and row.get('type_override'):
-                return False  # Has manual override, skip auto-hide
-        finally:
-            release_db(conn)
+        row = self.query_one(
+            'SELECT type_override FROM efactura_invoices WHERE id = %s', (invoice_id,)
+        )
+        if row and row.get('type_override'):
+            return False  # Has manual override, skip auto-hide
 
         if self.supplier_has_hidden_types(partner_name):
             logger.info(
@@ -596,23 +430,13 @@ class InvoiceRepository:
     def auto_hide_all_by_supplier(self, partner_name: str) -> int:
         """
         Auto-hide all unallocated, non-ignored invoices for a partner.
-
-        Called when a supplier mapping is created/updated with hidden types.
-        Only affects invoices without manual type override (type_override IS NULL).
-
-        Args:
-            partner_name: Name of the partner
-
-        Returns:
-            Number of invoices auto-hidden
+        Only affects invoices without manual type override.
         """
         if not partner_name:
             return 0
 
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
+            count = self.execute("""
                 UPDATE efactura_invoices
                 SET ignored = TRUE, updated_at = NOW()
                 WHERE LOWER(partner_name) = LOWER(%s)
@@ -621,8 +445,6 @@ class InvoiceRepository:
                     AND deleted_at IS NULL
                     AND type_override IS NULL
             """, (partner_name,))
-            count = cursor.rowcount
-            conn.commit()
             if count > 0:
                 logger.info(
                     f"Auto-hidden {count} invoices for partner with hidden types",
@@ -630,11 +452,8 @@ class InvoiceRepository:
                 )
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to auto-hide invoices for partner: {e}")
             return 0
-        finally:
-            release_db(conn)
 
     def update_overrides(
         self,
@@ -645,20 +464,9 @@ class InvoiceRepository:
         department_override_2: Optional[str] = None,
         subdepartment_override_2: Optional[str] = None,
     ) -> bool:
-        """
-        Update invoice-level overrides for Type, Department, and Subdepartment.
-
-        These overrides take precedence over the mapping defaults.
-        Passing None clears the override.
-
-        department_override_2/subdepartment_override_2: Optional second department
-        for multi-department allocation. When set, invoice is sent to Accounting
-        without auto-allocation (user must allocate manually).
-        """
-        conn = get_db()
+        """Update invoice-level overrides for Type, Department, and Subdepartment."""
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
+            self.execute("""
                 UPDATE efactura_invoices
                 SET type_override = %s,
                     department_override = %s,
@@ -669,7 +477,6 @@ class InvoiceRepository:
                 WHERE id = %s
             """, (type_override, department_override, subdepartment_override,
                   department_override_2, subdepartment_override_2, invoice_id))
-            conn.commit()
             logger.info(
                 f"Invoice overrides updated",
                 extra={
@@ -683,32 +490,18 @@ class InvoiceRepository:
             )
             return True
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to update invoice overrides: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def bulk_update_overrides(
         self,
         invoice_ids: List[int],
         updates: Dict[str, Any],
     ) -> int:
-        """
-        Bulk update invoice-level overrides for multiple invoices.
-
-        Args:
-            invoice_ids: List of invoice IDs to update
-            updates: Dict of field -> value pairs to update. Only fields present in the dict will be updated.
-                     Supported fields: type_override, department_override, subdepartment_override,
-                     department_override_2, subdepartment_override_2
-
-        Returns the number of invoices updated.
-        """
+        """Bulk update invoice-level overrides for multiple invoices."""
         if not invoice_ids or not updates:
             return 0
 
-        # Build SET clause dynamically based on provided updates
         allowed_fields = {'type_override', 'department_override', 'subdepartment_override',
                           'department_override_2', 'subdepartment_override_2'}
         set_clauses = []
@@ -725,30 +518,20 @@ class InvoiceRepository:
         set_clauses.append("updated_at = NOW()")
         params.append(invoice_ids)
 
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
-            cursor.execute(f"""
+            count = self.execute(f"""
                 UPDATE efactura_invoices
                 SET {', '.join(set_clauses)}
                 WHERE id = ANY(%s)
             """, params)
-            conn.commit()
-            count = cursor.rowcount
             logger.info(
                 f"Bulk updated {count} invoice overrides",
-                extra={
-                    'invoice_ids': invoice_ids,
-                    'updates': updates,
-                }
+                extra={'invoice_ids': invoice_ids, 'updates': updates}
             )
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to bulk update invoice overrides: {e}")
             return 0
-        finally:
-            release_db(conn)
 
     # Valid sort columns mapping (frontend name -> DB column)
     SORT_COLUMNS = {
@@ -786,320 +569,38 @@ class InvoiceRepository:
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         List invoices that haven't been sent to the main Invoice Module.
-
         Unallocated = jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL
-        Returns invoices with type_name from supplier mappings.
         """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        conditions = ['i.jarvis_invoice_id IS NULL', 'i.ignored = FALSE', 'i.deleted_at IS NULL']
+        params = {'limit': limit, 'offset': offset}
 
-            # Build WHERE clause - exclude ignored and deleted invoices
-            conditions = ['i.jarvis_invoice_id IS NULL', 'i.ignored = FALSE', 'i.deleted_at IS NULL']
-            params = {'limit': limit, 'offset': offset}
-
-            if cif_owner:
-                conditions.append('i.cif_owner = %(cif_owner)s')
-                params['cif_owner'] = cif_owner
-
-            if company_id is not None:
-                conditions.append('i.company_id = %(company_id)s')
-                params['company_id'] = company_id
-
-            if direction is not None:
-                conditions.append('i.direction = %(direction)s')
-                params['direction'] = direction.value
-
-            if start_date:
-                conditions.append('i.issue_date >= %(start_date)s')
-                params['start_date'] = start_date
-
-            if end_date:
-                conditions.append('i.issue_date <= %(end_date)s')
-                params['end_date'] = end_date
-
-            if search:
-                # Elasticsearch-style: split into words, ALL words must match somewhere
-                words = [w.strip() for w in search.split() if w.strip()]
-                for i, word in enumerate(words):
-                    param_name = f'search_{i}'
-                    conditions.append(
-                        f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
-                    )
-                    params[param_name] = f'%{word}%'
-
-            if hide_typed:
-                # Hide invoices where ALL types have hide_in_filter=TRUE
-                # If partner has mixed types (some hidden, some not), don't hide
-                # Note: Use %% to escape % in psycopg2 with named parameters
-                conditions.append("""
-                    NOT (
-                        -- All types are hidden via override (has hidden AND no non-hidden)
-                        (i.type_override IS NOT NULL AND EXISTS (
-                            SELECT 1 FROM efactura_supplier_types pt
-                            WHERE pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
-                                AND i.type_override ILIKE '%%' || pt.name || '%%'
-                        ) AND NOT EXISTS (
-                            SELECT 1 FROM efactura_supplier_types pt
-                            WHERE pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
-                                AND i.type_override ILIKE '%%' || pt.name || '%%'
-                        ))
-                        OR
-                        -- All types are hidden via supplier mapping (has hidden AND no non-hidden)
-                        (i.type_override IS NULL AND EXISTS (
-                            SELECT 1 FROM efactura_supplier_mappings sm2
-                            JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
-                            JOIN efactura_supplier_types pt ON pt.id = smt.type_id
-                            WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
-                                AND sm2.is_active = TRUE
-                                AND pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
-                        ) AND NOT EXISTS (
-                            SELECT 1 FROM efactura_supplier_mappings sm2
-                            JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
-                            JOIN efactura_supplier_types pt ON pt.id = smt.type_id
-                            WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
-                                AND sm2.is_active = TRUE
-                                AND pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
-                        ))
-                    )
-                """)
-
-            where_clause = ' AND '.join(conditions)
-
-            # Build ORDER BY clause (validate column to prevent SQL injection)
-            db_column = self.SORT_COLUMNS.get(sort_by, 'i.issue_date')
-            sort_direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
-            order_clause = f"{db_column} {sort_direction}, i.id {sort_direction}"
-
-            # Get total count
-            cursor.execute(f"""
-                SELECT COUNT(*) as total FROM efactura_invoices i
-                WHERE {where_clause}
-            """, params)
-            total = cursor.fetchone()['total']
-
-            # If hide_typed is active, also count how many are hidden by the filter
-            hidden_by_filter = 0
-            if hide_typed:
-                # Build conditions WITHOUT the hide_typed filter to count what would be hidden
-                base_conditions = [c for c in conditions if 'hide_in_filter' not in c]
-                base_where = ' AND '.join(base_conditions)
-                cursor.execute(f"""
-                    SELECT COUNT(*) as total FROM efactura_invoices i
-                    WHERE {base_where}
-                """, params)
-                total_without_filter = cursor.fetchone()['total']
-                hidden_by_filter = total_without_filter - total
-
-            # OPTIMIZED: Fetch invoices and mappings without correlated subquery
-            # Step 1: Get invoices with basic mapping data (dept/subdept only)
-            cursor.execute(f"""
-                SELECT i.*,
-                    sm.id as mapping_id,
-                    sm.department as mapping_department,
-                    sm.subdepartment as mapping_subdepartment,
-                    sm.brand as mapping_brand
-                FROM efactura_invoices i
-                LEFT JOIN efactura_supplier_mappings sm
-                    ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
-                WHERE {where_clause}
-                ORDER BY {order_clause}
-                LIMIT %(limit)s OFFSET %(offset)s
-            """, params)
-
-            rows = cursor.fetchall()
-
-            # Step 2: Collect mapping IDs and fetch type_names in batch (single query)
-            mapping_ids = [r['mapping_id'] for r in rows if r.get('mapping_id')]
-            type_names_map = {}
-            if mapping_ids:
-                cursor.execute("""
-                    SELECT smt.mapping_id, array_agg(pt.name ORDER BY pt.name) as type_names
-                    FROM efactura_supplier_mapping_types smt
-                    JOIN efactura_supplier_types pt ON smt.type_id = pt.id
-                    WHERE smt.mapping_id = ANY(%s)
-                    GROUP BY smt.mapping_id
-                """, (mapping_ids,))
-                for type_row in cursor.fetchall():
-                    type_names_map[type_row['mapping_id']] = type_row['type_names'] or []
-
-            # Step 3: Build invoice list with merged data
-            invoices = []
-            for row in rows:
-                inv = self._row_to_invoice(row)
-                inv_dict = inv.__dict__.copy()
-                mapping_id = row.get('mapping_id')
-                type_names = type_names_map.get(mapping_id, []) if mapping_id else []
-                inv_dict['type_names'] = type_names
-                # Use override if set, otherwise use mapping types
-                inv_dict['type_override'] = row.get('type_override')
-                inv_dict['type_name'] = row.get('type_override') or (', '.join(type_names) if type_names else None)
-                # Department: use override if set, otherwise use mapping
-                inv_dict['department_override'] = row.get('department_override')
-                inv_dict['mapping_department'] = row.get('mapping_department')  # Keep mapping value separate for frontend
-                inv_dict['department'] = row.get('department_override') or row.get('mapping_department')
-                # Subdepartment: use override if set, otherwise use mapping
-                inv_dict['subdepartment_override'] = row.get('subdepartment_override')
-                inv_dict['mapping_subdepartment'] = row.get('mapping_subdepartment')  # Keep mapping value separate for frontend
-                inv_dict['subdepartment'] = row.get('subdepartment_override') or row.get('mapping_subdepartment')
-                # Second department override (for multi-department allocation)
-                inv_dict['department_override_2'] = row.get('department_override_2')
-                inv_dict['subdepartment_override_2'] = row.get('subdepartment_override_2')
-                invoices.append(inv_dict)
-
-            return invoices, total, hidden_by_filter
-        finally:
-            release_db(conn)
-
-    def count_unallocated(self, cif_owner: Optional[str] = None) -> int:
-        """Count unallocated invoices (excluding ignored and deleted)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            if cif_owner:
-                cursor.execute("""
-                    SELECT COUNT(*) as total FROM efactura_invoices
-                    WHERE jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL AND cif_owner = %s
-                """, (cif_owner,))
-            else:
-                cursor.execute("""
-                    SELECT COUNT(*) as total FROM efactura_invoices
-                    WHERE jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL
-                """)
-            return cursor.fetchone()['total']
-        finally:
-            release_db(conn)
-
-    def get_unallocated_ids(
-        self,
-        company_id: Optional[int] = None,
-        direction: Optional[str] = None,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        search: Optional[str] = None,
-        hide_typed: bool = False,
-    ) -> List[int]:
-        """
-        Get all IDs of unallocated invoices (for select all functionality).
-
-        Args:
-            company_id: Filter by company ID
-            direction: Filter by direction
-            start_date: Filter by start date
-            end_date: Filter by end date
-            search: Search by partner name or invoice number
-            hide_typed: If True, hide invoices with types that have hide_in_filter=TRUE
-
-        Returns:
-            List of invoice IDs
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-
-            where_clauses = ["i.jarvis_invoice_id IS NULL", "i.deleted_at IS NULL", "i.ignored = FALSE"]
-            params = {}
-
-            if company_id:
-                where_clauses.append("i.company_id = %(company_id)s")
-                params['company_id'] = company_id
-            if direction:
-                where_clauses.append("i.direction = %(direction)s")
-                params['direction'] = direction
-            if start_date:
-                where_clauses.append("i.issue_date >= %(start_date)s")
-                params['start_date'] = start_date
-            if end_date:
-                where_clauses.append("i.issue_date <= %(end_date)s")
-                params['end_date'] = end_date
-            if search:
-                where_clauses.append("(i.partner_name ILIKE %(search)s OR i.invoice_number ILIKE %(search)s)")
-                params['search'] = f"%{search}%"
-
-            if hide_typed:
-                # Hide invoices where ALL types have hide_in_filter=TRUE
-                # If partner has mixed types (some hidden, some not), don't hide
-                where_clauses.append("""
-                    NOT (
-                        (i.type_override IS NOT NULL AND EXISTS (
-                            SELECT 1 FROM efactura_supplier_types pt
-                            WHERE pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
-                                AND i.type_override ILIKE '%%' || pt.name || '%%'
-                        ) AND NOT EXISTS (
-                            SELECT 1 FROM efactura_supplier_types pt
-                            WHERE pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
-                                AND i.type_override ILIKE '%%' || pt.name || '%%'
-                        ))
-                        OR
-                        (i.type_override IS NULL AND EXISTS (
-                            SELECT 1 FROM efactura_supplier_mappings sm2
-                            JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
-                            JOIN efactura_supplier_types pt ON pt.id = smt.type_id
-                            WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
-                                AND sm2.is_active = TRUE
-                                AND pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
-                        ) AND NOT EXISTS (
-                            SELECT 1 FROM efactura_supplier_mappings sm2
-                            JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
-                            JOIN efactura_supplier_types pt ON pt.id = smt.type_id
-                            WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
-                                AND sm2.is_active = TRUE
-                                AND pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
-                        ))
-                    )
-                """)
-
-            where_clause = " AND ".join(where_clauses)
-            cursor.execute(f"SELECT i.id FROM efactura_invoices i WHERE {where_clause}", params)
-            return [row['id'] for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
-
-    # ============================================
-    # Hidden Invoices (soft delete / ignored)
-    # ============================================
-
-    def list_hidden(
-        self,
-        cif_owner: Optional[str] = None,
-        company_id: Optional[int] = None,
-        direction: Optional[InvoiceDirection] = None,
-        start_date: Optional[date] = None,
-        end_date: Optional[date] = None,
-        search: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> Tuple[List[Invoice], int]:
-        """
-        List hidden invoices based on type settings.
-
-        Hidden = invoices whose type has hide_in_filter = TRUE
-        (Dynamic filtering based on partner type settings)
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-
-            # Base conditions: not deleted, not allocated
-            conditions = ['i.deleted_at IS NULL', 'i.jarvis_invoice_id IS NULL']
-            params = {'limit': limit, 'offset': offset}
-
-            # Hidden = manually ignored OR has ONLY hidden types (all types have hide_in_filter=TRUE)
-            # If partner has mixed types (some hidden, some not), don't count as hidden
+        if cif_owner:
+            conditions.append('i.cif_owner = %(cif_owner)s')
+            params['cif_owner'] = cif_owner
+        if company_id is not None:
+            conditions.append('i.company_id = %(company_id)s')
+            params['company_id'] = company_id
+        if direction is not None:
+            conditions.append('i.direction = %(direction)s')
+            params['direction'] = direction.value
+        if start_date:
+            conditions.append('i.issue_date >= %(start_date)s')
+            params['start_date'] = start_date
+        if end_date:
+            conditions.append('i.issue_date <= %(end_date)s')
+            params['end_date'] = end_date
+        if search:
+            words = [w.strip() for w in search.split() if w.strip()]
+            for i, word in enumerate(words):
+                param_name = f'search_{i}'
+                conditions.append(
+                    f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
+                )
+                params[param_name] = f'%{word}%'
+        if hide_typed:
             conditions.append("""
-                (
-                    -- Manually ignored by user
-                    i.ignored = TRUE
-                    OR
-                    -- All types are hidden via override (has hidden type AND no non-hidden type)
+                NOT (
+                    -- All types are hidden via override (has hidden AND no non-hidden)
                     (i.type_override IS NOT NULL AND EXISTS (
                         SELECT 1 FROM efactura_supplier_types pt
                         WHERE pt.is_active = TRUE
@@ -1112,7 +613,7 @@ class InvoiceRepository:
                             AND i.type_override ILIKE '%%' || pt.name || '%%'
                     ))
                     OR
-                    -- All types are hidden via supplier mapping (has hidden type AND no non-hidden type)
+                    -- All types are hidden via supplier mapping (has hidden AND no non-hidden)
                     (i.type_override IS NULL AND EXISTS (
                         SELECT 1 FROM efactura_supplier_mappings sm2
                         JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
@@ -1133,45 +634,259 @@ class InvoiceRepository:
                 )
             """)
 
-            if cif_owner:
-                conditions.append('i.cif_owner = %(cif_owner)s')
-                params['cif_owner'] = cif_owner
+        where_clause = ' AND '.join(conditions)
+        db_column = self.SORT_COLUMNS.get(sort_by, 'i.issue_date')
+        sort_direction = 'ASC' if sort_dir.lower() == 'asc' else 'DESC'
+        order_clause = f"{db_column} {sort_direction}, i.id {sort_direction}"
 
-            if company_id is not None:
-                conditions.append('i.company_id = %(company_id)s')
-                params['company_id'] = company_id
-
-            if direction is not None:
-                conditions.append('i.direction = %(direction)s')
-                params['direction'] = direction.value
-
-            if start_date:
-                conditions.append('i.issue_date >= %(start_date)s')
-                params['start_date'] = start_date
-
-            if end_date:
-                conditions.append('i.issue_date <= %(end_date)s')
-                params['end_date'] = end_date
-
-            if search:
-                # Elasticsearch-style: split into words, ALL words must match somewhere
-                words = [w.strip() for w in search.split() if w.strip()]
-                for i, word in enumerate(words):
-                    param_name = f'search_{i}'
-                    conditions.append(
-                        f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
-                    )
-                    params[param_name] = f'%{word}%'
-
-            where_clause = ' AND '.join(conditions)
-
+        def _work(cursor):
+            # Get total count
             cursor.execute(f"""
                 SELECT COUNT(*) as total FROM efactura_invoices i
                 WHERE {where_clause}
             """, params)
             total = cursor.fetchone()['total']
 
-            # Get invoices with type_names from supplier mappings (via junction table)
+            # Count hidden by filter if needed
+            hidden_by_filter = 0
+            if hide_typed:
+                base_conditions = [c for c in conditions if 'hide_in_filter' not in c]
+                base_where = ' AND '.join(base_conditions)
+                cursor.execute(f"""
+                    SELECT COUNT(*) as total FROM efactura_invoices i
+                    WHERE {base_where}
+                """, params)
+                total_without_filter = cursor.fetchone()['total']
+                hidden_by_filter = total_without_filter - total
+
+            # OPTIMIZED: Fetch invoices and mappings without correlated subquery
+            cursor.execute(f"""
+                SELECT i.*,
+                    sm.id as mapping_id,
+                    sm.department as mapping_department,
+                    sm.subdepartment as mapping_subdepartment,
+                    sm.brand as mapping_brand
+                FROM efactura_invoices i
+                LEFT JOIN efactura_supplier_mappings sm
+                    ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
+                WHERE {where_clause}
+                ORDER BY {order_clause}
+                LIMIT %(limit)s OFFSET %(offset)s
+            """, params)
+            rows = cursor.fetchall()
+
+            # Batch fetch type_names for mapping IDs
+            mapping_ids = [r['mapping_id'] for r in rows if r.get('mapping_id')]
+            type_names_map = {}
+            if mapping_ids:
+                cursor.execute("""
+                    SELECT smt.mapping_id, array_agg(pt.name ORDER BY pt.name) as type_names
+                    FROM efactura_supplier_mapping_types smt
+                    JOIN efactura_supplier_types pt ON smt.type_id = pt.id
+                    WHERE smt.mapping_id = ANY(%s)
+                    GROUP BY smt.mapping_id
+                """, (mapping_ids,))
+                for type_row in cursor.fetchall():
+                    type_names_map[type_row['mapping_id']] = type_row['type_names'] or []
+
+            # Build invoice list with merged data
+            invoices = []
+            for row in rows:
+                inv = self._row_to_invoice(row)
+                inv_dict = inv.__dict__.copy()
+                mapping_id = row.get('mapping_id')
+                type_names = type_names_map.get(mapping_id, []) if mapping_id else []
+                inv_dict['type_names'] = type_names
+                inv_dict['type_override'] = row.get('type_override')
+                inv_dict['type_name'] = row.get('type_override') or (', '.join(type_names) if type_names else None)
+                inv_dict['department_override'] = row.get('department_override')
+                inv_dict['mapping_department'] = row.get('mapping_department')
+                inv_dict['department'] = row.get('department_override') or row.get('mapping_department')
+                inv_dict['subdepartment_override'] = row.get('subdepartment_override')
+                inv_dict['mapping_subdepartment'] = row.get('mapping_subdepartment')
+                inv_dict['subdepartment'] = row.get('subdepartment_override') or row.get('mapping_subdepartment')
+                inv_dict['department_override_2'] = row.get('department_override_2')
+                inv_dict['subdepartment_override_2'] = row.get('subdepartment_override_2')
+                invoices.append(inv_dict)
+
+            return invoices, total, hidden_by_filter
+        return self.execute_many(_work)
+
+    def count_unallocated(self, cif_owner: Optional[str] = None) -> int:
+        """Count unallocated invoices (excluding ignored and deleted)."""
+        if cif_owner:
+            row = self.query_one("""
+                SELECT COUNT(*) as total FROM efactura_invoices
+                WHERE jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL AND cif_owner = %s
+            """, (cif_owner,))
+        else:
+            row = self.query_one("""
+                SELECT COUNT(*) as total FROM efactura_invoices
+                WHERE jarvis_invoice_id IS NULL AND ignored = FALSE AND deleted_at IS NULL
+            """)
+        return row['total']
+
+    def get_unallocated_ids(
+        self,
+        company_id: Optional[int] = None,
+        direction: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        search: Optional[str] = None,
+        hide_typed: bool = False,
+    ) -> List[int]:
+        """Get all IDs of unallocated invoices (for select all functionality)."""
+        where_clauses = ["i.jarvis_invoice_id IS NULL", "i.deleted_at IS NULL", "i.ignored = FALSE"]
+        params = {}
+
+        if company_id:
+            where_clauses.append("i.company_id = %(company_id)s")
+            params['company_id'] = company_id
+        if direction:
+            where_clauses.append("i.direction = %(direction)s")
+            params['direction'] = direction
+        if start_date:
+            where_clauses.append("i.issue_date >= %(start_date)s")
+            params['start_date'] = start_date
+        if end_date:
+            where_clauses.append("i.issue_date <= %(end_date)s")
+            params['end_date'] = end_date
+        if search:
+            where_clauses.append("(i.partner_name ILIKE %(search)s OR i.invoice_number ILIKE %(search)s)")
+            params['search'] = f"%{search}%"
+
+        if hide_typed:
+            where_clauses.append("""
+                NOT (
+                    (i.type_override IS NOT NULL AND EXISTS (
+                        SELECT 1 FROM efactura_supplier_types pt
+                        WHERE pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                            AND i.type_override ILIKE '%%' || pt.name || '%%'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM efactura_supplier_types pt
+                        WHERE pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
+                            AND i.type_override ILIKE '%%' || pt.name || '%%'
+                    ))
+                    OR
+                    (i.type_override IS NULL AND EXISTS (
+                        SELECT 1 FROM efactura_supplier_mappings sm2
+                        JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
+                        JOIN efactura_supplier_types pt ON pt.id = smt.type_id
+                        WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
+                            AND sm2.is_active = TRUE
+                            AND pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM efactura_supplier_mappings sm2
+                        JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
+                        JOIN efactura_supplier_types pt ON pt.id = smt.type_id
+                        WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
+                            AND sm2.is_active = TRUE
+                            AND pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
+                    ))
+                )
+            """)
+
+        where_clause = " AND ".join(where_clauses)
+        rows = self.query_all(
+            f"SELECT i.id FROM efactura_invoices i WHERE {where_clause}", params
+        )
+        return [row['id'] for row in rows]
+
+    # ============================================
+    # Hidden Invoices (soft delete / ignored)
+    # ============================================
+
+    def list_hidden(
+        self,
+        cif_owner: Optional[str] = None,
+        company_id: Optional[int] = None,
+        direction: Optional[InvoiceDirection] = None,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        search: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Tuple[List[Invoice], int]:
+        """List hidden invoices based on type settings."""
+        conditions = ['i.deleted_at IS NULL', 'i.jarvis_invoice_id IS NULL']
+        params = {'limit': limit, 'offset': offset}
+
+        conditions.append("""
+            (
+                -- Manually ignored by user
+                i.ignored = TRUE
+                OR
+                -- All types are hidden via override (has hidden type AND no non-hidden type)
+                (i.type_override IS NOT NULL AND EXISTS (
+                    SELECT 1 FROM efactura_supplier_types pt
+                    WHERE pt.is_active = TRUE
+                        AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                        AND i.type_override ILIKE '%%' || pt.name || '%%'
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM efactura_supplier_types pt
+                    WHERE pt.is_active = TRUE
+                        AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
+                        AND i.type_override ILIKE '%%' || pt.name || '%%'
+                ))
+                OR
+                -- All types are hidden via supplier mapping (has hidden type AND no non-hidden type)
+                (i.type_override IS NULL AND EXISTS (
+                    SELECT 1 FROM efactura_supplier_mappings sm2
+                    JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
+                    JOIN efactura_supplier_types pt ON pt.id = smt.type_id
+                    WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
+                        AND sm2.is_active = TRUE
+                        AND pt.is_active = TRUE
+                        AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                ) AND NOT EXISTS (
+                    SELECT 1 FROM efactura_supplier_mappings sm2
+                    JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
+                    JOIN efactura_supplier_types pt ON pt.id = smt.type_id
+                    WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
+                        AND sm2.is_active = TRUE
+                        AND pt.is_active = TRUE
+                        AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
+                ))
+            )
+        """)
+
+        if cif_owner:
+            conditions.append('i.cif_owner = %(cif_owner)s')
+            params['cif_owner'] = cif_owner
+        if company_id is not None:
+            conditions.append('i.company_id = %(company_id)s')
+            params['company_id'] = company_id
+        if direction is not None:
+            conditions.append('i.direction = %(direction)s')
+            params['direction'] = direction.value
+        if start_date:
+            conditions.append('i.issue_date >= %(start_date)s')
+            params['start_date'] = start_date
+        if end_date:
+            conditions.append('i.issue_date <= %(end_date)s')
+            params['end_date'] = end_date
+        if search:
+            words = [w.strip() for w in search.split() if w.strip()]
+            for i, word in enumerate(words):
+                param_name = f'search_{i}'
+                conditions.append(
+                    f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
+                )
+                params[param_name] = f'%{word}%'
+
+        where_clause = ' AND '.join(conditions)
+
+        def _work(cursor):
+            cursor.execute(f"""
+                SELECT COUNT(*) as total FROM efactura_invoices i
+                WHERE {where_clause}
+            """, params)
+            total = cursor.fetchone()['total']
+
             cursor.execute(f"""
                 SELECT i.*,
                     COALESCE(
@@ -1199,58 +914,52 @@ class InvoiceRepository:
                 invoices.append(inv_dict)
 
             return invoices, total
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def count_hidden(self) -> int:
         """Count hidden invoices (manually ignored OR all types hidden)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT COUNT(*) as total FROM efactura_invoices i
-                WHERE i.deleted_at IS NULL
-                    AND i.jarvis_invoice_id IS NULL
-                    AND (
-                        -- Manually ignored by user
-                        i.ignored = TRUE
-                        OR
-                        -- All types are hidden via override (has hidden AND no non-hidden)
-                        (i.type_override IS NOT NULL AND EXISTS (
-                            SELECT 1 FROM efactura_supplier_types pt
-                            WHERE pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
-                                AND i.type_override ILIKE '%%' || pt.name || '%%'
-                        ) AND NOT EXISTS (
-                            SELECT 1 FROM efactura_supplier_types pt
-                            WHERE pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
-                                AND i.type_override ILIKE '%%' || pt.name || '%%'
-                        ))
-                        OR
-                        -- All types are hidden via supplier mapping (has hidden AND no non-hidden)
-                        (i.type_override IS NULL AND EXISTS (
-                            SELECT 1 FROM efactura_supplier_mappings sm2
-                            JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
-                            JOIN efactura_supplier_types pt ON pt.id = smt.type_id
-                            WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
-                                AND sm2.is_active = TRUE
-                                AND pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
-                        ) AND NOT EXISTS (
-                            SELECT 1 FROM efactura_supplier_mappings sm2
-                            JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
-                            JOIN efactura_supplier_types pt ON pt.id = smt.type_id
-                            WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
-                                AND sm2.is_active = TRUE
-                                AND pt.is_active = TRUE
-                                AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
-                        ))
-                    )
-            """)
-            return cursor.fetchone()['total']
-        finally:
-            release_db(conn)
+        row = self.query_one("""
+            SELECT COUNT(*) as total FROM efactura_invoices i
+            WHERE i.deleted_at IS NULL
+                AND i.jarvis_invoice_id IS NULL
+                AND (
+                    -- Manually ignored by user
+                    i.ignored = TRUE
+                    OR
+                    -- All types are hidden via override (has hidden AND no non-hidden)
+                    (i.type_override IS NOT NULL AND EXISTS (
+                        SELECT 1 FROM efactura_supplier_types pt
+                        WHERE pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                            AND i.type_override ILIKE '%%' || pt.name || '%%'
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM efactura_supplier_types pt
+                        WHERE pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
+                            AND i.type_override ILIKE '%%' || pt.name || '%%'
+                    ))
+                    OR
+                    -- All types are hidden via supplier mapping (has hidden AND no non-hidden)
+                    (i.type_override IS NULL AND EXISTS (
+                        SELECT 1 FROM efactura_supplier_mappings sm2
+                        JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
+                        JOIN efactura_supplier_types pt ON pt.id = smt.type_id
+                        WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
+                            AND sm2.is_active = TRUE
+                            AND pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = TRUE
+                    ) AND NOT EXISTS (
+                        SELECT 1 FROM efactura_supplier_mappings sm2
+                        JOIN efactura_supplier_mapping_types smt ON smt.mapping_id = sm2.id
+                        JOIN efactura_supplier_types pt ON pt.id = smt.type_id
+                        WHERE LOWER(i.partner_name) = LOWER(sm2.partner_name)
+                            AND sm2.is_active = TRUE
+                            AND pt.is_active = TRUE
+                            AND COALESCE(pt.hide_in_filter, TRUE) = FALSE
+                    ))
+                )
+        """)
+        return row['total']
 
     def restore_from_hidden(self, invoice_id: int) -> bool:
         """Restore an invoice from hidden (unignore)."""
@@ -1260,49 +969,35 @@ class InvoiceRepository:
         """Hide multiple invoices (set ignored = TRUE)."""
         if not invoice_ids:
             return 0
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
             placeholders = ','.join(['%s'] * len(invoice_ids))
-            cursor.execute(f"""
+            count = self.execute(f"""
                 UPDATE efactura_invoices
                 SET ignored = TRUE, updated_at = NOW()
                 WHERE id IN ({placeholders}) AND ignored = FALSE AND deleted_at IS NULL
             """, invoice_ids)
-            count = cursor.rowcount
-            conn.commit()
             logger.info(f"Bulk hidden {count} invoices")
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to bulk hide invoices: {e}")
             return 0
-        finally:
-            release_db(conn)
 
     def bulk_restore_from_hidden(self, invoice_ids: List[int]) -> int:
         """Restore multiple invoices from hidden (set ignored = FALSE)."""
         if not invoice_ids:
             return 0
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
             placeholders = ','.join(['%s'] * len(invoice_ids))
-            cursor.execute(f"""
+            count = self.execute(f"""
                 UPDATE efactura_invoices
                 SET ignored = FALSE, updated_at = NOW()
                 WHERE id IN ({placeholders}) AND ignored = TRUE AND deleted_at IS NULL
             """, invoice_ids)
-            count = cursor.rowcount
-            conn.commit()
             logger.info(f"Bulk restored {count} invoices from hidden")
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to bulk restore invoices from hidden: {e}")
             return 0
-        finally:
-            release_db(conn)
 
     # ============================================
     # Bin (soft delete / deleted_at)
@@ -1319,57 +1014,43 @@ class InvoiceRepository:
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[Dict[str, Any]], int]:
-        """
-        List deleted invoices (bin).
+        """List deleted invoices (bin). Deleted = deleted_at IS NOT NULL."""
+        conditions = ['i.deleted_at IS NOT NULL']
+        params = {'limit': limit, 'offset': offset}
 
-        Deleted = deleted_at IS NOT NULL
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        if cif_owner:
+            conditions.append('i.cif_owner = %(cif_owner)s')
+            params['cif_owner'] = cif_owner
+        if company_id is not None:
+            conditions.append('i.company_id = %(company_id)s')
+            params['company_id'] = company_id
+        if direction is not None:
+            conditions.append('i.direction = %(direction)s')
+            params['direction'] = direction.value
+        if start_date:
+            conditions.append('i.issue_date >= %(start_date)s')
+            params['start_date'] = start_date
+        if end_date:
+            conditions.append('i.issue_date <= %(end_date)s')
+            params['end_date'] = end_date
+        if search:
+            words = [w.strip() for w in search.split() if w.strip()]
+            for i, word in enumerate(words):
+                param_name = f'search_{i}'
+                conditions.append(
+                    f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
+                )
+                params[param_name] = f'%{word}%'
 
-            conditions = ['i.deleted_at IS NOT NULL']
-            params = {'limit': limit, 'offset': offset}
+        where_clause = ' AND '.join(conditions)
 
-            if cif_owner:
-                conditions.append('i.cif_owner = %(cif_owner)s')
-                params['cif_owner'] = cif_owner
-
-            if company_id is not None:
-                conditions.append('i.company_id = %(company_id)s')
-                params['company_id'] = company_id
-
-            if direction is not None:
-                conditions.append('i.direction = %(direction)s')
-                params['direction'] = direction.value
-
-            if start_date:
-                conditions.append('i.issue_date >= %(start_date)s')
-                params['start_date'] = start_date
-
-            if end_date:
-                conditions.append('i.issue_date <= %(end_date)s')
-                params['end_date'] = end_date
-
-            if search:
-                # Elasticsearch-style: split into words, ALL words must match somewhere
-                words = [w.strip() for w in search.split() if w.strip()]
-                for i, word in enumerate(words):
-                    param_name = f'search_{i}'
-                    conditions.append(
-                        f"(i.invoice_number ILIKE %({param_name})s OR i.partner_name ILIKE %({param_name})s OR i.partner_cif ILIKE %({param_name})s)"
-                    )
-                    params[param_name] = f'%{word}%'
-
-            where_clause = ' AND '.join(conditions)
-
+        def _work(cursor):
             cursor.execute(f"""
                 SELECT COUNT(*) as total FROM efactura_invoices i
                 WHERE {where_clause}
             """, params)
             total = cursor.fetchone()['total']
 
-            # Get invoices with type_names from supplier mappings (via junction table)
             cursor.execute(f"""
                 SELECT i.*, i.deleted_at,
                     COALESCE(
@@ -1399,200 +1080,133 @@ class InvoiceRepository:
                 })
 
             return invoices, total
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def count_deleted(self) -> int:
         """Count deleted invoices (bin)."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT COUNT(*) as total FROM efactura_invoices
-                WHERE deleted_at IS NOT NULL
-            """)
-            return cursor.fetchone()['total']
-        finally:
-            release_db(conn)
+        row = self.query_one("""
+            SELECT COUNT(*) as total FROM efactura_invoices
+            WHERE deleted_at IS NOT NULL
+        """)
+        return row['total']
 
     def delete_invoice(self, invoice_id: int) -> bool:
         """Move an invoice to the bin (set deleted_at)."""
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
+            deleted = self.execute("""
                 UPDATE efactura_invoices
                 SET deleted_at = NOW(), updated_at = NOW()
                 WHERE id = %s AND deleted_at IS NULL
-            """, (invoice_id,))
-            deleted = cursor.rowcount > 0
-            conn.commit()
+            """, (invoice_id,)) > 0
             if deleted:
                 logger.info(f"Invoice {invoice_id} moved to bin")
             return deleted
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to delete invoice: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def restore_from_bin(self, invoice_id: int) -> bool:
         """Restore an invoice from the bin."""
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
+            restored = self.execute("""
                 UPDATE efactura_invoices
                 SET deleted_at = NULL, updated_at = NOW()
                 WHERE id = %s AND deleted_at IS NOT NULL
-            """, (invoice_id,))
-            restored = cursor.rowcount > 0
-            conn.commit()
+            """, (invoice_id,)) > 0
             if restored:
                 logger.info(f"Invoice {invoice_id} restored from bin")
             return restored
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to restore invoice from bin: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def permanent_delete(self, invoice_id: int) -> bool:
         """Permanently delete an invoice from the bin."""
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
-            # Only allow permanent delete if already in bin
-            cursor.execute("""
+            deleted = self.execute("""
                 DELETE FROM efactura_invoices
                 WHERE id = %s AND deleted_at IS NOT NULL
-            """, (invoice_id,))
-            deleted = cursor.rowcount > 0
-            conn.commit()
+            """, (invoice_id,)) > 0
             if deleted:
                 logger.info(f"Invoice {invoice_id} permanently deleted")
             return deleted
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to permanently delete invoice: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def bulk_delete(self, invoice_ids: List[int]) -> int:
         """Move multiple invoices to the bin."""
         if not invoice_ids:
             return 0
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
             placeholders = ','.join(['%s'] * len(invoice_ids))
-            cursor.execute(f"""
+            count = self.execute(f"""
                 UPDATE efactura_invoices
                 SET deleted_at = NOW(), updated_at = NOW()
                 WHERE id IN ({placeholders}) AND deleted_at IS NULL
             """, invoice_ids)
-            count = cursor.rowcount
-            conn.commit()
             logger.info(f"Bulk deleted {count} invoices to bin")
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to bulk delete invoices: {e}")
             return 0
-        finally:
-            release_db(conn)
 
     def bulk_restore_from_bin(self, invoice_ids: List[int]) -> int:
         """Restore multiple invoices from the bin."""
         if not invoice_ids:
             return 0
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
             placeholders = ','.join(['%s'] * len(invoice_ids))
-            cursor.execute(f"""
+            count = self.execute(f"""
                 UPDATE efactura_invoices
                 SET deleted_at = NULL, updated_at = NOW()
                 WHERE id IN ({placeholders}) AND deleted_at IS NOT NULL
             """, invoice_ids)
-            count = cursor.rowcount
-            conn.commit()
             logger.info(f"Bulk restored {count} invoices from bin")
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to bulk restore invoices from bin: {e}")
             return 0
-        finally:
-            release_db(conn)
 
     def bulk_permanent_delete(self, invoice_ids: List[int]) -> int:
         """Permanently delete multiple invoices from the bin."""
         if not invoice_ids:
             return 0
-        conn = get_db()
         try:
-            cursor = get_cursor(conn)
             placeholders = ','.join(['%s'] * len(invoice_ids))
-            # Only delete if already in bin
-            cursor.execute(f"""
+            count = self.execute(f"""
                 DELETE FROM efactura_invoices
                 WHERE id IN ({placeholders}) AND deleted_at IS NOT NULL
             """, invoice_ids)
-            count = cursor.rowcount
-            conn.commit()
             logger.info(f"Bulk permanently deleted {count} invoices")
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to bulk permanently delete invoices: {e}")
             return 0
-        finally:
-            release_db(conn)
 
     def is_allocated(self, invoice_id: int) -> bool:
         """Check if an invoice has been allocated to the main Invoice Module."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT jarvis_invoice_id FROM efactura_invoices
-                WHERE id = %s
-            """, (invoice_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return False
-            return row['jarvis_invoice_id'] is not None
-        finally:
-            release_db(conn)
+        row = self.query_one(
+            'SELECT jarvis_invoice_id FROM efactura_invoices WHERE id = %s', (invoice_id,)
+        )
+        if row is None:
+            return False
+        return row['jarvis_invoice_id'] is not None
 
     def mark_allocated(self, invoice_id: int, jarvis_invoice_id: int):
         """Mark an invoice as allocated to the main Invoice Module."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                UPDATE efactura_invoices
-                SET jarvis_invoice_id = %s, updated_at = NOW()
-                WHERE id = %s
-            """, (jarvis_invoice_id, invoice_id))
-            conn.commit()
-            logger.info(
-                "Invoice marked as allocated",
-                extra={
-                    'efactura_invoice_id': invoice_id,
-                    'jarvis_invoice_id': jarvis_invoice_id,
-                }
-            )
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to mark invoice as allocated: {e}")
-            raise
-        finally:
-            release_db(conn)
+        self.execute("""
+            UPDATE efactura_invoices
+            SET jarvis_invoice_id = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (jarvis_invoice_id, invoice_id))
+        logger.info(
+            "Invoice marked as allocated",
+            extra={
+                'efactura_invoice_id': invoice_id,
+                'jarvis_invoice_id': jarvis_invoice_id,
+            }
+        )
 
     def get_invoices_for_module(
         self,
@@ -1600,132 +1214,98 @@ class InvoiceRepository:
     ) -> List[Dict[str, Any]]:
         """
         Batch fetch invoices for sending to Invoice Module.
-
-        Fetches only unallocated invoices (jarvis_invoice_id IS NULL) with
-        all columns needed for creating main invoices AND allocations.
-
-        Includes:
-        - Invoice data (supplier, number, date, amount, currency)
-        - Company info (from company_id FK to companies table)
-        - Department info (from overrides or supplier mapping defaults)
-
-        Args:
-            invoice_ids: List of e-Factura invoice IDs
-
-        Returns:
-            List of dicts with invoice data needed for module creation
+        Fetches only unallocated invoices with all columns needed for
+        creating main invoices AND allocations.
         """
         if not invoice_ids:
             return []
 
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT
-                    i.id,
-                    i.partner_name,
-                    i.partner_cif,
-                    i.invoice_number,
-                    i.invoice_series,
-                    i.issue_date,
-                    i.total_amount,
-                    i.total_vat,
-                    i.total_without_vat,
-                    i.currency,
-                    i.company_id,
-                    c.company as company_name,
-                    i.department_override,
-                    i.subdepartment_override,
-                    i.department_override_2,
-                    i.subdepartment_override_2,
-                    sm.department as mapping_department,
-                    sm.subdepartment as mapping_subdepartment,
-                    sm.brand as mapping_brand,
-                    (
-                        SELECT ds.manager
-                        FROM department_structure ds
-                        WHERE ds.company = c.company
-                            AND ds.department = COALESCE(i.department_override, sm.department)
-                        ORDER BY
-                            CASE WHEN ds.subdepartment = COALESCE(i.subdepartment_override, sm.subdepartment) THEN 0 ELSE 1 END,
-                            ds.id
-                        LIMIT 1
-                    ) as responsible
-                FROM efactura_invoices i
-                LEFT JOIN companies c ON c.id = i.company_id
-                LEFT JOIN efactura_supplier_mappings sm
-                    ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
-                WHERE i.id = ANY(%s)
-                AND i.jarvis_invoice_id IS NULL
-                AND i.deleted_at IS NULL
-            """, (invoice_ids,))
-            rows = cursor.fetchall()
+        rows = self.query_all("""
+            SELECT
+                i.id,
+                i.partner_name,
+                i.partner_cif,
+                i.invoice_number,
+                i.invoice_series,
+                i.issue_date,
+                i.total_amount,
+                i.total_vat,
+                i.total_without_vat,
+                i.currency,
+                i.company_id,
+                c.company as company_name,
+                i.department_override,
+                i.subdepartment_override,
+                i.department_override_2,
+                i.subdepartment_override_2,
+                sm.department as mapping_department,
+                sm.subdepartment as mapping_subdepartment,
+                sm.brand as mapping_brand,
+                (
+                    SELECT ds.manager
+                    FROM department_structure ds
+                    WHERE ds.company = c.company
+                        AND ds.department = COALESCE(i.department_override, sm.department)
+                    ORDER BY
+                        CASE WHEN ds.subdepartment = COALESCE(i.subdepartment_override, sm.subdepartment) THEN 0 ELSE 1 END,
+                        ds.id
+                    LIMIT 1
+                ) as responsible
+            FROM efactura_invoices i
+            LEFT JOIN companies c ON c.id = i.company_id
+            LEFT JOIN efactura_supplier_mappings sm
+                ON LOWER(i.partner_name) = LOWER(sm.partner_name) AND sm.is_active = TRUE
+            WHERE i.id = ANY(%s)
+            AND i.jarvis_invoice_id IS NULL
+            AND i.deleted_at IS NULL
+        """, (invoice_ids,))
 
-            result = []
-            for row in rows:
-                # Build full invoice number
-                full_number = row['invoice_number']
-                if row['invoice_series']:
-                    full_number = f"{row['invoice_series']}-{row['invoice_number']}"
+        result = []
+        for row in rows:
+            full_number = row['invoice_number']
+            if row['invoice_series']:
+                full_number = f"{row['invoice_series']}-{row['invoice_number']}"
 
-                # Use override if set, otherwise use mapping default
-                effective_department = row['department_override'] or row['mapping_department']
-                effective_subdepartment = row['subdepartment_override'] or row['mapping_subdepartment']
+            effective_department = row['department_override'] or row['mapping_department']
+            effective_subdepartment = row['subdepartment_override'] or row['mapping_subdepartment']
 
-                result.append({
-                    'id': row['id'],
-                    'partner_name': row['partner_name'],
-                    'partner_cif': row['partner_cif'],
-                    'invoice_number': full_number,
-                    'issue_date': row['issue_date'],
-                    'total_amount': float(row['total_amount']),
-                    'total_vat': float(row['total_vat']) if row['total_vat'] else 0.0,
-                    'total_without_vat': float(row['total_without_vat']) if row['total_without_vat'] else None,
-                    'currency': row['currency'],
-                    'company_id': row['company_id'],
-                    'company_name': row['company_name'],
-                    'department': effective_department,
-                    'subdepartment': effective_subdepartment,
-                    'department_override_2': row['department_override_2'],
-                    'subdepartment_override_2': row['subdepartment_override_2'],
-                    'brand': row['mapping_brand'],
-                    'responsible': row['responsible'],
-                })
+            result.append({
+                'id': row['id'],
+                'partner_name': row['partner_name'],
+                'partner_cif': row['partner_cif'],
+                'invoice_number': full_number,
+                'issue_date': row['issue_date'],
+                'total_amount': float(row['total_amount']),
+                'total_vat': float(row['total_vat']) if row['total_vat'] else 0.0,
+                'total_without_vat': float(row['total_without_vat']) if row['total_without_vat'] else None,
+                'currency': row['currency'],
+                'company_id': row['company_id'],
+                'company_name': row['company_name'],
+                'department': effective_department,
+                'subdepartment': effective_subdepartment,
+                'department_override_2': row['department_override_2'],
+                'subdepartment_override_2': row['subdepartment_override_2'],
+                'brand': row['mapping_brand'],
+                'responsible': row['responsible'],
+            })
 
-            logger.info(
-                f"Batch fetched {len(result)} invoices for module (requested: {len(invoice_ids)})"
-            )
-            return result
-        finally:
-            release_db(conn)
+        logger.info(
+            f"Batch fetched {len(result)} invoices for module (requested: {len(invoice_ids)})"
+        )
+        return result
 
     def bulk_mark_allocated(
         self,
         mappings: List[Tuple[int, int]],
     ) -> int:
-        """
-        Bulk mark invoices as allocated to main Invoice Module.
-
-        Uses a single UPDATE with unnest for optimal performance.
-
-        Args:
-            mappings: List of (efactura_id, jarvis_invoice_id) tuples
-
-        Returns:
-            Number of rows updated
-        """
+        """Bulk mark invoices as allocated using unnest for performance."""
         if not mappings:
             return 0
 
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        efactura_ids = [m[0] for m in mappings]
+        jarvis_ids = [m[1] for m in mappings]
 
-            # Extract separate lists for unnest
-            efactura_ids = [m[0] for m in mappings]
-            jarvis_ids = [m[1] for m in mappings]
-
+        def _work(cursor):
             cursor.execute("""
                 UPDATE efactura_invoices
                 SET
@@ -1738,19 +1318,10 @@ class InvoiceRepository:
                 ) AS mapping
                 WHERE efactura_invoices.id = mapping.efactura_id
             """, (efactura_ids, jarvis_ids))
-
             updated = cursor.rowcount
-            conn.commit()
-
             logger.info(f"Bulk marked {updated} invoices as allocated")
             return updated
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to bulk mark invoices as allocated: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def create_with_refs(
         self,
@@ -1759,15 +1330,8 @@ class InvoiceRepository:
         artifact: InvoiceArtifact,
         xml_content: str,
     ) -> Optional[Invoice]:
-        """
-        Create invoice with external reference, artifact, and store XML content.
-
-        This is a simplified version that stores the XML directly.
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
+        """Create invoice with external reference, artifact, and store XML content."""
+        def _work(cursor):
             # Insert invoice
             cursor.execute("""
                 INSERT INTO efactura_invoices (
@@ -1847,8 +1411,6 @@ class InvoiceRepository:
                 'size_bytes': artifact.size_bytes,
             })
 
-            conn.commit()
-
             logger.info(
                 "Invoice created with XML content",
                 extra={
@@ -1857,31 +1419,22 @@ class InvoiceRepository:
                     'message_id': external_ref.message_id,
                 }
             )
-
             return invoice
 
+        try:
+            return self.execute_many(_work)
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to create invoice: {e}")
             return None
-        finally:
-            release_db(conn)
 
     def get_xml_content(self, invoice_id: int) -> Optional[str]:
         """Get stored XML content for an invoice."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT xml_content FROM efactura_invoices
-                WHERE id = %s
-            """, (invoice_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return row.get('xml_content')
-        finally:
-            release_db(conn)
+        row = self.query_one(
+            'SELECT xml_content FROM efactura_invoices WHERE id = %s', (invoice_id,)
+        )
+        if row is None:
+            return None
+        return row.get('xml_content')
 
     def _row_to_invoice(self, row: Dict[str, Any]) -> Invoice:
         """Convert database row to Invoice model."""
@@ -1908,138 +1461,100 @@ class InvoiceRepository:
         )
 
 
-class SupplierMappingRepository:
+class SupplierMappingRepository(BaseRepository):
     """Repository for e-Factura supplier mappings."""
 
     def get_all(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        """Get all supplier mappings with their types.
-
-        Args:
-            active_only: If True, only return active mappings
-
-        Returns:
-            List of mapping dictionaries with type_ids and type_names arrays
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            # Get mappings with aggregated types from junction table
-            where_clause = "WHERE m.is_active = TRUE" if active_only else ""
-            cursor.execute(f"""
-                SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
-                       m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                       m.brand, m.department, m.subdepartment,
-                       COALESCE(
-                           (SELECT array_agg(pt.id ORDER BY pt.name)
-                            FROM efactura_supplier_mapping_types smt
-                            JOIN efactura_supplier_types pt ON smt.type_id = pt.id
-                            WHERE smt.mapping_id = m.id),
-                           ARRAY[]::integer[]
-                       ) as type_ids,
-                       COALESCE(
-                           (SELECT array_agg(pt.name ORDER BY pt.name)
-                            FROM efactura_supplier_mapping_types smt
-                            JOIN efactura_supplier_types pt ON smt.type_id = pt.id
-                            WHERE smt.mapping_id = m.id),
-                           ARRAY[]::text[]
-                       ) as type_names
-                FROM efactura_supplier_mappings m
-                {where_clause}
-                ORDER BY m.partner_name
-            """)
-            results = []
-            for row in cursor.fetchall():
-                mapping = dict(row)
-                # Convert arrays to lists for JSON serialization
-                mapping['type_ids'] = list(mapping['type_ids']) if mapping['type_ids'] else []
-                mapping['type_names'] = list(mapping['type_names']) if mapping['type_names'] else []
-                # Keep type_name for backward compatibility (first type or None)
-                mapping['type_name'] = mapping['type_names'][0] if mapping['type_names'] else None
-                results.append(mapping)
-            return results
-        finally:
-            release_db(conn)
+        """Get all supplier mappings with their types."""
+        where_clause = "WHERE m.is_active = TRUE" if active_only else ""
+        rows = self.query_all(f"""
+            SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
+                   m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
+                   m.brand, m.department, m.subdepartment,
+                   COALESCE(
+                       (SELECT array_agg(pt.id ORDER BY pt.name)
+                        FROM efactura_supplier_mapping_types smt
+                        JOIN efactura_supplier_types pt ON smt.type_id = pt.id
+                        WHERE smt.mapping_id = m.id),
+                       ARRAY[]::integer[]
+                   ) as type_ids,
+                   COALESCE(
+                       (SELECT array_agg(pt.name ORDER BY pt.name)
+                        FROM efactura_supplier_mapping_types smt
+                        JOIN efactura_supplier_types pt ON smt.type_id = pt.id
+                        WHERE smt.mapping_id = m.id),
+                       ARRAY[]::text[]
+                   ) as type_names
+            FROM efactura_supplier_mappings m
+            {where_clause}
+            ORDER BY m.partner_name
+        """)
+        results = []
+        for row in rows:
+            row['type_ids'] = list(row['type_ids']) if row['type_ids'] else []
+            row['type_names'] = list(row['type_names']) if row['type_names'] else []
+            row['type_name'] = row['type_names'][0] if row['type_names'] else None
+            results.append(row)
+        return results
 
     def get_by_id(self, mapping_id: int) -> Optional[Dict[str, Any]]:
         """Get a single supplier mapping by ID with its types."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
-                       m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                       m.brand, m.department, m.subdepartment,
-                       COALESCE(
-                           (SELECT array_agg(pt.id ORDER BY pt.name)
-                            FROM efactura_supplier_mapping_types smt
-                            JOIN efactura_supplier_types pt ON smt.type_id = pt.id
-                            WHERE smt.mapping_id = m.id),
-                           ARRAY[]::integer[]
-                       ) as type_ids,
-                       COALESCE(
-                           (SELECT array_agg(pt.name ORDER BY pt.name)
-                            FROM efactura_supplier_mapping_types smt
-                            JOIN efactura_supplier_types pt ON smt.type_id = pt.id
-                            WHERE smt.mapping_id = m.id),
-                           ARRAY[]::text[]
-                       ) as type_names
-                FROM efactura_supplier_mappings m
-                WHERE m.id = %s
-            """, (mapping_id,))
-            row = cursor.fetchone()
-            if not row:
-                return None
-            mapping = dict(row)
-            mapping['type_ids'] = list(mapping['type_ids']) if mapping['type_ids'] else []
-            mapping['type_names'] = list(mapping['type_names']) if mapping['type_names'] else []
-            mapping['type_name'] = mapping['type_names'][0] if mapping['type_names'] else None
-            return mapping
-        finally:
-            release_db(conn)
+        row = self.query_one("""
+            SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
+                   m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
+                   m.brand, m.department, m.subdepartment,
+                   COALESCE(
+                       (SELECT array_agg(pt.id ORDER BY pt.name)
+                        FROM efactura_supplier_mapping_types smt
+                        JOIN efactura_supplier_types pt ON smt.type_id = pt.id
+                        WHERE smt.mapping_id = m.id),
+                       ARRAY[]::integer[]
+                   ) as type_ids,
+                   COALESCE(
+                       (SELECT array_agg(pt.name ORDER BY pt.name)
+                        FROM efactura_supplier_mapping_types smt
+                        JOIN efactura_supplier_types pt ON smt.type_id = pt.id
+                        WHERE smt.mapping_id = m.id),
+                       ARRAY[]::text[]
+                   ) as type_names
+            FROM efactura_supplier_mappings m
+            WHERE m.id = %s
+        """, (mapping_id,))
+        if not row:
+            return None
+        row['type_ids'] = list(row['type_ids']) if row['type_ids'] else []
+        row['type_names'] = list(row['type_names']) if row['type_names'] else []
+        row['type_name'] = row['type_names'][0] if row['type_names'] else None
+        return row
 
     def find_by_supplier(
         self,
         partner_name: str,
         partner_cif: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """
-        Find a mapping by partner name and optionally CIF.
-
-        Tries exact CIF match first, then falls back to name-only match.
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-
-            # Try exact match with CIF first
-            if partner_cif:
-                cursor.execute("""
-                    SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
-                           m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
-                           pt.name as type_name
-                    FROM efactura_supplier_mappings m
-                    LEFT JOIN efactura_supplier_types pt ON m.type_id = pt.id
-                    WHERE LOWER(m.partner_name) = LOWER(%s) AND m.partner_cif = %s AND m.is_active = TRUE
-                    LIMIT 1
-                """, (partner_name, partner_cif))
-                row = cursor.fetchone()
-                if row:
-                    return dict(row)
-
-            # Fallback to name-only match
-            cursor.execute("""
+        """Find a mapping by partner name and optionally CIF."""
+        if partner_cif:
+            row = self.query_one("""
                 SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
                        m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
                        pt.name as type_name
                 FROM efactura_supplier_mappings m
                 LEFT JOIN efactura_supplier_types pt ON m.type_id = pt.id
-                WHERE LOWER(m.partner_name) = LOWER(%s) AND m.is_active = TRUE
+                WHERE LOWER(m.partner_name) = LOWER(%s) AND m.partner_cif = %s AND m.is_active = TRUE
                 LIMIT 1
-            """, (partner_name,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-        finally:
-            release_db(conn)
+            """, (partner_name, partner_cif))
+            if row:
+                return row
+
+        return self.query_one("""
+            SELECT m.id, m.partner_name, m.partner_cif, m.supplier_name, m.supplier_note,
+                   m.supplier_vat, m.kod_konto, m.type_id, m.is_active, m.created_at, m.updated_at,
+                   pt.name as type_name
+            FROM efactura_supplier_mappings m
+            LEFT JOIN efactura_supplier_types pt ON m.type_id = pt.id
+            WHERE LOWER(m.partner_name) = LOWER(%s) AND m.is_active = TRUE
+            LIMIT 1
+        """, (partner_name,))
 
     def create(
         self,
@@ -2055,27 +1570,8 @@ class SupplierMappingRepository:
         subdepartment: Optional[str] = None,
         brand: Optional[str] = None,
     ) -> int:
-        """Create a new supplier mapping.
-
-        Args:
-            partner_name: The e-Factura partner name (as it appears on invoices)
-            supplier_name: The standardized supplier name to map to
-            partner_cif: Optional VAT number from e-Factura
-            supplier_note: Optional notes about the supplier
-            supplier_vat: The standardized VAT number
-            kod_konto: The accounting code
-            type_id: Optional partner type ID (legacy, use type_ids instead)
-            type_ids: Optional list of partner type IDs
-            department: Optional default department for this supplier
-            subdepartment: Optional default subdepartment for this supplier
-            brand: Optional default brand for this supplier (from Settings brands)
-
-        Returns:
-            The new mapping ID
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        """Create a new supplier mapping."""
+        def _work(cursor):
             cursor.execute("""
                 INSERT INTO efactura_supplier_mappings
                 (partner_name, partner_cif, supplier_name, supplier_note, supplier_vat, kod_konto, type_id, department, subdepartment, brand)
@@ -2093,22 +1589,15 @@ class SupplierMappingRepository:
                         ON CONFLICT (mapping_id, type_id) DO NOTHING
                     """, (mapping_id, tid))
             elif type_id:
-                # Fallback to single type_id for backward compatibility
                 cursor.execute("""
                     INSERT INTO efactura_supplier_mapping_types (mapping_id, type_id)
                     VALUES (%s, %s)
                     ON CONFLICT (mapping_id, type_id) DO NOTHING
                 """, (mapping_id, type_id))
 
-            conn.commit()
             logger.info(f"Created supplier mapping {mapping_id}: {partner_name} -> {supplier_name}")
             return mapping_id
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to create supplier mapping: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def update(
         self,
@@ -2126,30 +1615,8 @@ class SupplierMappingRepository:
         subdepartment: Optional[str] = None,
         brand: Optional[str] = None,
     ) -> bool:
-        """Update a supplier mapping.
-
-        Args:
-            mapping_id: The mapping ID
-            partner_name: New partner name
-            partner_cif: New partner CIF
-            supplier_name: New supplier name
-            supplier_note: New supplier note
-            supplier_vat: New supplier VAT
-            kod_konto: New accounting code
-            type_id: New partner type ID (legacy, use type_ids instead)
-            type_ids: List of partner type IDs (pass empty list to clear types)
-            is_active: Whether mapping is active
-            department: New default department
-            subdepartment: New default subdepartment
-            brand: New default brand (from Settings brands)
-
-        Returns:
-            True if successful
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-
+        """Update a supplier mapping."""
+        def _work(cursor):
             updates = ['updated_at = NOW()']
             params = []
 
@@ -2199,13 +1666,10 @@ class SupplierMappingRepository:
 
             # Update types in junction table if type_ids is provided
             if type_ids is not None:
-                # Delete existing types
-                cursor.execute("""
-                    DELETE FROM efactura_supplier_mapping_types
-                    WHERE mapping_id = %s
-                """, (mapping_id,))
-
-                # Insert new types
+                cursor.execute(
+                    'DELETE FROM efactura_supplier_mapping_types WHERE mapping_id = %s',
+                    (mapping_id,)
+                )
                 for tid in type_ids:
                     cursor.execute("""
                         INSERT INTO efactura_supplier_mapping_types (mapping_id, type_id)
@@ -2213,78 +1677,42 @@ class SupplierMappingRepository:
                         ON CONFLICT (mapping_id, type_id) DO NOTHING
                     """, (mapping_id, tid))
 
-            conn.commit()
             if success:
                 logger.info(f"Updated supplier mapping {mapping_id}")
             return success
+        try:
+            return self.execute_many(_work)
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to update supplier mapping: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def delete(self, mapping_id: int) -> bool:
-        """Delete a supplier mapping.
-
-        Args:
-            mapping_id: The mapping ID
-
-        Returns:
-            True if successful
-        """
-        conn = get_db()
+        """Delete a supplier mapping."""
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                DELETE FROM efactura_supplier_mappings WHERE id = %s
-            """, (mapping_id,))
-            success = cursor.rowcount > 0
-            conn.commit()
+            success = self.execute(
+                'DELETE FROM efactura_supplier_mappings WHERE id = %s', (mapping_id,)
+            ) > 0
             if success:
                 logger.info(f"Deleted supplier mapping {mapping_id}")
             return success
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to delete supplier mapping: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def get_distinct_suppliers(self) -> List[Dict[str, Any]]:
-        """
-        Get distinct partner names and CIFs from e-Factura invoices.
-
-        Returns:
-            List of distinct partner name/CIF combinations from imported invoices
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT DISTINCT partner_name, partner_cif, COUNT(*) as invoice_count
-                FROM efactura_invoices
-                WHERE partner_name IS NOT NULL
-                  AND deleted_at IS NULL
-                GROUP BY partner_name, partner_cif
-                ORDER BY COUNT(*) DESC, partner_name
-            """)
-            return [dict(row) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        """Get distinct partner names and CIFs from e-Factura invoices."""
+        return self.query_all("""
+            SELECT DISTINCT partner_name, partner_cif, COUNT(*) as invoice_count
+            FROM efactura_invoices
+            WHERE partner_name IS NOT NULL
+              AND deleted_at IS NULL
+            GROUP BY partner_name, partner_cif
+            ORDER BY COUNT(*) DESC, partner_name
+        """)
 
     def migrate_junction_table(self) -> int:
-        """
-        One-time migration to create the supplier mapping types junction table.
-
-        Returns:
-            Number of records in the junction table after migration
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-
-            # Create junction table if it doesn't exist
+        """One-time migration to create the supplier mapping types junction table."""
+        def _work(cursor):
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS efactura_supplier_mapping_types (
                     mapping_id INTEGER NOT NULL REFERENCES efactura_supplier_mappings(id) ON DELETE CASCADE,
@@ -2293,7 +1721,8 @@ class SupplierMappingRepository:
                     PRIMARY KEY (mapping_id, type_id)
                 )
             ''')
-            conn.commit()
+            # Need explicit commit for DDL before DML in same transaction
+            # (execute_many will commit at end)
 
             # Migrate existing type_id data
             cursor.execute('''
@@ -2302,39 +1731,19 @@ class SupplierMappingRepository:
                 WHERE type_id IS NOT NULL
                 ON CONFLICT (mapping_id, type_id) DO NOTHING
             ''')
-            conn.commit()
 
-            # Count migrated records
             cursor.execute('SELECT COUNT(*) as count FROM efactura_supplier_mapping_types')
             result = cursor.fetchone()
             count = result['count'] if result else 0
-
             logger.info(f"Junction table migration completed. {count} records in table.")
             return count
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Junction table migration failed: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def bulk_set_types(self, mapping_ids: List[int], type_id: Optional[int]) -> Tuple[int, List[str]]:
-        """
-        Bulk set type for multiple supplier mappings.
-
-        Args:
-            mapping_ids: List of mapping IDs to update
-            type_id: Type ID to set (None to clear types)
-
-        Returns:
-            Tuple of (updated_count, partner_names)
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
+        """Bulk set type for multiple supplier mappings."""
+        def _work(cursor):
             partner_names = []
 
-            # Get partner names for these mappings (needed for auto-hide)
             if type_id:
                 cursor.execute(
                     "SELECT id, partner_name FROM efactura_supplier_mappings WHERE id = ANY(%s)",
@@ -2343,49 +1752,29 @@ class SupplierMappingRepository:
                 partner_names = [row['partner_name'] for row in cursor.fetchall()]
 
             updated_count = 0
-            for mapping_id in mapping_ids:
-                # Delete existing types for this mapping
+            for mid in mapping_ids:
                 cursor.execute(
-                    "DELETE FROM efactura_supplier_mapping_types WHERE mapping_id = %s",
-                    (mapping_id,)
+                    "DELETE FROM efactura_supplier_mapping_types WHERE mapping_id = %s", (mid,)
                 )
-                # Insert new type if provided
                 if type_id:
                     cursor.execute(
                         "INSERT INTO efactura_supplier_mapping_types (mapping_id, type_id) VALUES (%s, %s)",
-                        (mapping_id, type_id)
+                        (mid, type_id)
                     )
-                # Update timestamp on mapping
                 cursor.execute(
-                    "UPDATE efactura_supplier_mappings SET updated_at = NOW() WHERE id = %s",
-                    (mapping_id,)
+                    "UPDATE efactura_supplier_mappings SET updated_at = NOW() WHERE id = %s", (mid,)
                 )
                 updated_count += 1
 
-            conn.commit()
             logger.info(f"Bulk updated {updated_count} mappings with type_id={type_id}")
             return updated_count, partner_names
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to bulk set types: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     # ── Cleanup ─────────────────────────────────────────────
 
     def delete_old_unallocated(self, days: int = 15, cif_owner: str = None) -> int:
-        """Permanently delete unallocated invoices older than N days.
-
-        Only deletes invoices that are:
-        - Not allocated (jarvis_invoice_id IS NULL)
-        - Not hidden (ignored = FALSE)
-        - Not already in bin (deleted_at IS NULL)
-        - Created more than `days` ago
-        """
-        conn = get_db()
+        """Permanently delete unallocated invoices older than N days."""
         try:
-            cursor = get_cursor(conn)
             sql = """
                 DELETE FROM efactura_invoices
                 WHERE jarvis_invoice_id IS NULL
@@ -2397,89 +1786,55 @@ class SupplierMappingRepository:
             if cif_owner:
                 sql += " AND cif_owner = %s"
                 params.append(cif_owner)
-            sql += " RETURNING id"
-            cursor.execute(sql, params)
-            count = cursor.rowcount
-            conn.commit()
+            count = self.execute(sql, params)
             logger.info(f"Cleaned up {count} old unallocated invoices (>{days} days, cif={cif_owner or 'all'})")
             return count
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to clean up old unallocated invoices: {e}")
             return 0
-        finally:
-            release_db(conn)
 
 
-class SupplierTypeRepository:
+class SupplierTypeRepository(BaseRepository):
     """Repository for e-Factura supplier types (Service, Merchandise, etc.)."""
 
     def get_all(self, active_only: bool = True) -> List[Dict[str, Any]]:
-        """Get all partner types.
-
-        Args:
-            active_only: If True, only return active types
-
-        Returns:
-            List of partner type dictionaries
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            if active_only:
-                cursor.execute("""
-                    SELECT id, name, description, is_active,
-                           COALESCE(hide_in_filter, TRUE) as hide_in_filter,
-                           created_at, updated_at
-                    FROM efactura_supplier_types
-                    WHERE is_active = TRUE
-                    ORDER BY name
-                """)
-            else:
-                cursor.execute("""
-                    SELECT id, name, description, is_active,
-                           COALESCE(hide_in_filter, TRUE) as hide_in_filter,
-                           created_at, updated_at
-                    FROM efactura_supplier_types
-                    ORDER BY name
-                """)
-            return [dict(row) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        """Get all partner types."""
+        if active_only:
+            return self.query_all("""
+                SELECT id, name, description, is_active,
+                       COALESCE(hide_in_filter, TRUE) as hide_in_filter,
+                       created_at, updated_at
+                FROM efactura_supplier_types
+                WHERE is_active = TRUE
+                ORDER BY name
+            """)
+        return self.query_all("""
+            SELECT id, name, description, is_active,
+                   COALESCE(hide_in_filter, TRUE) as hide_in_filter,
+                   created_at, updated_at
+            FROM efactura_supplier_types
+            ORDER BY name
+        """)
 
     def get_by_id(self, type_id: int) -> Optional[Dict[str, Any]]:
         """Get a single partner type by ID."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT id, name, description, is_active,
-                       COALESCE(hide_in_filter, TRUE) as hide_in_filter,
-                       created_at, updated_at
-                FROM efactura_supplier_types
-                WHERE id = %s
-            """, (type_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-        finally:
-            release_db(conn)
+        return self.query_one("""
+            SELECT id, name, description, is_active,
+                   COALESCE(hide_in_filter, TRUE) as hide_in_filter,
+                   created_at, updated_at
+            FROM efactura_supplier_types
+            WHERE id = %s
+        """, (type_id,))
 
     def get_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Get a single partner type by name."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT id, name, description, is_active,
-                       COALESCE(hide_in_filter, TRUE) as hide_in_filter,
-                       created_at, updated_at
-                FROM efactura_supplier_types
-                WHERE name = %s AND is_active = TRUE
-            """, (name,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
-        finally:
-            release_db(conn)
+        return self.query_one("""
+            SELECT id, name, description, is_active,
+                   COALESCE(hide_in_filter, TRUE) as hide_in_filter,
+                   created_at, updated_at
+            FROM efactura_supplier_types
+            WHERE name = %s AND is_active = TRUE
+        """, (name,))
 
     def create(
         self,
@@ -2487,34 +1842,15 @@ class SupplierTypeRepository:
         description: Optional[str] = None,
         hide_in_filter: bool = True,
     ) -> int:
-        """Create a new partner type.
-
-        Args:
-            name: The type name (e.g., "Service", "Merchandise")
-            description: Optional description
-            hide_in_filter: Whether to hide invoices with this type when "Hide Typed" filter is on
-
-        Returns:
-            The new type ID
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                INSERT INTO efactura_supplier_types (name, description, hide_in_filter)
-                VALUES (%s, %s, %s)
-                RETURNING id
-            """, (name, description, hide_in_filter))
-            type_id = cursor.fetchone()['id']
-            conn.commit()
-            logger.info(f"Created partner type {type_id}: {name}")
-            return type_id
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to create partner type: {e}")
-            raise
-        finally:
-            release_db(conn)
+        """Create a new partner type."""
+        row = self.execute("""
+            INSERT INTO efactura_supplier_types (name, description, hide_in_filter)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (name, description, hide_in_filter), returning=True)
+        type_id = row['id']
+        logger.info(f"Created partner type {type_id}: {name}")
+        return type_id
 
     def update(
         self,
@@ -2524,84 +1860,49 @@ class SupplierTypeRepository:
         is_active: Optional[bool] = None,
         hide_in_filter: Optional[bool] = None,
     ) -> bool:
-        """Update a partner type.
+        """Update a partner type."""
+        updates = ['updated_at = NOW()']
+        params = []
 
-        Args:
-            type_id: The type ID
-            name: New name
-            description: New description
-            is_active: Whether type is active
-            hide_in_filter: Whether to hide invoices with this type when "Hide Typed" filter is on
+        if name is not None:
+            updates.append('name = %s')
+            params.append(name)
+        if description is not None:
+            updates.append('description = %s')
+            params.append(description if description else None)
+        if is_active is not None:
+            updates.append('is_active = %s')
+            params.append(is_active)
+        if hide_in_filter is not None:
+            updates.append('hide_in_filter = %s')
+            params.append(hide_in_filter)
 
-        Returns:
-            True if successful
-        """
-        conn = get_db()
+        params.append(type_id)
+
         try:
-            cursor = get_cursor(conn)
-
-            updates = ['updated_at = NOW()']
-            params = []
-
-            if name is not None:
-                updates.append('name = %s')
-                params.append(name)
-            if description is not None:
-                updates.append('description = %s')
-                params.append(description if description else None)
-            if is_active is not None:
-                updates.append('is_active = %s')
-                params.append(is_active)
-            if hide_in_filter is not None:
-                updates.append('hide_in_filter = %s')
-                params.append(hide_in_filter)
-
-            params.append(type_id)
-
-            cursor.execute(f"""
+            success = self.execute(f"""
                 UPDATE efactura_supplier_types
                 SET {', '.join(updates)}
                 WHERE id = %s
-            """, tuple(params))
-
-            success = cursor.rowcount > 0
-            conn.commit()
+            """, tuple(params)) > 0
             if success:
                 logger.info(f"Updated partner type {type_id}")
             return success
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to update partner type: {e}")
             return False
-        finally:
-            release_db(conn)
 
     def delete(self, type_id: int) -> bool:
-        """Delete a partner type (soft delete by setting is_active = FALSE).
-
-        Args:
-            type_id: The type ID
-
-        Returns:
-            True if successful
-        """
-        conn = get_db()
+        """Delete a partner type (soft delete by setting is_active = FALSE)."""
         try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
+            success = self.execute("""
                 UPDATE efactura_supplier_types
                 SET is_active = FALSE, updated_at = NOW()
                 WHERE id = %s
-            """, (type_id,))
-            success = cursor.rowcount > 0
-            conn.commit()
+            """, (type_id,)) > 0
             if success:
                 logger.info(f"Soft-deleted partner type {type_id}")
             return success
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to delete partner type: {e}")
             return False
-        finally:
-            release_db(conn)
-

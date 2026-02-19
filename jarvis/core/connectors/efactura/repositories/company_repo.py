@@ -4,34 +4,22 @@ Company Connection Repository
 Database operations for e-Factura company connections.
 """
 
-from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from psycopg2.extras import Json
-from core.database import get_db, get_cursor, release_db
+from core.base_repository import BaseRepository
 from core.utils.logging_config import get_logger
 from ..models import CompanyConnection
 
 logger = get_logger('jarvis.core.connectors.efactura.repo.company')
 
 
-class CompanyConnectionRepository:
+class CompanyConnectionRepository(BaseRepository):
     """Repository for CompanyConnection entities."""
 
     def create(self, connection: CompanyConnection) -> CompanyConnection:
-        """
-        Create a new company connection.
-
-        Args:
-            connection: CompanyConnection to create
-
-        Returns:
-            Created CompanyConnection with ID
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
+        """Create a new company connection."""
+        def _work(cursor):
             cursor.execute("""
                 INSERT INTO efactura_company_connections (
                     cif, display_name, environment, status, status_message,
@@ -53,115 +41,56 @@ class CompanyConnectionRepository:
                 'cert_fingerprint': connection.cert_fingerprint,
                 'cert_expires_at': connection.cert_expires_at,
             })
-
             row = cursor.fetchone()
             connection.id = row['id']
             connection.created_at = row['created_at']
             connection.updated_at = row['updated_at']
-
-            conn.commit()
-
             logger.info(
                 "Company connection created",
                 extra={'cif': connection.cif, 'id': connection.id}
             )
-
             return connection
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to create company connection: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def get_by_cif(self, cif: str) -> Optional[CompanyConnection]:
-        """
-        Get company connection by CIF.
-
-        Args:
-            cif: Company tax ID
-
-        Returns:
-            CompanyConnection or None
-        """
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_company_connections
-                WHERE cif = %s
-            """, (cif,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_model(row)
-        finally:
-            release_db(conn)
+        """Get company connection by CIF."""
+        row = self.query_one(
+            'SELECT * FROM efactura_company_connections WHERE cif = %s', (cif,)
+        )
+        return self._row_to_model(row) if row else None
 
     def get_by_id(self, connection_id: int) -> Optional[CompanyConnection]:
         """Get company connection by ID."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_company_connections
-                WHERE id = %s
-            """, (connection_id,))
-            row = cursor.fetchone()
-            if row is None:
-                return None
-            return self._row_to_model(row)
-        finally:
-            release_db(conn)
+        row = self.query_one(
+            'SELECT * FROM efactura_company_connections WHERE id = %s', (connection_id,)
+        )
+        return self._row_to_model(row) if row else None
 
     def get_all_active(self) -> List[CompanyConnection]:
         """Get all active company connections."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            cursor.execute("""
-                SELECT * FROM efactura_company_connections
-                WHERE status = 'active'
-                ORDER BY display_name
-            """)
-            return [self._row_to_model(row) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        rows = self.query_all("""
+            SELECT * FROM efactura_company_connections
+            WHERE status = 'active'
+            ORDER BY display_name
+        """)
+        return [self._row_to_model(row) for row in rows]
 
     def get_for_sync(self) -> List[CompanyConnection]:
         """Get companies that need synchronization."""
-        conn = get_db()
-        try:
-            cursor = get_cursor(conn)
-            # Get active connections that haven't synced in the last hour
-            cursor.execute("""
-                SELECT * FROM efactura_company_connections
-                WHERE status = 'active'
-                AND (
-                    last_sync_at IS NULL
-                    OR last_sync_at < NOW() - INTERVAL '1 hour'
-                )
-                ORDER BY last_sync_at NULLS FIRST
-            """)
-            return [self._row_to_model(row) for row in cursor.fetchall()]
-        finally:
-            release_db(conn)
+        rows = self.query_all("""
+            SELECT * FROM efactura_company_connections
+            WHERE status = 'active'
+            AND (
+                last_sync_at IS NULL
+                OR last_sync_at < NOW() - INTERVAL '1 hour'
+            )
+            ORDER BY last_sync_at NULLS FIRST
+        """)
+        return [self._row_to_model(row) for row in rows]
 
     def update(self, connection: CompanyConnection) -> CompanyConnection:
-        """
-        Update a company connection.
-
-        Args:
-            connection: CompanyConnection with updated values
-
-        Returns:
-            Updated CompanyConnection
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
+        """Update a company connection."""
+        def _work(cursor):
             cursor.execute("""
                 UPDATE efactura_company_connections SET
                     display_name = %(display_name)s,
@@ -184,25 +113,14 @@ class CompanyConnectionRepository:
                 'cert_fingerprint': connection.cert_fingerprint,
                 'cert_expires_at': connection.cert_expires_at,
             })
-
             row = cursor.fetchone()
             connection.updated_at = row['updated_at']
-
-            conn.commit()
-
             logger.info(
                 "Company connection updated",
                 extra={'cif': connection.cif, 'id': connection.id}
             )
-
             return connection
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to update company connection: {e}")
-            raise
-        finally:
-            release_db(conn)
+        return self.execute_many(_work)
 
     def update_sync_cursor(
         self,
@@ -210,48 +128,24 @@ class CompanyConnectionRepository:
         received_cursor: Optional[str] = None,
         sent_cursor: Optional[str] = None,
     ):
-        """
-        Update sync cursors after successful sync.
+        """Update sync cursors after successful sync."""
+        updates = ['last_sync_at = NOW()', 'updated_at = NOW()']
+        params = {'cif': cif}
 
-        Args:
-            cif: Company CIF
-            received_cursor: New cursor for received messages
-            sent_cursor: New cursor for sent messages
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
+        if received_cursor is not None:
+            updates.append('last_received_cursor = %(received_cursor)s')
+            params['received_cursor'] = received_cursor
 
-        try:
-            updates = ['last_sync_at = NOW()', 'updated_at = NOW()']
-            params = {'cif': cif}
+        if sent_cursor is not None:
+            updates.append('last_sent_cursor = %(sent_cursor)s')
+            params['sent_cursor'] = sent_cursor
 
-            if received_cursor is not None:
-                updates.append('last_received_cursor = %(received_cursor)s')
-                params['received_cursor'] = received_cursor
-
-            if sent_cursor is not None:
-                updates.append('last_sent_cursor = %(sent_cursor)s')
-                params['sent_cursor'] = sent_cursor
-
-            cursor.execute(f"""
-                UPDATE efactura_company_connections SET
-                    {', '.join(updates)}
-                WHERE cif = %(cif)s
-            """, params)
-
-            conn.commit()
-
-            logger.debug(
-                "Sync cursor updated",
-                extra={'cif': cif}
-            )
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to update sync cursor: {e}")
-            raise
-        finally:
-            release_db(conn)
+        self.execute(f"""
+            UPDATE efactura_company_connections SET
+                {', '.join(updates)}
+            WHERE cif = %(cif)s
+        """, params)
+        logger.debug("Sync cursor updated", extra={'cif': cif})
 
     def update_status(
         self,
@@ -259,107 +153,43 @@ class CompanyConnectionRepository:
         status: str,
         message: Optional[str] = None,
     ):
-        """
-        Update connection status.
-
-        Args:
-            cif: Company CIF
-            status: New status
-            message: Status message
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
-            cursor.execute("""
-                UPDATE efactura_company_connections SET
-                    status = %s,
-                    status_message = %s,
-                    updated_at = NOW()
-                WHERE cif = %s
-            """, (status, message, cif))
-
-            conn.commit()
-
-            logger.info(
-                "Company status updated",
-                extra={'cif': cif, 'status': status}
-            )
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to update status: {e}")
-            raise
-        finally:
-            release_db(conn)
+        """Update connection status."""
+        self.execute("""
+            UPDATE efactura_company_connections SET
+                status = %s,
+                status_message = %s,
+                updated_at = NOW()
+            WHERE cif = %s
+        """, (status, message, cif))
+        logger.info("Company status updated", extra={'cif': cif, 'status': status})
 
     def delete(self, cif: str) -> bool:
-        """
-        Delete a company connection.
-
-        Args:
-            cif: Company CIF
-
-        Returns:
-            True if deleted
-        """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
-            cursor.execute("""
-                DELETE FROM efactura_company_connections
-                WHERE cif = %s
-            """, (cif,))
-
-            deleted = cursor.rowcount > 0
-            conn.commit()
-
-            if deleted:
-                logger.info(
-                    "Company connection deleted",
-                    extra={'cif': cif}
-                )
-
-            return deleted
-
-        except Exception as e:
-            conn.rollback()
-            logger.error(f"Failed to delete company connection: {e}")
-            raise
-        finally:
-            release_db(conn)
+        """Delete a company connection."""
+        deleted = self.execute(
+            'DELETE FROM efactura_company_connections WHERE cif = %s', (cif,)
+        ) > 0
+        if deleted:
+            logger.info("Company connection deleted", extra={'cif': cif})
+        return deleted
 
     def ensure_connection_for_oauth(self, cif: str) -> Optional[CompanyConnection]:
         """
         Ensure a connection exists for OAuth callback.
         Creates one automatically if it doesn't exist.
-
-        Args:
-            cif: Company CIF
-
-        Returns:
-            CompanyConnection (existing or newly created), or None on error
+        Returns CompanyConnection or None on error.
         """
-        conn = get_db()
-        cursor = get_cursor(conn)
-
-        try:
+        def _work(cursor):
             # Check if connection already exists
             cursor.execute(
-                'SELECT id FROM efactura_company_connections WHERE cif = %s',
-                (cif,)
+                'SELECT * FROM efactura_company_connections WHERE cif = %s', (cif,)
             )
             existing = cursor.fetchone()
-
             if existing:
-                release_db(conn)
-                return self.get_by_cif(cif)
+                return self._row_to_model(existing)
 
             # Try to find company name from companies table
             cursor.execute(
-                'SELECT company FROM companies WHERE vat LIKE %s',
-                (f'%{cif}%',)
+                'SELECT company FROM companies WHERE vat LIKE %s', (f'%{cif}%',)
             )
             company_row = cursor.fetchone()
             display_name = company_row['company'] if company_row else f'CIF {cif}'
@@ -373,14 +203,11 @@ class CompanyConnectionRepository:
             ''', (cif, display_name, 'production', 'active'))
 
             row = cursor.fetchone()
-            conn.commit()
-
             logger.info(
                 "Auto-created company connection for OAuth",
                 extra={'cif': cif, 'display_name': display_name}
             )
 
-            # Return the created connection
             return CompanyConnection(
                 id=row['id'],
                 cif=cif,
@@ -391,12 +218,11 @@ class CompanyConnectionRepository:
                 updated_at=row['updated_at'],
             )
 
+        try:
+            return self.execute_many(_work)
         except Exception as e:
-            conn.rollback()
             logger.error(f"Failed to ensure connection for OAuth: {e}")
             return None
-        finally:
-            release_db(conn)
 
     def _row_to_model(self, row: Dict[str, Any]) -> CompanyConnection:
         """Convert database row to CompanyConnection model."""
