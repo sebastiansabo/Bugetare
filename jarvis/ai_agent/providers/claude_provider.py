@@ -85,20 +85,33 @@ class ClaudeProvider(BaseProvider):
             if system_content:
                 request_params['system'] = system_content
 
-            logger.debug(f"Claude API request: model={model_name}, messages={len(formatted_messages)}")
+            # Add tools if provided
+            tools = kwargs.pop('tools', None)
+            if tools:
+                request_params['tools'] = tools
+
+            logger.debug(f"Claude API request: model={model_name}, messages={len(formatted_messages)}, tools={len(tools) if tools else 0}")
 
             response = client.messages.create(**request_params)
 
-            # Extract content from response
+            # Extract content and tool calls from response
             content = ""
-            if response.content:
-                content = response.content[0].text
+            tool_calls = []
+            for block in response.content:
+                if block.type == 'text':
+                    content += block.text
+                elif block.type == 'tool_use':
+                    tool_calls.append({
+                        'id': block.id,
+                        'name': block.name,
+                        'input': block.input,
+                    })
 
             # Get token counts from usage
             input_tokens = response.usage.input_tokens if response.usage else 0
             output_tokens = response.usage.output_tokens if response.usage else 0
 
-            logger.debug(f"Claude API response: tokens_in={input_tokens}, tokens_out={output_tokens}")
+            logger.debug(f"Claude API response: tokens_in={input_tokens}, tokens_out={output_tokens}, tool_calls={len(tool_calls)}")
 
             return LLMResponse(
                 content=content,
@@ -106,6 +119,7 @@ class ClaudeProvider(BaseProvider):
                 output_tokens=output_tokens,
                 model=model_name,
                 finish_reason=response.stop_reason,
+                tool_calls=tool_calls,
             )
 
         except anthropic.RateLimitError as e:

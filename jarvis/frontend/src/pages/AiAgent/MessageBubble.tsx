@@ -1,12 +1,13 @@
 import { memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Bot, User } from 'lucide-react'
+import { Bot, User, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Message } from '@/types/aiAgent'
 
 interface MessageBubbleProps {
   message: Message
+  toolsUsed?: string[]
 }
 
 const markdownComponents = {
@@ -31,7 +32,7 @@ const markdownComponents = {
 
 const remarkPlugins = [remarkGfm]
 
-export const MessageBubble = memo(function MessageBubble({ message }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ message, toolsUsed }: MessageBubbleProps) {
   const isUser = message.role === 'user'
 
   return (
@@ -66,8 +67,14 @@ export const MessageBubble = memo(function MessageBubble({ message }: MessageBub
           )}
         </div>
 
-        {message.role === 'assistant' && (message.response_time_ms > 0 || message.output_tokens > 0) && (
-          <div className={cn('flex gap-2 text-xs text-muted-foreground', isUser && 'justify-end')}>
+        {message.role === 'assistant' && (message.response_time_ms > 0 || message.output_tokens > 0 || toolsUsed?.length) && (
+          <div className={cn('flex flex-wrap gap-2 text-xs text-muted-foreground', isUser && 'justify-end')}>
+            {toolsUsed?.length && (
+              <span className="flex items-center gap-1">
+                <Wrench className="h-3 w-3" />
+                {toolsUsed.join(', ')}
+              </span>
+            )}
             {message.response_time_ms > 0 && <span>{(message.response_time_ms / 1000).toFixed(1)}s</span>}
             {message.output_tokens > 0 && <span>{message.output_tokens} tokens</span>}
             {message.cost && Number(message.cost) > 0 && <span>${message.cost}</span>}

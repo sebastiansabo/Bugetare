@@ -385,8 +385,19 @@ class AIAgentService:
                 system_prompt_tokens=system_prompt_tokens,
             )
 
-            # 7. Get provider and generate response
+            # 7. Get provider and generate response (with tool loop)
             provider = self.get_provider(model_config.provider.value)
+
+            # Get tool schemas for Claude provider
+            tool_schemas = None
+            if model_config.provider.value == 'claude':
+                try:
+                    from ai_agent.tools import tool_registry
+                    schemas = tool_registry.get_schemas()
+                    if schemas:
+                        tool_schemas = schemas
+                except Exception as e:
+                    logger.warning(f"Failed to load tool schemas: {e}")
 
             llm_response = provider.generate(
                 model_name=model_config.model_name,
@@ -394,13 +405,75 @@ class AIAgentService:
                 max_tokens=model_config.max_tokens,
                 temperature=float(model_config.default_temperature),
                 system=system_prompt,
+                tools=tool_schemas,
             )
+
+            # 7b. Tool call loop — execute tools and re-query LLM
+            total_input_tokens = llm_response.input_tokens
+            total_output_tokens = llm_response.output_tokens
+            tool_results_log = []
+            max_tool_iterations = 5
+
+            while llm_response.tool_calls and max_tool_iterations > 0:
+                max_tool_iterations -= 1
+                from ai_agent.tools import tool_registry
+
+                # Build messages with tool results for next LLM call
+                # Add the assistant's response (with tool_use blocks)
+                assistant_content = []
+                if llm_response.content:
+                    assistant_content.append({'type': 'text', 'text': llm_response.content})
+                for tc in llm_response.tool_calls:
+                    assistant_content.append({
+                        'type': 'tool_use',
+                        'id': tc['id'],
+                        'name': tc['name'],
+                        'input': tc['input'],
+                    })
+                context_messages.append({'role': 'assistant', 'content': assistant_content})
+
+                # Execute each tool and build tool_result messages
+                tool_result_content = []
+                for tc in llm_response.tool_calls:
+                    result = tool_registry.execute(
+                        name=tc['name'],
+                        params=tc['input'],
+                        user_id=user_id,
+                    )
+                    tool_results_log.append({
+                        'tool': tc['name'],
+                        'input': tc['input'],
+                        'output_preview': str(result)[:500],
+                    })
+                    import json
+                    tool_result_content.append({
+                        'type': 'tool_result',
+                        'tool_use_id': tc['id'],
+                        'content': json.dumps(result, default=str),
+                    })
+
+                context_messages.append({'role': 'user', 'content': tool_result_content})
+
+                # Call LLM again with tool results
+                llm_response = provider.generate(
+                    model_name=model_config.model_name,
+                    messages=context_messages,
+                    max_tokens=model_config.max_tokens,
+                    temperature=float(model_config.default_temperature),
+                    system=system_prompt,
+                    tools=tool_schemas,
+                )
+                total_input_tokens += llm_response.input_tokens
+                total_output_tokens += llm_response.output_tokens
+
+            if tool_results_log:
+                logger.info(f"Tool calls in conv {conversation_id}: {[t['tool'] for t in tool_results_log]}")
 
             # 8. Calculate cost
             cost = self._calculate_cost(
                 model_config=model_config,
-                input_tokens=llm_response.input_tokens,
-                output_tokens=llm_response.output_tokens,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
             )
 
             # 9. Calculate response time
@@ -423,8 +496,8 @@ class AIAgentService:
                 conversation_id=conversation_id,
                 role=MessageRole.ASSISTANT,
                 content=llm_response.content,
-                input_tokens=llm_response.input_tokens,
-                output_tokens=llm_response.output_tokens,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
                 cost=cost,
                 model_config_id=model_config.id,
                 response_time_ms=response_time_ms,
@@ -433,7 +506,7 @@ class AIAgentService:
             saved_assistant_msg = self.message_repo.create(assistant_msg)
 
             # 11. Update conversation stats
-            total_tokens = llm_response.input_tokens + llm_response.output_tokens
+            total_tokens = total_input_tokens + total_output_tokens
             self.conversation_repo.update_stats(
                 conversation_id=conversation_id,
                 tokens=total_tokens,
@@ -561,19 +634,104 @@ class AIAgentService:
 
             provider = self.get_provider(model_config.provider.value)
 
-            # Stream tokens
+            # Check if tools are available (Claude only)
+            tool_schemas = None
+            if model_config.provider.value == 'claude':
+                try:
+                    from ai_agent.tools import tool_registry
+                    schemas = tool_registry.get_schemas()
+                    if schemas:
+                        tool_schemas = schemas
+                except Exception:
+                    pass
+
+            # If tools available, do non-streaming call first to check for tool use
+            tools_used = False
+            tools_used_names = []
+            total_input_tokens = 0
+            total_output_tokens = 0
             llm_response = None
-            for text_chunk, final_response in provider.generate_stream(
-                model_name=model_config.model_name,
-                messages=context_messages,
-                max_tokens=model_config.max_tokens,
-                temperature=float(model_config.default_temperature),
-                system=system_prompt,
-            ):
-                if text_chunk is not None:
-                    yield f"event: token\ndata: {json.dumps({'content': text_chunk})}\n\n"
-                if final_response is not None:
-                    llm_response = final_response
+
+            if tool_schemas:
+                llm_response = provider.generate(
+                    model_name=model_config.model_name,
+                    messages=context_messages,
+                    max_tokens=model_config.max_tokens,
+                    temperature=float(model_config.default_temperature),
+                    system=system_prompt,
+                    tools=tool_schemas,
+                )
+                total_input_tokens += llm_response.input_tokens
+                total_output_tokens += llm_response.output_tokens
+
+                # Tool call loop
+                max_tool_iterations = 5
+                while llm_response.tool_calls and max_tool_iterations > 0:
+                    max_tool_iterations -= 1
+                    tools_used = True
+                    from ai_agent.tools import tool_registry as _tr
+
+                    assistant_content = []
+                    if llm_response.content:
+                        assistant_content.append({'type': 'text', 'text': llm_response.content})
+                    for tc in llm_response.tool_calls:
+                        assistant_content.append({
+                            'type': 'tool_use',
+                            'id': tc['id'],
+                            'name': tc['name'],
+                            'input': tc['input'],
+                        })
+                    context_messages.append({'role': 'assistant', 'content': assistant_content})
+
+                    tool_result_content = []
+                    for tc in llm_response.tool_calls:
+                        tools_used_names.append(tc['name'])
+                        result = _tr.execute(name=tc['name'], params=tc['input'], user_id=user_id)
+                        tool_result_content.append({
+                            'type': 'tool_result',
+                            'tool_use_id': tc['id'],
+                            'content': json.dumps(result, default=str),
+                        })
+                    context_messages.append({'role': 'user', 'content': tool_result_content})
+
+                    llm_response = provider.generate(
+                        model_name=model_config.model_name,
+                        messages=context_messages,
+                        max_tokens=model_config.max_tokens,
+                        temperature=float(model_config.default_temperature),
+                        system=system_prompt,
+                        tools=tool_schemas,
+                    )
+                    total_input_tokens += llm_response.input_tokens
+                    total_output_tokens += llm_response.output_tokens
+
+            if tools_used:
+                # Tools were used — emit pre-computed response as chunked tokens
+                content = llm_response.content or ''
+                chunk_size = 20
+                for i in range(0, len(content), chunk_size):
+                    yield f"event: token\ndata: {json.dumps({'content': content[i:i+chunk_size]})}\n\n"
+            elif tool_schemas and llm_response and not llm_response.tool_calls:
+                # Tools available but not used — emit the non-streaming response
+                content = llm_response.content or ''
+                chunk_size = 20
+                for i in range(0, len(content), chunk_size):
+                    yield f"event: token\ndata: {json.dumps({'content': content[i:i+chunk_size]})}\n\n"
+            else:
+                # No tools — stream normally
+                for text_chunk, final_response in provider.generate_stream(
+                    model_name=model_config.model_name,
+                    messages=context_messages,
+                    max_tokens=model_config.max_tokens,
+                    temperature=float(model_config.default_temperature),
+                    system=system_prompt,
+                ):
+                    if text_chunk is not None:
+                        yield f"event: token\ndata: {json.dumps({'content': text_chunk})}\n\n"
+                    if final_response is not None:
+                        llm_response = final_response
+                        total_input_tokens = llm_response.input_tokens
+                        total_output_tokens = llm_response.output_tokens
 
             if not llm_response:
                 yield f"event: error\ndata: {json.dumps({'error': 'No response from LLM'})}\n\n"
@@ -582,8 +740,8 @@ class AIAgentService:
             # Post-stream: save message, update stats
             cost = self._calculate_cost(
                 model_config=model_config,
-                input_tokens=llm_response.input_tokens,
-                output_tokens=llm_response.output_tokens,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
             )
             response_time_ms = int((time.time() - start_time) * 1000)
 
@@ -602,8 +760,8 @@ class AIAgentService:
                 conversation_id=conversation_id,
                 role=MessageRole.ASSISTANT,
                 content=llm_response.content,
-                input_tokens=llm_response.input_tokens,
-                output_tokens=llm_response.output_tokens,
+                input_tokens=total_input_tokens,
+                output_tokens=total_output_tokens,
                 cost=cost,
                 model_config_id=model_config.id,
                 response_time_ms=response_time_ms,
@@ -611,7 +769,7 @@ class AIAgentService:
             )
             saved_msg = self.message_repo.create(assistant_msg)
 
-            total_tokens = llm_response.input_tokens + llm_response.output_tokens
+            total_tokens = total_input_tokens + total_output_tokens
             self.conversation_repo.update_stats(
                 conversation_id=conversation_id,
                 tokens=total_tokens,
@@ -623,7 +781,16 @@ class AIAgentService:
                 self._auto_title_conversation(conversation_id, user_message)
 
             # Final done event
-            yield f"event: done\ndata: {json.dumps({'message_id': saved_msg.id, 'tokens_used': total_tokens, 'cost': str(cost), 'response_time_ms': response_time_ms, 'rag_sources': [{'doc_id': s.doc_id, 'score': s.score, 'snippet': s.snippet, 'source_type': s.source_type} for s in rag_sources]})}\n\n"
+            done_data = {
+                'message_id': saved_msg.id,
+                'tokens_used': total_tokens,
+                'cost': str(cost),
+                'response_time_ms': response_time_ms,
+                'rag_sources': [{'doc_id': s.doc_id, 'score': s.score, 'snippet': s.snippet, 'source_type': s.source_type} for s in rag_sources],
+            }
+            if tools_used_names:
+                done_data['tools_used'] = list(dict.fromkeys(tools_used_names))
+            yield f"event: done\ndata: {json.dumps(done_data)}\n\n"
 
             logger.info(
                 f"Chat stream completed: conv={conversation_id}, "

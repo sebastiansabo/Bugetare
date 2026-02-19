@@ -211,6 +211,7 @@ class LLMResponse:
     output_tokens: int
     model: str
     finish_reason: Optional[str] = None
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

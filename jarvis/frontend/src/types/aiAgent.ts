@@ -45,6 +45,7 @@ export interface StreamDoneEvent {
   cost: string
   response_time_ms: number
   rag_sources: RagSource[]
+  tools_used?: string[]
 }
 
 export interface Model {

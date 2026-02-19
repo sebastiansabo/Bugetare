@@ -24,6 +24,7 @@ export function ChatWindow() {
   const setModel = useAiAgentStore((s) => s.setModel)
   const [input, setInput] = useState('')
   const [ragSources, setRagSources] = useState<Record<number, RagSourceType[]>>({})
+  const [toolsUsed, setToolsUsed] = useState<Record<number, string[]>>({})
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -78,6 +79,9 @@ export function ChatWindow() {
         queryClient.invalidateQueries({ queryKey: ['conversations'] })
         if (data.rag_sources?.length) {
           setRagSources((prev) => ({ ...prev, [data.message_id]: data.rag_sources }))
+        }
+        if (data.tools_used?.length) {
+          setToolsUsed((prev) => ({ ...prev, [data.message_id]: data.tools_used! }))
         }
       },
       // onError
@@ -146,7 +150,7 @@ export function ChatWindow() {
 
           {messages.map((msg) => (
             <div key={msg.id}>
-              <MessageBubble message={msg} />
+              <MessageBubble message={msg} toolsUsed={toolsUsed[msg.id]} />
               {ragSources[msg.id] && <RagSources sources={ragSources[msg.id]} />}
             </div>
           ))}
