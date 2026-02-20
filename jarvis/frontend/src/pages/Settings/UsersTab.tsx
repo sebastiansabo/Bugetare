@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Shield } from 'lucide-react'
+import { Plus, Trash2, Shield, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -112,21 +113,22 @@ export default function UsersTab() {
           <div className="flex gap-2">
             {selectedIds.length > 0 && (
               <>
-                <Select onValueChange={(v) => bulkRoleMutation.mutate(Number(v))}>
-                  <SelectTrigger className="h-8 w-[180px]">
-                    <div className="flex items-center gap-1.5">
-                      <Shield className="h-4 w-4" />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Shield className="mr-1.5 h-4 w-4" />
                       Set Role ({selectedIds.length})
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
+                      <ChevronDown className="ml-1.5 h-3.5 w-3.5 opacity-50" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
                     {roles.map((r) => (
-                      <SelectItem key={r.id} value={String(r.id)}>
+                      <DropdownMenuItem key={r.id} onClick={() => bulkRoleMutation.mutate(r.id)}>
                         {r.name}
-                      </SelectItem>
+                      </DropdownMenuItem>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button variant="destructive" size="sm" onClick={() => setShowBulkDelete(true)}>
                   <Trash2 className="mr-1.5 h-4 w-4" />
                   Delete ({selectedIds.length})
