@@ -182,6 +182,34 @@ function PermissionMatrixView({
     return perm?.granted ?? false
   }
 
+  // Get all permission IDs for a module
+  const getModulePermIds = (mod: typeof modules[0]) =>
+    mod.entities.flatMap((e) => e.actions.map((a) => a.id))
+
+  // Check if all perms in a module are granted for a role
+  const isModuleAllGranted = (mod: typeof modules[0], roleId: number) => {
+    const ids = getModulePermIds(mod)
+    return ids.length > 0 && ids.every((id) => isGranted(id, roleId))
+  }
+
+  // Check if some (but not all) perms in a module are granted for a role
+  const isModuleSomeGranted = (mod: typeof modules[0], roleId: number) => {
+    const ids = getModulePermIds(mod)
+    const grantedCount = ids.filter((id) => isGranted(id, roleId)).length
+    return grantedCount > 0 && grantedCount < ids.length
+  }
+
+  // Toggle all perms in a module for a role
+  const toggleModule = (mod: typeof modules[0], roleId: number) => {
+    const grant = !isModuleAllGranted(mod, roleId)
+    const ids = getModulePermIds(mod)
+    ids.forEach((permId) => {
+      if (isGranted(permId, roleId) !== grant) {
+        onToggle({ permId, roleId, granted: grant })
+      }
+    })
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -204,9 +232,17 @@ function PermissionMatrixView({
               {modules.map((mod) => (
                 <Fragment key={mod.key}>
                   <TableRow>
-                    <TableCell colSpan={roles.length + 1} className="bg-muted/50 font-semibold">
+                    <TableCell className="bg-muted/50 font-semibold">
                       {mod.label}
                     </TableCell>
+                    {roles.map((role) => (
+                      <TableCell key={role.id} className="bg-muted/50 text-center">
+                        <Checkbox
+                          checked={isModuleAllGranted(mod, role.id) ? true : isModuleSomeGranted(mod, role.id) ? 'indeterminate' : false}
+                          onCheckedChange={() => toggleModule(mod, role.id)}
+                        />
+                      </TableCell>
+                    ))}
                   </TableRow>
                   {mod.entities.flatMap((entity) =>
                     entity.actions.map((action) => (
