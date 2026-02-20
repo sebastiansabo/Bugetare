@@ -225,6 +225,16 @@ class UserRepository(BaseRepository):
         placeholders = ','.join(['%s'] * len(user_ids))
         return self.execute(f'DELETE FROM users WHERE id IN ({placeholders})', tuple(user_ids))
 
+    def bulk_update_role(self, user_ids: list, role_id: int) -> int:
+        """Update role for multiple users. Returns count updated."""
+        if not user_ids:
+            return 0
+        placeholders = ','.join(['%s'] * len(user_ids))
+        return self.execute(
+            f'UPDATE users SET role_id = %s WHERE id IN ({placeholders})',
+            (role_id, *user_ids)
+        )
+
     def get_managers_for_department(self, department: str, company: str = None) -> list[dict]:
         """Get users assigned as managers for a specific company + department.
 

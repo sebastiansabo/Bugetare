@@ -9,6 +9,8 @@ export const usersApi = {
   updateUser: (id: number, data: UpdateUserInput) => api.put<{ success: boolean }>(`/api/users/${id}`, data),
   deleteUser: (id: number) => api.delete<{ success: boolean }>(`/api/users/${id}`),
   bulkDeleteUsers: (ids: number[]) => api.post<{ success: boolean; deleted: number }>('/api/users/bulk-delete', { ids }),
+  bulkUpdateRole: (ids: number[], role_id: number) =>
+    api.post<{ success: boolean; updated: number }>('/api/users/bulk-update-role', { ids, role_id }),
 
   // Employees
   getEmployees: () => api.get<UserDetail[]>('/api/employees'),

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -81,6 +81,16 @@ export default function UsersTab() {
     onError: () => toast.error('Failed to delete users'),
   })
 
+  const bulkRoleMutation = useMutation({
+    mutationFn: (roleId: number) => usersApi.bulkUpdateRole(selectedIds, roleId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['settings', 'users'] })
+      setSelectedIds([])
+      toast.success('Roles updated')
+    },
+    onError: () => toast.error('Failed to update roles'),
+  })
+
   const filtered = users.filter(
     (u) =>
       !search ||
@@ -101,10 +111,27 @@ export default function UsersTab() {
           <CardTitle>Users</CardTitle>
           <div className="flex gap-2">
             {selectedIds.length > 0 && (
-              <Button variant="destructive" size="sm" onClick={() => setShowBulkDelete(true)}>
-                <Trash2 className="mr-1.5 h-4 w-4" />
-                Delete ({selectedIds.length})
-              </Button>
+              <>
+                <Select onValueChange={(v) => bulkRoleMutation.mutate(Number(v))}>
+                  <SelectTrigger className="h-8 w-[180px]">
+                    <div className="flex items-center gap-1.5">
+                      <Shield className="h-4 w-4" />
+                      Set Role ({selectedIds.length})
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((r) => (
+                      <SelectItem key={r.id} value={String(r.id)}>
+                        {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button variant="destructive" size="sm" onClick={() => setShowBulkDelete(true)}>
+                  <Trash2 className="mr-1.5 h-4 w-4" />
+                  Delete ({selectedIds.length})
+                </Button>
+              </>
             )}
             <Button size="sm" onClick={() => setShowAdd(true)}>
               <Plus className="mr-1.5 h-4 w-4" />

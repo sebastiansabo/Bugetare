@@ -340,6 +340,24 @@ def api_bulk_delete_users():
     return jsonify({'success': True, 'deleted': deleted_count})
 
 
+@auth_bp.route('/api/users/bulk-update-role', methods=['POST'])
+@admin_required
+def api_bulk_update_role():
+    """Set role for multiple users."""
+    data = request.get_json()
+    user_ids = data.get('ids', [])
+    role_id = data.get('role_id')
+    if not user_ids or not role_id:
+        return jsonify({'success': False, 'error': 'IDs and role_id required'}), 400
+    try:
+        user_ids = [int(uid) for uid in user_ids]
+        role_id = int(role_id)
+    except (ValueError, TypeError):
+        return jsonify({'success': False, 'error': 'Invalid format'}), 400
+    updated = _user_repo.bulk_update_role(user_ids, role_id)
+    return jsonify({'success': True, 'updated': updated})
+
+
 # ============== EMPLOYEE MANAGEMENT (legacy alias) ==============
 
 @auth_bp.route('/api/employees', methods=['GET'])
